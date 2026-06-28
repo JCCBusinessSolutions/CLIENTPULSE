@@ -1693,8 +1693,8 @@ el('sendHourSelect').addEventListener('change', async () => {
 // on mobile data) — shrinking to a sensible email width fixes this and
 // also makes the resulting emails load faster for clients.
 function resizeImageForUpload(file, maxWidth, quality){
-  maxWidth = maxWidth || 1200;
-  quality = quality || 0.85;
+  maxWidth = maxWidth || 1600;
+  quality = quality || 0.90;
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = (e) => {
