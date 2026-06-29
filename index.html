@@ -195,6 +195,7 @@
   }
   .collapse-toggle.collapsed{ transform:rotate(-90deg); }
   #dueTodayBody.collapsed{ display:none; }
+  #birthdaysTodayBody.collapsed{ display:none; }
   #duesClientsBody.collapsed{ display:none; }
   #birthdayClientsBody.collapsed{ display:none; }
 
@@ -652,6 +653,26 @@
       </div>
     </div>
 
+    <div class="card" id="duesPreviewCard">
+      <h2>Preview Reminder Email</h2>
+      <p class="sub">See exactly what clients receive, using your real header/footer photos and links.</p>
+      <div class="row" style="margin-top:6px;">
+        <button class="btn-gold" id="previewEmailBtn">PREVIEW EMAIL</button>
+      </div>
+      <div id="emailPreviewContainer" style="display:none; margin-top:16px;">
+        <div class="preview-meta" id="previewMeta"></div>
+        <div id="previewEmailBody"></div>
+      </div>
+    </div>
+
+    <div class="card" id="duesTestEmailCard">
+      <h2>Test Reminder Email</h2>
+      <p class="sub">Sends a real dues reminder email — using your saved branding, header/footer photos, and links — to your own configured contact email so you can check it lands correctly.</p>
+      <div class="row">
+        <button class="btn-primary" id="sendDuesTestBtn">CLIENT DUE REMINDER EMAIL TEST</button>
+      </div>
+    </div>
+
     <!-- ============================================================
          SECTION 2 — TODAY'S ACTIVITY (real KPI data)
          ============================================================ -->
@@ -828,6 +849,14 @@
         <div id="birthdayEmailPreviewContainer" style="display:none; margin-top:16px;">
           <div class="preview-meta" id="birthdayPreviewMeta"></div>
           <div id="birthdayPreviewEmailBody"></div>
+        </div>
+      </div>
+
+      <div class="card" id="birthdayTestEmailCard">
+        <h2>Test Birthday Email</h2>
+        <p class="sub">Sends a real birthday email — using your saved branding, header/footer photos, and links — to your own configured contact email so you can check it lands correctly.</p>
+        <div class="row">
+          <button class="btn-primary" id="sendBirthdayTestBtn">CLIENT BIRTHDAY EMAIL TEST</button>
         </div>
       </div>
 
@@ -1090,14 +1119,6 @@
           <button class="btn-ghost" id="saveBranding">SAVE BRANDING</button>
         </div>
         <div class="status" id="brandingStatus"></div>
-
-        <div class="row" style="margin-top:6px;">
-          <button class="btn-gold" id="previewEmailBtn">PREVIEW EMAIL</button>
-        </div>
-        <div id="emailPreviewContainer" style="display:none; margin-top:16px;">
-          <div class="preview-meta" id="previewMeta"></div>
-          <div id="previewEmailBody"></div>
-        </div>
       </div>
 
       <div class="card" id="sendHourCard" style="display:none;">
@@ -1417,12 +1438,22 @@ function parseEncryptionInfoStandard(bytes){
 }
 
 async function decryptXlsxBytes(fileBytes, password){
-  const cfb = XLSX.CFB.read(fileBytes, {type:'array'});
+  let cfb;
+  try{
+    cfb = XLSX.CFB.read(fileBytes, {type:'array'});
+  }catch(e){
+    // Not a CFB container at all (modern unencrypted .xlsx is a plain ZIP) —
+    // i.e. definitely not password-protected. Return as-is, no password needed.
+    return fileBytes;
+  }
   const encInfoEntry = XLSX.CFB.find(cfb, '/EncryptionInfo');
   const encPkgEntry = XLSX.CFB.find(cfb, '/EncryptedPackage');
   if (!encInfoEntry || !encPkgEntry){
-    // Not encrypted — return as-is
+    // Not encrypted — return as-is, no password needed
     return fileBytes;
+  }
+  if (!password){
+    throw new Error('PASSWORD_REQUIRED');
   }
   const encInfoBytes = new Uint8Array(encInfoEntry.content);
   const encPkgBytes = new Uint8Array(encPkgEntry.content);
@@ -1875,17 +1906,13 @@ el('parseBtn').addEventListener('click', async () => {
     showStatus('mainStatus','info','Reading file…');
     const buf = new Uint8Array(await selectedFile.arrayBuffer());
 
-    showStatus('mainStatus','info','Decrypting…');
+    showStatus('mainStatus','info','Checking file…');
     const pw = localStorage.getItem('excelFilePassword') || '';
-    if (!pw) {
-      showStatus('mainStatus','error','Excel password not saved. Please save your password in the upload box first.');
-      el('parseBtn').disabled = false;
-      return;
-    }
     let decrypted;
     try{
       decrypted = await decryptXlsxBytes(buf, pw);
     }catch(e){
+      if (e.message === 'PASSWORD_REQUIRED') throw e;
       throw new Error('WRONG_PASSWORD_OR_FORMAT');
     }
 
@@ -1910,6 +1937,7 @@ el('parseBtn').addEventListener('click', async () => {
 
   }catch(e){
     let msg = e.message;
+    if (msg === 'PASSWORD_REQUIRED') msg = 'This file is password-protected. Please save its password in the upload box first.';
     if (msg === 'WRONG_PASSWORD_OR_FORMAT') msg = 'Could not open the file — check the password and try again.';
     if (msg === 'NO_SCRIPT_URL') msg = 'No Apps Script URL configured. Tap "Setup" above.';
     if (msg === 'HEADER_NOT_FOUND') msg = 'We couldn\u2019t find a header row in this file. Please check that you\u2019re uploading a policy list export with column headers like Policy Number, Client Name, Email, and Due Date.';
@@ -2007,7 +2035,7 @@ async function loadDueToday(){
     sub.textContent = rows.length + ' polic' + (rows.length===1?'y':'ies') + ' due today:';
     list.innerHTML = rows.map(r => {
       const amt = 'PHP ' + Number(r.premiumAmount||0).toLocaleString('en-PH', {minimumFractionDigits:2});
-      const sentBadge = r.lastReminderSent ? '<div class="sent-badge">REMINDER SENT</div>' : '';
+      const sentBadge = r.lastReminderSent ? '<div class="sent-badge">EMAIL REMINDER SENT</div>' : '';
       return '<div class="due-item">'
         + '<div class="due-field"><span class="label">NAME</span><span class="value">' + escapeHtml(r.clientName) + '</span></div>'
         + '<div class="due-field"><span class="label">POLICY NUMBER</span><span class="value">' + escapeHtml(r.policyNumber) + '</span></div>'
@@ -2380,17 +2408,13 @@ el('birthdayParseBtn').addEventListener('click', async () => {
     showStatus('birthdayMainStatus','info','Reading file…');
     const buf = new Uint8Array(await selectedBirthdayFile.arrayBuffer());
 
-    showStatus('birthdayMainStatus','info','Decrypting…');
+    showStatus('birthdayMainStatus','info','Checking file…');
     const pw = localStorage.getItem('excelFilePassword') || '';
-    if (!pw) {
-      showStatus('birthdayMainStatus','error','Excel password not saved. Please save your password in the upload box first.');
-      el('birthdayParseBtn').disabled = false;
-      return;
-    }
     let decrypted;
     try{
       decrypted = await decryptXlsxBytes(buf, pw);
     }catch(e){
+      if (e.message === 'PASSWORD_REQUIRED') throw e;
       throw new Error('WRONG_PASSWORD_OR_FORMAT');
     }
 
@@ -2415,6 +2439,7 @@ el('birthdayParseBtn').addEventListener('click', async () => {
 
   }catch(e){
     let msg = e.message;
+    if (msg === 'PASSWORD_REQUIRED') msg = 'This file is password-protected. Please save its password in the upload box first.';
     if (msg === 'WRONG_PASSWORD_OR_FORMAT') msg = 'Could not open the file — check the password and try again.';
     if (msg === 'NO_SCRIPT_URL') msg = 'No Apps Script URL configured. Tap "Setup" above.';
     if (msg === 'HEADER_NOT_FOUND') msg = 'We couldn\u2019t find a header row in this file. Please check that you\u2019re uploading a client list export with column headers like Client Name, Email, and Date of Birth.';
@@ -2647,6 +2672,52 @@ el('previewBirthdayEmailBtn').addEventListener('click', async () => {
   }finally{
     el('previewBirthdayEmailBtn').disabled = false;
     el('previewBirthdayEmailBtn').textContent = 'PREVIEW BIRTHDAY EMAIL';
+  }
+});
+
+/* ============================================================
+   REAL TEST-SEND BUTTONS — Dues + Birthday
+   Unlike the browser-only preview above, these actually call
+   GmailApp.sendEmail() on the backend and land a real message
+   in the advisor's own inbox (config.contactEmail), so they can
+   confirm header/footer photos, links, and rendering before
+   relying on the daily auto-send.
+   ============================================================ */
+el('sendDuesTestBtn').addEventListener('click', async () => {
+  const btn = el('sendDuesTestBtn');
+  btn.disabled = true;
+  btn.textContent = 'SENDING\u2026';
+  try{
+    const result = await callBackend({ action: 'sendDuesTestEmail' });
+    if (result && result.success){
+      showToast('Test reminder email sent to ' + (result.sentTo || 'your inbox') + '!');
+    } else {
+      showToast(result && result.error ? result.error : 'Could not send test email.');
+    }
+  }catch(err){
+    showToast('Could not send test email. Check your connection and try again.');
+  }finally{
+    btn.disabled = false;
+    btn.textContent = 'CLIENT DUE REMINDER EMAIL TEST';
+  }
+});
+
+el('sendBirthdayTestBtn').addEventListener('click', async () => {
+  const btn = el('sendBirthdayTestBtn');
+  btn.disabled = true;
+  btn.textContent = 'SENDING\u2026';
+  try{
+    const result = await callBackend({ action: 'sendBirthdayTestEmail' });
+    if (result && result.success){
+      showToast('Test birthday email sent to ' + (result.sentTo || 'your inbox') + '!');
+    } else {
+      showToast(result && result.error ? result.error : 'Could not send test email.');
+    }
+  }catch(err){
+    showToast('Could not send test email. Check your connection and try again.');
+  }finally{
+    btn.disabled = false;
+    btn.textContent = 'CLIENT BIRTHDAY EMAIL TEST';
   }
 });
 
