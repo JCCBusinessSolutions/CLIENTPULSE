@@ -333,6 +333,7 @@
   body.dark-mode div[style*="color:#9CA3AF"]{ color:#8DA0BC !important; }
   body.dark-mode div[style*="color:#27AE60"]{ color:#4ECB71 !important; }
   body.dark-mode #saveExcelPasswordBtn{ color:#FFFFFF !important; }
+  body.dark-mode #birthdaySaveExcelPasswordBtn{ color:#FFFFFF !important; }
   /* Dark mode for triple dots */
   body.dark-mode .collapse-toggle{ color:#FFFFFF !important; }
   /* Dark mode for search inputs and filters */
@@ -653,26 +654,6 @@
       </div>
     </div>
 
-    <div class="card" id="duesPreviewCard">
-      <h2>Preview Reminder Email</h2>
-      <p class="sub">See exactly what clients receive, using your real header/footer photos and links.</p>
-      <div class="row" style="margin-top:6px;">
-        <button class="btn-gold" id="previewEmailBtn">PREVIEW EMAIL</button>
-      </div>
-      <div id="emailPreviewContainer" style="display:none; margin-top:16px;">
-        <div class="preview-meta" id="previewMeta"></div>
-        <div id="previewEmailBody"></div>
-      </div>
-    </div>
-
-    <div class="card" id="duesTestEmailCard">
-      <h2>Test Reminder Email</h2>
-      <p class="sub">Sends a real dues reminder email — using your saved branding, header/footer photos, and links — to your own configured contact email so you can check it lands correctly.</p>
-      <div class="row">
-        <button class="btn-primary" id="sendDuesTestBtn">CLIENT DUE REMINDER EMAIL TEST</button>
-      </div>
-    </div>
-
     <!-- ============================================================
          SECTION 2 — TODAY'S ACTIVITY (real KPI data)
          ============================================================ -->
@@ -840,26 +821,6 @@
         </div>
       </div>
 
-      <div class="card" id="birthdayPreviewCard">
-        <h2>Preview Birthday Email</h2>
-        <p class="sub">See exactly what clients receive, using your real header/footer photos and Connect link.</p>
-        <div class="row">
-          <button class="btn-gold" id="previewBirthdayEmailBtn">PREVIEW BIRTHDAY EMAIL</button>
-        </div>
-        <div id="birthdayEmailPreviewContainer" style="display:none; margin-top:16px;">
-          <div class="preview-meta" id="birthdayPreviewMeta"></div>
-          <div id="birthdayPreviewEmailBody"></div>
-        </div>
-      </div>
-
-      <div class="card" id="birthdayTestEmailCard">
-        <h2>Test Birthday Email</h2>
-        <p class="sub">Sends a real birthday email — using your saved branding, header/footer photos, and links — to your own configured contact email so you can check it lands correctly.</p>
-        <div class="row">
-          <button class="btn-primary" id="sendBirthdayTestBtn">CLIENT BIRTHDAY EMAIL TEST</button>
-        </div>
-      </div>
-
       <div class="card" id="birthdayStatsCard">
         <h2>Today's Activity</h2>
         <p class="sub" style="margin-top:-2px;">Live counts from your Birthday Tracker and greeting log.</p>
@@ -908,12 +869,12 @@
           <div style="margin-bottom:16px;">
             <div style="margin-bottom:12px;">
               <label style="display:block;font-size:12px;font-weight:600;color:#0C447C;margin-bottom:6px;">Excel Password</label>
-              <input type="password" id="excelPasswordInput" placeholder="Enter your Excel file password" style="width:100%;padding:10px 12px;border:1px solid #ddd;border-radius:8px;font-size:13px;font-family:inherit;">
+              <input type="password" id="birthdayExcelPasswordInput" placeholder="Enter your Excel file password" style="width:100%;padding:10px 12px;border:1px solid #ddd;border-radius:8px;font-size:13px;font-family:inherit;">
             </div>
-            <button class="btn-gold" id="saveExcelPasswordBtn" style="width:100%;display:flex;align-items:center;justify-content:center;gap:7px;padding:12px 16px;font-size:14px;font-weight:600;color:#0C447C;">SAVE</button>
+            <button class="btn-gold" id="birthdaySaveExcelPasswordBtn" style="width:100%;display:flex;align-items:center;justify-content:center;gap:7px;padding:12px 16px;font-size:14px;font-weight:600;color:#0C447C;">SAVE</button>
           </div>
           <div style="font-size:11px;color:#9CA3AF;margin-bottom:16px;">Saved until you change it — you won't need to retype this every time.</div>
-          <div style="font-size:11px;color:#27AE60;margin-bottom:12px;" id="passwordSavedStatus"></div>
+          <div style="font-size:11px;color:#27AE60;margin-bottom:12px;" id="birthdayPasswordSavedStatus"></div>
 
           <div class="flex flex-col sm:flex-row gap-3 items-stretch">
             <div class="file-drop flex-1 flex flex-col items-center justify-center gap-1.5 !py-7" id="birthdayFileDrop">
@@ -1119,6 +1080,54 @@
           <button class="btn-ghost" id="saveBranding">SAVE BRANDING</button>
         </div>
         <div class="status" id="brandingStatus"></div>
+      </div>
+
+      <div class="card" id="headerFooterStudioCard" style="display:none;">
+        <h2>Header &amp; Footer Studio</h2>
+        <p class="sub">Design or update your email header and footer photos here, then come back and upload them above in Your Branding.</p>
+        <div class="row" style="margin-top:6px;">
+          <a class="btn-gold" href="https://jccbusinesssolutions.github.io/CLIENTPULSESTUDIO/" target="_blank" rel="noopener" style="display:flex;align-items:center;justify-content:center;text-decoration:none;border-radius:14px;padding:13px 18px;font-family:'Inter',sans-serif;font-weight:700;font-size:13px;letter-spacing:.4px;min-height:44px;width:100%;box-sizing:border-box;">OPEN HEADER &amp; FOOTER STUDIO</a>
+        </div>
+      </div>
+
+      <div class="card" id="duesPreviewCard" style="display:none;">
+        <h2>Preview Reminder Email</h2>
+        <p class="sub">See exactly what clients receive, using your real header/footer photos and links.</p>
+        <div class="row" style="margin-top:6px;">
+          <button class="btn-gold" id="previewEmailBtn">PREVIEW EMAIL</button>
+        </div>
+        <div id="emailPreviewContainer" style="display:none; margin-top:16px;">
+          <div class="preview-meta" id="previewMeta"></div>
+          <div id="previewEmailBody"></div>
+        </div>
+      </div>
+
+      <div class="card" id="duesTestEmailCard" style="display:none;">
+        <h2>Test Reminder Email</h2>
+        <p class="sub">Sends a real dues reminder email — using your saved branding, header/footer photos, and links — to your own configured contact email so you can check it lands correctly.</p>
+        <div class="row">
+          <button class="btn-primary" id="sendDuesTestBtn">CLIENT DUE REMINDER EMAIL TEST</button>
+        </div>
+      </div>
+
+      <div class="card" id="birthdayPreviewCard" style="display:none;">
+        <h2>Preview Birthday Email</h2>
+        <p class="sub">See exactly what clients receive, using your real header/footer photos and Connect link.</p>
+        <div class="row">
+          <button class="btn-gold" id="previewBirthdayEmailBtn">PREVIEW BIRTHDAY EMAIL</button>
+        </div>
+        <div id="birthdayEmailPreviewContainer" style="display:none; margin-top:16px;">
+          <div class="preview-meta" id="birthdayPreviewMeta"></div>
+          <div id="birthdayPreviewEmailBody"></div>
+        </div>
+      </div>
+
+      <div class="card" id="birthdayTestEmailCard" style="display:none;">
+        <h2>Test Birthday Email</h2>
+        <p class="sub">Sends a real birthday email — using your saved branding, header/footer photos, and links — to your own configured contact email so you can check it lands correctly.</p>
+        <div class="row">
+          <button class="btn-primary" id="sendBirthdayTestBtn">CLIENT BIRTHDAY EMAIL TEST</button>
+        </div>
       </div>
 
       <div class="card" id="sendHourCard" style="display:none;">
@@ -1676,10 +1685,20 @@ el('toggleConfig').addEventListener('click', () => {
   const c = el('configCard');
   const b = el('brandingCard');
   const h = el('sendHourCard');
+  const hf = el('headerFooterStudioCard');
+  const dp = el('duesPreviewCard');
+  const dt = el('duesTestEmailCard');
+  const bp = el('birthdayPreviewCard');
+  const bt = el('birthdayTestEmailCard');
   const show = c.style.display === 'none';
   c.style.display = show ? 'block' : 'none';
   b.style.display = show ? 'block' : 'none';
   h.style.display = show ? 'block' : 'none';
+  hf.style.display = show ? 'block' : 'none';
+  dp.style.display = show ? 'block' : 'none';
+  dt.style.display = show ? 'block' : 'none';
+  bp.style.display = show ? 'block' : 'none';
+  bt.style.display = show ? 'block' : 'none';
 });
 
 el('saveScriptUrl').addEventListener('click', () => {
@@ -3442,37 +3461,61 @@ async function saveBirthdayPreferences(){
 // Add clients section functionality
 function setupPasswordHandling(){
   const EXCEL_PASSWORD_KEY = 'excelFilePassword';
-  const passwordInput = document.getElementById('excelPasswordInput');
-  const saveBtn = document.getElementById('saveExcelPasswordBtn');
-  const statusDiv = document.getElementById('passwordSavedStatus');
-  
-  // Load saved password on page load
+
+  // Both the Dues page and Birthday page have their own password input,
+  // SAVE button, and status line (separate IDs), but they share the same
+  // saved password value — it's the same Excel file password either way.
+  const fields = [
+    {
+      input: document.getElementById('excelPasswordInput'),
+      saveBtn: document.getElementById('saveExcelPasswordBtn'),
+      statusDiv: document.getElementById('passwordSavedStatus')
+    },
+    {
+      input: document.getElementById('birthdayExcelPasswordInput'),
+      saveBtn: document.getElementById('birthdaySaveExcelPasswordBtn'),
+      statusDiv: document.getElementById('birthdayPasswordSavedStatus')
+    }
+  ];
+
   const savedPassword = localStorage.getItem(EXCEL_PASSWORD_KEY);
-  if (savedPassword && passwordInput) {
-    passwordInput.value = savedPassword;
-    if (statusDiv) statusDiv.textContent = '✓ Password saved and ready to use';
-  }
-  
-  // Save password when button is clicked
-  if (saveBtn) {
-    saveBtn.addEventListener('click', () => {
-      const password = passwordInput.value.trim();
-      if (!password) {
-        if (statusDiv) statusDiv.textContent = '❌ Please enter a password first';
-        if (statusDiv) statusDiv.style.color = '#EB5757';
-        return;
-      }
-      localStorage.setItem(EXCEL_PASSWORD_KEY, password);
-      if (statusDiv) {
-        statusDiv.textContent = '✓ Password saved! Ready to upload files.';
-        statusDiv.style.color = '#27AE60';
-      }
-      setTimeout(() => {
-        if (statusDiv) statusDiv.textContent = '';
-      }, 3000);
-    });
-  }
-  
+
+  fields.forEach(({ input, saveBtn, statusDiv }) => {
+    if (!input) return; // skip silently if this page isn't present
+
+    // Load saved password on page load
+    if (savedPassword) {
+      input.value = savedPassword;
+      if (statusDiv) statusDiv.textContent = '✓ Password saved and ready to use';
+    }
+
+    // Save password when button is clicked
+    if (saveBtn) {
+      saveBtn.addEventListener('click', () => {
+        const password = input.value.trim();
+        if (!password) {
+          if (statusDiv) {
+            statusDiv.textContent = '❌ Please enter a password first';
+            statusDiv.style.color = '#EB5757';
+          }
+          return;
+        }
+        localStorage.setItem(EXCEL_PASSWORD_KEY, password);
+
+        // Keep the other page's input in sync immediately too
+        fields.forEach(f => { if (f.input && f.input !== input) f.input.value = password; });
+
+        if (statusDiv) {
+          statusDiv.textContent = '✓ Password saved! Ready to upload files.';
+          statusDiv.style.color = '#27AE60';
+        }
+        setTimeout(() => {
+          if (statusDiv) statusDiv.textContent = '';
+        }, 3000);
+      });
+    }
+  });
+
   // Store password reference for use in parser
   window.getExcelPassword = () => localStorage.getItem(EXCEL_PASSWORD_KEY) || '';
 }
