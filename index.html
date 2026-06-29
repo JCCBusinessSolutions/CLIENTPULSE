@@ -451,6 +451,39 @@
   body.dark-mode #themeToggleMobile .theme-switch-thumb{ transform:translateX(18px); }
 
   /* ============================================================
+     HEADER & FOOTER STUDIO — full-screen iframe overlay
+     ============================================================ */
+  #studioOverlay{
+    position:fixed; inset:0; z-index:900;
+    background:#fff;
+    display:none;
+    flex-direction:column;
+  }
+  #studioOverlay.show{ display:flex; }
+  #studioBackBar{
+    flex:0 0 auto;
+    display:flex; align-items:center; gap:10px;
+    background:#0C447C;
+    color:#fff;
+    padding:12px 14px;
+    padding-top:calc(12px + env(safe-area-inset-top));
+    font-family:'Inter',sans-serif;
+    font-weight:700;
+    font-size:13px;
+    letter-spacing:.3px;
+    cursor:pointer;
+    user-select:none;
+    flex-shrink:0;
+  }
+  #studioBackBar svg{ width:20px;height:20px;flex-shrink:0; }
+  #studioFrame{
+    flex:1 1 auto;
+    width:100%;
+    border:none;
+    background:#fff;
+  }
+
+  /* ============================================================
      EMAIL GATE & OTP
      ============================================================ */
   #gateScreen { position:fixed; inset:0; z-index:999; background:#fff; display:none; flex-direction:column; align-items:center; justify-content:center; padding:20px; }
@@ -1084,9 +1117,9 @@
 
       <div class="card" id="headerFooterStudioCard" style="display:none;">
         <h2>Header &amp; Footer Studio</h2>
-        <p class="sub">Design or update your email header and footer photos here, then come back and upload them above in Your Branding.</p>
+        <p class="sub">Design or update your email header and footer photos here, then come back and upload them above in Your Branding. Tip: download or copy your image before going back — the Studio doesn't save drafts.</p>
         <div class="row" style="margin-top:6px;">
-          <a class="btn-gold" href="https://jccbusinesssolutions.github.io/CLIENTPULSESTUDIO/" target="_blank" rel="noopener" style="display:flex;align-items:center;justify-content:center;text-decoration:none;border-radius:14px;padding:13px 18px;font-family:'Inter',sans-serif;font-weight:700;font-size:13px;letter-spacing:.4px;min-height:44px;width:100%;box-sizing:border-box;">OPEN HEADER &amp; FOOTER STUDIO</a>
+          <button class="btn-gold" onclick="openHeaderFooterStudio()" style="display:flex;align-items:center;justify-content:center;">OPEN HEADER &amp; FOOTER STUDIO</button>
         </div>
       </div>
 
@@ -1175,6 +1208,17 @@
 
 <div class="toast" id="toast"></div>
 
+<!-- ============================================================
+     HEADER & FOOTER STUDIO — full-screen iframe overlay
+     ============================================================ -->
+<div id="studioOverlay">
+  <div id="studioBackBar" onclick="closeHeaderFooterStudio()">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+    BACK TO CLIENT PULSE
+  </div>
+  <iframe id="studioFrame" src="" title="Header and Footer Studio"></iframe>
+</div>
+
 <script>
 /* ============================================================
    NEW DASHBOARD UI HELPERS — navigation, greeting, toasts.
@@ -1226,6 +1270,32 @@ function scrollToSection(name){
     window.scrollTo({ top:0, behavior:'smooth' });
   }
 }
+
+/* ============================================================
+   HEADER & FOOTER STUDIO — opens inside a full-screen iframe
+   overlay rather than a new tab, so nothing in Client Pulse
+   (saved password, Setup URL, in-progress branding fields,
+   current scroll position) is ever lost. The Studio posts a
+   message back to this page when its own back button is
+   tapped, which is how we know to close the overlay.
+   ============================================================ */
+const STUDIO_URL = 'https://jccbusinesssolutions.github.io/CLIENTPULSESTUDIO/';
+
+function openHeaderFooterStudio(){
+  const frame = document.getElementById('studioFrame');
+  if (!frame.src) frame.src = STUDIO_URL; // load once, reuse afterwards
+  document.getElementById('studioOverlay').classList.add('show');
+}
+
+function closeHeaderFooterStudio(){
+  document.getElementById('studioOverlay').classList.remove('show');
+}
+
+window.addEventListener('message', (event) => {
+  if (event.data && event.data.type === 'closeClientPulseStudio'){
+    closeHeaderFooterStudio();
+  }
+});
 
 document.querySelectorAll('.sidebar-link[data-nav]').forEach(link => {
   link.addEventListener('click', () => {
