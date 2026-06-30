@@ -914,6 +914,41 @@ input:checked + #studioSection .slider-toggle::before{transform:translateX(19px)
 <body class="bg-bgcream text-ink font-body">
 
 <!-- ============================================================
+     APP LOADING OVERLAY — navy pulse line, left to right, fading
+     ============================================================ -->
+<div id="appLoader" style="position:fixed;inset:0;z-index:99999;background:#FFFFFF;display:flex;flex-direction:column;align-items:center;justify-content:center;">
+  <script>
+    // Safety net: if init ever errors out before reaching the normal
+    // hide step, don't leave the user staring at a stuck loader forever.
+    setTimeout(function(){
+      var l = document.getElementById('appLoader');
+      if (l && l.style.display !== 'none') { l.style.display = 'none'; }
+    }, 12000);
+  </script>
+  <svg width="220" height="60" viewBox="0 0 220 60" style="display:block;">
+    <defs>
+      <linearGradient id="pulseFade" x1="0%" y1="0%" x2="100%" y2="0%">
+        <stop offset="0%" stop-color="#003B7A" stop-opacity="0"/>
+        <stop offset="15%" stop-color="#003B7A" stop-opacity="1"/>
+        <stop offset="55%" stop-color="#003B7A" stop-opacity="0.6"/>
+        <stop offset="100%" stop-color="#003B7A" stop-opacity="0"/>
+      </linearGradient>
+    </defs>
+    <path id="pulseLinePath" d="M0,30 L40,30 L55,30 L65,8 L78,52 L90,18 L100,30 L220,30"
+          fill="none" stroke="url(#pulseFade)" stroke-width="3.5"
+          stroke-linecap="round" stroke-linejoin="round" pathLength="100"
+          style="stroke-dasharray:28 72;animation:pulseTravel 1.6s linear infinite;"/>
+  </svg>
+  <div style="margin-top:14px;font-family:'DM Sans',sans-serif;font-size:13px;font-weight:600;letter-spacing:.04em;color:#003B7A;opacity:.75;">Loading Client Pulse…</div>
+</div>
+<style>
+@keyframes pulseTravel {
+  0%   { stroke-dashoffset: 100; }
+  100% { stroke-dashoffset: -100; }
+}
+</style>
+
+<!-- ============================================================
      EMAIL GATE SCREEN
      ============================================================ -->
 <div id="gateScreen">
@@ -4360,6 +4395,13 @@ function setupClientsTab(){
     gate.classList.add('show');
     gate.style.zIndex = '999';
     gate.style.display = 'flex';
+  }
+  // App is ready (gate or dashboard, whichever applies) — fade out the loader
+  const loader = document.getElementById('appLoader');
+  if (loader) {
+    loader.style.transition = 'opacity .35s ease';
+    loader.style.opacity = '0';
+    setTimeout(() => { loader.style.display = 'none'; }, 350);
   }
 })();
 
