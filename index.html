@@ -406,39 +406,6 @@
   body.dark-mode #fileDrop p:last-of-type{ color:#8DA0BC !important; }
   body.dark-mode #birthdayFileDrop p{ color:#FFFFFF !important; }
   body.dark-mode #birthdayFileDrop p:last-of-type{ color:#8DA0BC !important; }
-
-  /* ============================================================
-     CLIENT PULSE STUDIO — ALWAYS STAYS IN LIGHT MODE
-     body.dark-mode redefines --cream/--ink/--line at the <body>
-     level (see block above). CSS variables cascade by DOM scope,
-     so #studioSection inherits those dark values no matter what
-     class-based !important rules we add — we have to re-pin the
-     variables directly on #studioSection to break the cascade.
-     Keep this block LAST in the dark-mode section so it wins.
-     ============================================================ */
-  body.dark-mode #studioSection{
-    --cream:#F8F5EF;
-    --ink:#1D2433;
-    --line:#E7D7B7;
-    background:#F8F5EF !important;
-    color-scheme: light !important;
-  }
-  body.dark-mode #studioSection .bg-white{ background-color:#fff !important; }
-  body.dark-mode #studioSection .bg-bgcream{ background-color:#F8F5EF !important; }
-  body.dark-mode #studioSection .text-muted{ color:#8a8170 !important; }
-  body.dark-mode #studioSection .border-bordertan{ border-color:#E7D7B7 !important; }
-  body.dark-mode #studioSection .topbar p{ color:#bcd6ee !important; }
-  body.dark-mode #studioSection .field label,
-  body.dark-mode #studioSection .ctrl label,
-  body.dark-mode #studioSection .section-title{ color:var(--navy) !important; }
-  body.dark-mode #studioSection .color-input-group label,
-  body.dark-mode #studioSection .upload-box span{ color:#8a8170 !important; }
-  body.dark-mode #studioSection .brand-name{ color:#1D2433 !important; }
-  body.dark-mode #studioSection .field input[type=text]{
-    background:#fff !important; color:#1D2433 !important; border-color:#E7D7B7 !important;
-  }
-  body.dark-mode #studioSection .btn-ghost{ background:#fff !important; color:var(--navy) !important; }
-  body.dark-mode #studioSection .panel{ background:#fff !important; }
   /* The "Your name" box inside Branding uses .bg-bgcream, which goes
      dark navy in night mode (see rule above) — its label and SAVE NAME
      button text must switch to white here too, or they're unreadable
@@ -4950,6 +4917,19 @@ drawAll();
 // Expose drawAll so Client Pulse can re-trigger canvas renders
 // when the Studio section becomes visible
 window._studioDrawAll = drawAll;
+
+// Expose every Studio function referenced via onclick="..." in the
+// embedded HTML above. Since this whole Studio is wrapped in an IIFE
+// (to keep its globals from clashing with Client Pulse's own globals),
+// none of these are reachable from onclick attributes unless explicitly
+// attached to window here. Missing any one of these is exactly what
+// causes a button/tab to silently stop responding to taps.
+window.switchTab           = switchTab;
+window.applyCustomPalette  = applyCustomPalette;
+window.downloadCurrent     = downloadCurrent;
+window.copyImage           = copyImage;
+window.removeLogo          = removeLogo;
+window.removeFooterPhoto   = removeFooterPhoto;
 
 })(); // end Studio IIFE
 </script>
