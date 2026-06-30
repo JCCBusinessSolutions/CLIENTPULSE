@@ -4305,12 +4305,17 @@ function setupClientsTab(){
 
 // Initialize on page load
 (async function() {
-  await fetchAccessList();
   setupPasswordHandling();
   setupClientsTab();
-  // Load client lists and attach search listeners on page load
-  await refreshDuesClientList();
-  await refreshBirthdayClientList();
+  // These three calls don't depend on each other, so run them in
+  // parallel instead of waiting for each one to finish before starting
+  // the next — cuts startup time roughly to the slowest single call
+  // instead of the sum of all three.
+  await Promise.all([
+    fetchAccessList(),
+    refreshDuesClientList(),
+    refreshBirthdayClientList()
+  ]);
   if (!checkAuth()) {
     // Show gate with proper z-index and show class
     const gate = document.getElementById('gateScreen');
