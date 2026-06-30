@@ -1963,6 +1963,8 @@ renderGreeting();
    so no advisor accidentally inherits someone else's sheet.
    ============================================================ */
 const SCRIPT_URL_STORAGE_KEY = 'duesTrackerScriptUrl';
+const DUES_CACHE_KEY = 'clientPulse_duesCache';
+const BIRTHDAY_CACHE_KEY = 'clientPulse_birthdayCache';
 
 function getScriptUrl(){
   return document.getElementById('scriptUrl').dataset.value || '';
@@ -4020,9 +4022,24 @@ function setupBirthdayInfiniteScroll(clients){
   container.addEventListener('scroll', handleBirthdayScroll);
 }
 
-async function refreshDuesClientList(){
+async function refreshDuesClientList(useCache = false){
   const sub = document.getElementById('duesClientsSub');
-  sub.textContent = '🔄 Refreshing…';
+
+  // If a cache exists, show it immediately so the screen isn't blank
+  // while the real network request is still in flight.
+  if (useCache) {
+    try {
+      const cached = JSON.parse(localStorage.getItem(DUES_CACHE_KEY) || 'null');
+      if (cached && cached.length) {
+        allDuesClients = cached;
+        renderDuesClientsList(allDuesClients);
+        updateDuesExcludedSummary();
+        sub.textContent = allDuesClients.length + ' client(s) — last saved, updating…';
+      }
+    } catch(e) { /* corrupted cache, ignore and continue to live fetch */ }
+  }
+
+  sub.textContent = (sub.textContent.includes('last saved') ? sub.textContent : '🔄 Refreshing…');
   const clients = await fetchDuesClientList();
   // Sort soonest/most-overdue due date first before storing, so every
   // render (full list, searched, or scrolled) follows this order.
@@ -4034,6 +4051,9 @@ async function refreshDuesClientList(){
   updateDuesExcludedSummary();
   sub.textContent = allDuesClients.length + ' client(s) loaded, sorted by closest due date';
 
+  // Save the fresh result so next app open can render instantly too.
+  try { localStorage.setItem(DUES_CACHE_KEY, JSON.stringify(allDuesClients)); } catch(e) { /* storage full or unavailable, skip caching */ }
+
   const searchInput = document.getElementById('duesSearchInput');
   if (searchInput) {
     searchInput.value = '';
@@ -4042,9 +4062,24 @@ async function refreshDuesClientList(){
   }
 }
 
-async function refreshBirthdayClientList(){
+async function refreshBirthdayClientList(useCache = false){
   const sub = document.getElementById('birthdayClientsSub');
-  sub.textContent = '🔄 Refreshing…';
+
+  // If a cache exists, show it immediately so the screen isn't blank
+  // while the real network request is still in flight.
+  if (useCache) {
+    try {
+      const cached = JSON.parse(localStorage.getItem(BIRTHDAY_CACHE_KEY) || 'null');
+      if (cached && cached.length) {
+        allBirthdayClients = cached;
+        renderBirthdayClientsList(allBirthdayClients);
+        updateBirthdayExcludedSummary();
+        sub.textContent = allBirthdayClients.length + ' client(s) — last saved, updating…';
+      }
+    } catch(e) { /* corrupted cache, ignore and continue to live fetch */ }
+  }
+
+  sub.textContent = (sub.textContent.includes('last saved') ? sub.textContent : '🔄 Refreshing…');
   const clients = await fetchBirthdayClientList();
   // Sort by soonest upcoming birthday first (this month, day by day, then
   // rolling into next month, then wrapping into next year as needed).
@@ -4053,6 +4088,9 @@ async function refreshBirthdayClientList(){
   renderBirthdayClientsList(allBirthdayClients);
   updateBirthdayExcludedSummary();
   sub.textContent = allBirthdayClients.length + ' client(s) loaded, sorted by soonest birthday';
+
+  // Save the fresh result so next app open can render instantly too.
+  try { localStorage.setItem(BIRTHDAY_CACHE_KEY, JSON.stringify(allBirthdayClients)); } catch(e) { /* storage full or unavailable, skip caching */ }
 
   const searchInput = document.getElementById('birthdaySearchInput');
   if (searchInput) {
@@ -4313,8 +4351,8 @@ function setupClientsTab(){
   // instead of the sum of all three.
   await Promise.all([
     fetchAccessList(),
-    refreshDuesClientList(),
-    refreshBirthdayClientList()
+    refreshDuesClientList(true),
+    refreshBirthdayClientList(true)
   ]);
   if (!checkAuth()) {
     // Show gate with proper z-index and show class
