@@ -207,7 +207,7 @@
   .sidebar-link{
     display:flex; align-items:center; gap:12px;
     padding:11px 16px; border-radius:14px;
-    color:rgba(255,255,255,.75); font-size:14px; font-weight:600;
+    color:#FFFFFF; font-size:14px; font-weight:600;
     cursor:pointer; transition:background .15s ease, color .15s ease;
   }
   .sidebar-link:hover{ background:rgba(255,255,255,.08); color:#fff; }
@@ -884,6 +884,11 @@ input:checked + #studioSection .slider-toggle::before{transform:translateX(19px)
   
   .gate-input { width:100%; padding:12px 14px; font-size:15px; border:1px solid #ddd; border-radius:8px; font-family:'Inter',sans-serif; background:#fff; color:#000; margin-bottom:12px; }
   body.dark-mode .gate-input { background:#1B2A42; border-color:#27374D; color:#fff; }
+  .gate-pw-wrap { position:relative; }
+  .gate-pw-wrap .gate-input { padding-right:44px; }
+  .gate-pw-toggle { position:absolute; right:6px; top:0; bottom:12px; margin:auto 0; height:32px; width:32px; background:none; border:none; cursor:pointer; padding:0; display:flex; align-items:center; justify-content:center; color:#6B7280; }
+  .gate-pw-toggle svg { width:20px; height:20px; display:block; }
+  .gate-pw-toggle:hover { color:#003B7A; }
   .gate-input:focus { outline:none; border-color:#003B7A; box-shadow:0 0 0 2px rgba(0,59,122,0.1); }
   
   .gate-btn { width:100%; padding:12px; font-size:15px; font-weight:600; border:none; border-radius:8px; cursor:pointer; text-transform:uppercase; letter-spacing:0.5px; background:#003B7A; color:#fff; margin-top:8px; transition:background 0.2s; }
@@ -891,6 +896,8 @@ input:checked + #studioSection .slider-toggle::before{transform:translateX(19px)
   .gate-btn:disabled { opacity:0.6; cursor:not-allowed; }
   #accessBtn { background:#E1AD01; color:#003B7A; }
   #accessBtn:hover { background:#C9A227; }
+  .gate-btn-gold { background:var(--gold); color:#003B7A; }
+  .gate-btn-gold:hover { background:#D99A1F; }
   
   .gate-error { color:#d32f2f; font-size:12px; margin-top:8px; text-align:left; }
       .gate-footer { margin-top:32px; padding-top:16px; border-top:1px solid rgba(255,255,255,0.1); font-size:11px; color:#a0afd9; text-align:center; line-height:1.4; }
@@ -964,22 +971,31 @@ input:checked + #studioSection .slider-toggle::before{transform:translateX(19px)
     <!-- Step 1: email + password login -->
     <div id="emailStep">
       <input type="email" id="gateEmail" class="gate-input" placeholder="your@email.com" autocomplete="username">
-      <input type="password" id="gatePassword" class="gate-input" placeholder="Password" autocomplete="current-password">
+      <div class="gate-pw-wrap">
+        <input type="password" id="gatePassword" class="gate-input" placeholder="Password" autocomplete="current-password">
+        <button type="button" class="gate-pw-toggle" onclick="togglePasswordVisibility('gatePassword', this)" aria-label="Show password"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></button>
+      </div>
       <div class="gate-error" id="emailError"></div>
       <button class="gate-btn" onclick="accessGate()" id="accessBtn">ACCESS DASHBOARD</button>
       <button type="button" class="gate-link" id="forgotPasswordLink" onclick="showForgotPasswordStep()">Forgot password?</button>
-      <div class="gate-footer">JCC BUSINESS SOLUTIONS<br>All Rights Reserved 2026</div>
+      <div class="gate-footer">JCC BUSINESS SOLUTIONS&trade;<br>All Rights Reserved 2026</div>
     </div>
 
     <!-- Step 2: first-time password creation (shown when server says NEEDS_SETUP) -->
     <div id="setupPasswordStep" style="display:none;">
       <div class="gate-hint">First time here — create a password for your account.</div>
-      <input type="password" id="setupPassword" class="gate-input" placeholder="New password (min 6 characters)" autocomplete="new-password">
-      <input type="password" id="setupPasswordConfirm" class="gate-input" placeholder="Confirm password" autocomplete="new-password">
+      <div class="gate-pw-wrap">
+        <input type="password" id="setupPassword" class="gate-input" placeholder="New password (min 6 characters)" autocomplete="new-password">
+        <button type="button" class="gate-pw-toggle" onclick="togglePasswordVisibility('setupPassword', this)" aria-label="Show password"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></button>
+      </div>
+      <div class="gate-pw-wrap">
+        <input type="password" id="setupPasswordConfirm" class="gate-input" placeholder="Confirm password" autocomplete="new-password">
+        <button type="button" class="gate-pw-toggle" onclick="togglePasswordVisibility('setupPasswordConfirm', this)" aria-label="Show password"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></button>
+      </div>
       <div class="gate-error" id="setupError"></div>
-      <button class="gate-btn" onclick="submitSetupPassword()" id="setupBtn">CREATE PASSWORD &amp; CONTINUE</button>
+      <button class="gate-btn gate-btn-gold" onclick="submitSetupPassword()" id="setupBtn">CREATE PASSWORD &amp; CONTINUE</button>
       <button type="button" class="gate-link" onclick="showEmailStep()">Back</button>
-      <div class="gate-footer">JCC BUSINESS SOLUTIONS<br>All Rights Reserved 2026</div>
+      <div class="gate-footer">JCC BUSINESS SOLUTIONS&trade;<br>All Rights Reserved 2026</div>
     </div>
 
     <!-- Step 3: forgot password — request a code -->
@@ -988,21 +1004,27 @@ input:checked + #studioSection .slider-toggle::before{transform:translateX(19px)
       <input type="email" id="forgotEmail" class="gate-input" placeholder="your@email.com" autocomplete="username">
       <div class="gate-error" id="forgotError"></div>
       <div class="gate-success" id="forgotSuccess" style="display:none;"></div>
-      <button class="gate-btn" onclick="submitForgotPassword()" id="forgotBtn">SEND RESET CODE</button>
+      <button class="gate-btn gate-btn-gold" onclick="submitForgotPassword()" id="forgotBtn">SEND RESET CODE</button>
       <button type="button" class="gate-link" onclick="showEmailStep()">Back to login</button>
-      <div class="gate-footer">JCC BUSINESS SOLUTIONS<br>All Rights Reserved 2026</div>
+      <div class="gate-footer">JCC BUSINESS SOLUTIONS&trade;<br>All Rights Reserved 2026</div>
     </div>
 
     <!-- Step 4: enter code + set new password -->
     <div id="resetPasswordStep" style="display:none;">
       <div class="gate-hint">Enter the 6-digit code we emailed you, then choose a new password.</div>
       <input type="text" id="resetCode" class="gate-input" placeholder="6-digit code" inputmode="numeric" maxlength="6" autocomplete="one-time-code">
-      <input type="password" id="resetNewPassword" class="gate-input" placeholder="New password (min 6 characters)" autocomplete="new-password">
-      <input type="password" id="resetNewPasswordConfirm" class="gate-input" placeholder="Confirm new password" autocomplete="new-password">
+      <div class="gate-pw-wrap">
+        <input type="password" id="resetNewPassword" class="gate-input" placeholder="New password (min 6 characters)" autocomplete="new-password">
+        <button type="button" class="gate-pw-toggle" onclick="togglePasswordVisibility('resetNewPassword', this)" aria-label="Show password"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></button>
+      </div>
+      <div class="gate-pw-wrap">
+        <input type="password" id="resetNewPasswordConfirm" class="gate-input" placeholder="Confirm new password" autocomplete="new-password">
+        <button type="button" class="gate-pw-toggle" onclick="togglePasswordVisibility('resetNewPasswordConfirm', this)" aria-label="Show password"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></button>
+      </div>
       <div class="gate-error" id="resetError"></div>
       <button class="gate-btn" onclick="submitResetPassword()" id="resetBtn">RESET PASSWORD &amp; LOG IN</button>
       <button type="button" class="gate-link" onclick="showEmailStep()">Back to login</button>
-      <div class="gate-footer">JCC BUSINESS SOLUTIONS<br>All Rights Reserved 2026</div>
+      <div class="gate-footer">JCC BUSINESS SOLUTIONS&trade;<br>All Rights Reserved 2026</div>
     </div>
     </div>
   </div>
@@ -1021,7 +1043,7 @@ input:checked + #studioSection .slider-toggle::before{transform:translateX(19px)
     <div class="sidebar-link" data-nav="birthday"><span>🎂</span>Client Birthday Greetings</div>
     <div class="sidebar-link" data-nav="upload"><span>📤</span>Upload &amp; Parse</div>
     <div class="sidebar-link" data-nav="reports"><span>📈</span>Reports</div>
-    <div class="sidebar-link" data-nav="clients"><span>👥</span>Clients</div>
+    <div class="sidebar-link" data-nav="clients"><span>🧑‍🤝‍🧑</span>Clients</div>
     <div class="sidebar-link" data-nav="settings" id="sidebarSettingsLink"><span>⚙️</span>Settings<span class="dot" id="sidebarSettingsDot" style="display:none;"></span></div>
     <div class="sidebar-link" id="sidebarLogoutLink" onclick="logoutUser()" style="color:#FF8A80;"><span>🚪</span>Logout</div>
   </nav>
@@ -1029,7 +1051,8 @@ input:checked + #studioSection .slider-toggle::before{transform:translateX(19px)
     <div class="glass rounded-2xl p-4 mb-3">
       <div class="text-white text-sm font-semibold mb-1">Need Help?</div>
       <div class="text-white/60 text-xs mb-3 leading-snug">We're here to help with your Due Reminder needs.</div>
-      <button class="btn-gold !min-h-0 !py-2 !text-[11px]" onclick="showToast('For support, reach out via your usual JCC Business Solutions channel.')">Contact Support</button>
+      <div class="text-white/60 text-xs mb-3 leading-snug" style="word-break:break-all;">Jccbusinesssolutions16@gmail.com</div>
+      <a href="mailto:Jccbusinesssolutions16@gmail.com" class="btn-gold !min-h-0 !py-2 !text-[11px]" style="display:flex;align-items:center;justify-content:center;text-decoration:none;">Contact Support</a>
     </div>
     <div class="sidebar-link" onclick="location.reload()"><span>↩️</span>Refresh App</div>
   </div>
@@ -3659,6 +3682,23 @@ function checkAuth() {
 // so each step's submit function knows who it's acting on without
 // re-reading from a field that's now showing a different step.
 let pendingFlowEmail = '';
+
+const EYE_OPEN_PATH = '<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>';
+const EYE_CLOSED_PATH = '<path d="M17.94 17.94A10.94 10.94 0 0 1 12 20c-7 0-11-8-11-8a18.5 18.5 0 0 1 5.06-5.94M9.9 4.24A10.94 10.94 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19M14.12 14.12a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/>';
+
+function togglePasswordVisibility(inputId, btn) {
+  const input = document.getElementById(inputId);
+  const svg = btn.querySelector('svg');
+  if (input.type === 'password') {
+    input.type = 'text';
+    svg.innerHTML = EYE_CLOSED_PATH;
+    btn.setAttribute('aria-label', 'Hide password');
+  } else {
+    input.type = 'password';
+    svg.innerHTML = EYE_OPEN_PATH;
+    btn.setAttribute('aria-label', 'Show password');
+  }
+}
 
 function clearAllGateErrors() {
   ['emailError','setupError','forgotError','resetError'].forEach(id => {
