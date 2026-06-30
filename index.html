@@ -1461,8 +1461,9 @@ input:checked + #studioSection .slider-toggle::before{transform:translateX(19px)
         <label for="brandSenderName">Sender display name</label>
         <input type="text" id="brandSenderName" placeholder="YOUR NAME - YOUR COMPANY">
 
-        <label for="brandContactEmail" style="margin-top:12px;">Your contact email (CC &amp; Reply-To)</label>
+        <label for="brandContactEmail" style="margin-top:12px;">Contact email <span style="font-size:10.5px;color:#9CA3AF;font-weight:600;text-transform:none;letter-spacing:0;">(optional — CC &amp; Reply-To)</span></label>
         <input type="text" id="brandContactEmail" placeholder="you@example.com">
+        <div style="font-size:11px;color:#9CA3AF;margin-top:6px;">Leave blank if you're fine with clients replying to the Gmail account your Setup URL is deployed under (e.g. your company email). Fill this in only if you want replies CC'd to a different address instead.</div>
 
         <label for="brandHeaderImg" style="margin-top:12px;">Header photo</label>
         <div class="file-drop" id="headerImgDrop" style="padding:14px;">
