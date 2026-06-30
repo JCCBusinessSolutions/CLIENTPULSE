@@ -4305,6 +4305,12 @@ function leaveStudioNow(){
   }
 }
 
+// Expose to window so onclick attributes on the embedded Studio buttons
+// can reach these functions (they're inside an IIFE otherwise)
+window.goBackToClientPulse  = goBackToClientPulse;
+window.dismissLeaveModal    = dismissLeaveModal;
+window.confirmLeaveStudio   = confirmLeaveStudio;
+
 /* =========================================================
    BRAND PALETTES — top PH insurers
    c1 = primary (deep brand color), c2 = accent, c3 = bg, c4 = text/ink
