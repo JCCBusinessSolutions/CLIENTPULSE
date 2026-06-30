@@ -39,13 +39,29 @@ function saveBrandConfig(partialConfig){
   });
 }
 
+// Only the truly essential fields are required to send emails.
+// contactEmail is optional \u2014 used as cc/replyTo if present, skipped if blank.
 function assertConfigured(config){
-  const missing = CONFIG_KEYS.filter(key => !config[key]);
+  const required = ['senderName','headerImageFileId','footerImageFileId'];
+  const missing = required.filter(key => !config[key]);
   if (missing.length > 0){
     throw new Error(
       'Branding not set up yet. Open the app, tap "Setup", fill in ' +
       '"Your branding" (missing: ' + missing.join(', ') + '), and tap ' +
       'SAVE BRANDING before reminders can be sent.'
+    );
+  }
+}
+
+// Birthday uses the same required fields (contactEmail is optional here too).
+function assertConfiguredForBirthday(config){
+  const required = ['senderName','headerImageFileId','footerImageFileId'];
+  const missing = required.filter(key => !config[key]);
+  if (missing.length > 0){
+    throw new Error(
+      'Branding not set up yet. Open the app, tap "Setup", fill in ' +
+      '"Your branding" (missing: ' + missing.join(', ') + '), and tap ' +
+      'SAVE BRANDING before birthday greetings can be sent.'
     );
   }
 }
@@ -214,96 +230,72 @@ function createBirthdayDailyTrigger(hour){
 }
 
 /* ============================================================
-   NEW: CLIENT PREFERENCE MANAGEMENT
+   CLIENT PREFERENCE MANAGEMENT
    ============================================================ */
 
-// Fetch all clients from Dues Tracker with their current Send Dues? preference
 function getDuesClientList(){
   setupSheet();
   const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_NAME);
   if (!sheet) return [];
-  
   const data = sheet.getDataRange().getValues();
   const headers = data[0];
   const col = name => headers.indexOf(name);
-  
   const result = [];
   for (let i = 1; i < data.length; i++){
     const row = data[i];
     const policyNum = row[col('Policy Number')];
-    const clientName = row[col('Client Name')];
-    const email = row[col('Email')];
-    const product = row[col('Product')];
-    const premiumMode = row[col('Premium Mode')];
-    let premiumAmount = row[col('Premium Amount')];
-    const dueDate = row[col('Due Date')];
-    const policyStatus = row[col('Policy Status')];
-    const sendDues = row[col('Send Dues?')];
-    
-    if (!policyNum) continue; // skip empty rows
-    
-    // Parse premium amount - handle currency symbols, spaces, commas
+    if (!policyNum) continue;
     let parsedAmount = 0;
-    if (premiumAmount) {
-      if (typeof premiumAmount === 'number') {
+    const premiumAmount = row[col('Premium Amount')];
+    if (premiumAmount){
+      if (typeof premiumAmount === 'number'){
         parsedAmount = premiumAmount;
       } else {
-        // Remove common currency symbols and spaces, parse as number
-        const cleaned = String(premiumAmount).replace(/[^\d.-]/g, '').trim();
-        parsedAmount = parseFloat(cleaned) || 0;
+        parsedAmount = parseFloat(String(premiumAmount).replace(/[^\d.-]/g, '').trim()) || 0;
       }
     }
-    
+    const dueDate = row[col('Due Date')];
     result.push({
       policyNumber: policyNum,
-      clientName: clientName,
-      email: email,
-      product: product,
-      premiumMode: premiumMode,
+      clientName: row[col('Client Name')],
+      email: row[col('Email')],
+      product: row[col('Product')],
+      premiumMode: row[col('Premium Mode')],
       premiumAmount: parsedAmount,
       dueDate: dueDate instanceof Date ? Utilities.formatDate(dueDate, Session.getScriptTimeZone(), 'yyyy-MM-dd') : '',
-      policyStatus: policyStatus,
-      sendDues: sendDues === true || sendDues === 'TRUE' || sendDues === 1 || sendDues === '1'
+      policyStatus: row[col('Policy Status')],
+      sendDues: row[col('Send Dues?')] === true || row[col('Send Dues?')] === 'TRUE' || row[col('Send Dues?')] === 1 || row[col('Send Dues?')] === '1'
     });
   }
   return result;
 }
 
-// Fetch all clients from Birthday Tracker with their current Send Birthday? preference
 function getBirthdayClientList(){
   setupBirthdaySheet();
   const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(BIRTHDAY_SHEET_NAME);
   if (!sheet) return [];
-  
   const data = sheet.getDataRange().getValues();
   const headers = data[0];
   const col = name => headers.indexOf(name);
-  
   const result = [];
   for (let i = 1; i < data.length; i++){
     const row = data[i];
     const fullName = row[col('Full Name')];
     const email = row[col('Email')];
-    const contactNumber = row[col('Contact Number')];
-    const location = row[col('Location')];
+    if (!fullName || !email) continue;
     const dob = row[col('Date of Birth')];
-    const sendBday = row[col('Send Birthday?')];
-    
-    if (!fullName || !email) continue; // skip empty rows
-    
     result.push({
       fullName: fullName,
       email: email,
-      contactNumber: contactNumber,
-      location: location,
+      contactNumber: row[col('Contact Number')],
+      location: row[col('Location')],
       dateOfBirth: dob instanceof Date ? Utilities.formatDate(dob, Session.getScriptTimeZone(), 'yyyy-MM-dd') : '',
-      sendBirthday: sendBday === true || sendBday === 'TRUE' || sendBday === 1 || sendBday === '1'
+      sendBirthday: row[col('Send Birthday?')] === true || row[col('Send Birthday?')] === 'TRUE' || row[col('Send Birthday?')] === 1 || row[col('Send Birthday?')] === '1'
     });
   }
   return result;
 }
 
-// Save preference toggle for a specific policy (Dues)
 function setDuesPreference(policyNumber, enabled){
   setupSheet();
   const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_NAME);
@@ -311,7 +303,6 @@ function setDuesPreference(policyNumber, enabled){
   const headers = data[0];
   const policyCol = headers.indexOf('Policy Number');
   const sendCol = headers.indexOf('Send Dues?');
-  
   for (let i = 1; i < data.length; i++){
     if (String(data[i][policyCol]) === String(policyNumber)){
       sheet.getRange(i + 1, sendCol + 1).setValue(enabled);
@@ -321,7 +312,6 @@ function setDuesPreference(policyNumber, enabled){
   return { success: false, error: 'Policy not found' };
 }
 
-// Save preference toggle for a specific client (Birthday)
 function setBirthdayPreference(email, enabled){
   setupBirthdaySheet();
   const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(BIRTHDAY_SHEET_NAME);
@@ -329,7 +319,6 @@ function setBirthdayPreference(email, enabled){
   const headers = data[0];
   const emailCol = headers.indexOf('Email');
   const sendCol = headers.indexOf('Send Birthday?');
-  
   for (let i = 1; i < data.length; i++){
     if (String(data[i][emailCol]).toLowerCase() === String(email).toLowerCase()){
       sheet.getRange(i + 1, sendCol + 1).setValue(enabled);
@@ -344,45 +333,19 @@ function setBirthdayPreference(email, enabled){
    ============================================================ */
 function doGet(e){
   const action = e.parameter.action;
-  if (action === 'getDuesClientList'){
-    return jsonResponse({ clients: getDuesClientList() });
-  }
-  if (action === 'getBirthdayClientList'){
-    return jsonResponse({ clients: getBirthdayClientList() });
-  }
-  if (action === 'getDueToday'){
-    return jsonResponse({ rows: getDueTodayRows() });
-  }
-  if (action === 'getConfig'){
-    return jsonResponse({ config: getBrandConfig() });
-  }
-  if (action === 'getImagePreview'){
-    return jsonResponse(getImagePreviewData(e.parameter.target));
-  }
-  if (action === 'getDailyStats'){
-    return jsonResponse(getDailyStats());
-  }
-  if (action === 'getAdvisorProfile'){
-    return jsonResponse(getAdvisorProfile());
-  }
-  if (action === 'getProfileImagePreview'){
-    return jsonResponse(getProfileImagePreviewData());
-  }
-  if (action === 'getAutoSendStatus'){
-    return jsonResponse(getAutoSendStatus());
-  }
-  if (action === 'getBirthdaysToday'){
-    return jsonResponse({ rows: getBirthdaysTodayRows() });
-  }
-  if (action === 'getBirthdayDailyStats'){
-    return jsonResponse(getBirthdayDailyStats());
-  }
-  if (action === 'getBirthdayAutoSendStatus'){
-    return jsonResponse(getBirthdayAutoSendStatus());
-  }
-  if (action === 'getSendHour'){
-    return jsonResponse(getSendHour());
-  }
+  if (action === 'getDuesClientList')         return jsonResponse({ clients: getDuesClientList() });
+  if (action === 'getBirthdayClientList')     return jsonResponse({ clients: getBirthdayClientList() });
+  if (action === 'getDueToday')               return jsonResponse({ rows: getDueTodayRows() });
+  if (action === 'getConfig')                 return jsonResponse({ config: getBrandConfig() });
+  if (action === 'getImagePreview')           return jsonResponse(getImagePreviewData(e.parameter.target));
+  if (action === 'getDailyStats')             return jsonResponse(getDailyStats());
+  if (action === 'getAdvisorProfile')         return jsonResponse(getAdvisorProfile());
+  if (action === 'getProfileImagePreview')    return jsonResponse(getProfileImagePreviewData());
+  if (action === 'getAutoSendStatus')         return jsonResponse(getAutoSendStatus());
+  if (action === 'getBirthdaysToday')         return jsonResponse({ rows: getBirthdaysTodayRows() });
+  if (action === 'getBirthdayDailyStats')     return jsonResponse(getBirthdayDailyStats());
+  if (action === 'getBirthdayAutoSendStatus') return jsonResponse(getBirthdayAutoSendStatus());
+  if (action === 'getSendHour')               return jsonResponse(getSendHour());
   return jsonResponse({ error: 'Unknown action' });
 }
 
@@ -407,7 +370,6 @@ function getDueTodayRows(){
   const tz = Session.getScriptTimeZone();
   const todayStr = Utilities.formatDate(new Date(), tz, 'yyyy-MM-dd');
   const todayFormatted = Utilities.formatDate(new Date(), tz, 'MMMM d, yyyy');
-
   const result = [];
   for (let i = 1; i < data.length; i++){
     const row = data[i];
@@ -415,25 +377,15 @@ function getDueTodayRows(){
     const lastReminderSent = row[col('Last Reminder Sent')] || '';
     const lastSentStr = lastReminderSent ? String(lastReminderSent) : '';
     const wasSentToday = lastSentStr === todayStr;
-
     const dueDateStr = (dueDate instanceof Date) ? Utilities.formatDate(dueDate, tz, 'yyyy-MM-dd') : '';
     const isDueToday = dueDateStr === todayStr;
-
-    // Keep the row if it's still due today OR it was already reminded today.
-    // (sendDailyReminders() advances Due Date to the next cycle right after
-    // sending, so isDueToday alone would make a just-sent policy vanish from
-    // this list within the same day — wasSentToday keeps it visible, tagged,
-    // the same way the Birthdays Today list keeps showing greeted clients.)
     if (!isDueToday && !wasSentToday) continue;
-
     result.push({
       policyNumber: row[col('Policy Number')],
       clientName: row[col('Client Name')],
       product: row[col('Product')],
       premiumAmount: row[col('Premium Amount')],
       premiumMode: row[col('Premium Mode')],
-      // Always show "today" here, since this is the Due Today list — once
-      // sent, the cell itself has already moved to the next cycle's date.
       dueDateFormatted: isDueToday ? Utilities.formatDate(dueDate, tz, 'MMMM d, yyyy') : todayFormatted,
       lastReminderSent: lastSentStr
     });
@@ -443,68 +395,22 @@ function getDueTodayRows(){
 
 function doPost(e){
   let body;
-  try{
-    body = JSON.parse(e.postData.contents);
-  }catch(err){
-    return jsonResponse({ error: 'Invalid request body' });
-  }
+  try{ body = JSON.parse(e.postData.contents); }
+  catch(err){ return jsonResponse({ error: 'Invalid request body' }); }
 
-  if (body.action === 'setDuesPreference'){
-    return jsonResponse(setDuesPreference(body.policyNumber, body.enabled));
-  }
-  if (body.action === 'setBirthdayPreference'){
-    return jsonResponse(setBirthdayPreference(body.email, body.enabled));
-  }
-  if (body.action === 'saveConfig'){
-    saveBrandConfig(body.config || {});
-    return jsonResponse({ success: true });
-  }
-  if (body.action === 'uploadImage'){
-    const fileId = uploadBrandImage(body.target, body.base64, body.mimeType);
-    return jsonResponse({ success: true, fileId: fileId });
-  }
-  if (body.action === 'saveAdvisorName'){
-    saveAdvisorName(body.name || '');
-    return jsonResponse({ success: true });
-  }
-  if (body.action === 'uploadProfileImage'){
-    const fileId = uploadProfileImage(body.base64, body.mimeType);
-    return jsonResponse({ success: true, fileId: fileId });
-  }
-  if (body.action === 'setAutoSendStatus'){
-    setAutoSendStatus(!!body.enabled);
-    return jsonResponse({ success: true });
-  }
-  if (body.action === 'pushDues'){
-    const result = pushDuesRows(body.rows || []);
-    return jsonResponse(Object.assign({ success: true }, result));
-  }
-  if (body.action === 'pushBirthdays'){
-    const result = pushBirthdayRows(body.rows || []);
-    return jsonResponse(Object.assign({ success: true }, result));
-  }
-  if (body.action === 'setBirthdayAutoSendStatus'){
-    setBirthdayAutoSendStatus(!!body.enabled);
-    return jsonResponse({ success: true });
-  }
-  if (body.action === 'setSendHour'){
-    const result = setSendHour(body.hour);
-    return jsonResponse(Object.assign({ success: true }, result));
-  }
-  if (body.action === 'sendDuesTestEmail'){
-    try{
-      return jsonResponse(sendDuesTestEmailToSelf());
-    }catch(err){
-      return jsonResponse({ success: false, error: err.message });
-    }
-  }
-  if (body.action === 'sendBirthdayTestEmail'){
-    try{
-      return jsonResponse(sendBirthdayTestEmailToSelf());
-    }catch(err){
-      return jsonResponse({ success: false, error: err.message });
-    }
-  }
+  if (body.action === 'setDuesPreference')      return jsonResponse(setDuesPreference(body.policyNumber, body.enabled));
+  if (body.action === 'setBirthdayPreference')  return jsonResponse(setBirthdayPreference(body.email, body.enabled));
+  if (body.action === 'saveConfig')             { saveBrandConfig(body.config || {}); return jsonResponse({ success: true }); }
+  if (body.action === 'uploadImage')            { const fileId = uploadBrandImage(body.target, body.base64, body.mimeType); return jsonResponse({ success: true, fileId: fileId }); }
+  if (body.action === 'saveAdvisorName')        { saveAdvisorName(body.name || ''); return jsonResponse({ success: true }); }
+  if (body.action === 'uploadProfileImage')     { const fileId = uploadProfileImage(body.base64, body.mimeType); return jsonResponse({ success: true, fileId: fileId }); }
+  if (body.action === 'setAutoSendStatus')      { setAutoSendStatus(!!body.enabled); return jsonResponse({ success: true }); }
+  if (body.action === 'pushDues')               { const result = pushDuesRows(body.rows || []); return jsonResponse(Object.assign({ success: true }, result)); }
+  if (body.action === 'pushBirthdays')          { const result = pushBirthdayRows(body.rows || []); return jsonResponse(Object.assign({ success: true }, result)); }
+  if (body.action === 'setBirthdayAutoSendStatus') { setBirthdayAutoSendStatus(!!body.enabled); return jsonResponse({ success: true }); }
+  if (body.action === 'setSendHour')            { const result = setSendHour(body.hour); return jsonResponse(Object.assign({ success: true }, result)); }
+  if (body.action === 'sendDuesTestEmail')      { try{ return jsonResponse(sendDuesTestEmailToSelf()); }catch(err){ return jsonResponse({ success: false, error: err.message }); } }
+  if (body.action === 'sendBirthdayTestEmail')  { try{ return jsonResponse(sendBirthdayTestEmailToSelf()); }catch(err){ return jsonResponse({ success: false, error: err.message }); } }
 
   return jsonResponse({ error: 'Unknown action' });
 }
@@ -519,25 +425,18 @@ function jsonResponse(obj){
 function pushDuesRows(rows){
   setupSheet();
   const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_NAME);
-
   const data = sheet.getDataRange().getValues();
   const policyCol = HEADERS.indexOf('Policy Number');
   const lastReminderCol = HEADERS.indexOf('Last Reminder Sent');
-
   const existingRowByPolicy = {};
   for (let i = 1; i < data.length; i++){
     existingRowByPolicy[String(data[i][policyCol])] = i;
   }
-
   let added = 0, updated = 0;
   const newRows = [];
-
   rows.forEach(r => {
     const dueDateValue = r.dueDate ? new Date(r.dueDate) : '';
-    const rowValues = [
-      r.policyNumber, r.clientName, r.email, r.product,
-      r.premiumMode, r.premiumAmount, dueDateValue, r.policyStatus, '', true // empty Last Reminder Sent, default Send Dues? to true
-    ];
+    const rowValues = [r.policyNumber, r.clientName, r.email, r.product, r.premiumMode, r.premiumAmount, dueDateValue, r.policyStatus, '', true];
     const idx = existingRowByPolicy[String(r.policyNumber)];
     if (idx !== undefined){
       const lastReminderSent = data[idx][lastReminderCol];
@@ -551,34 +450,26 @@ function pushDuesRows(rows){
       added++;
     }
   });
-
   const fullData = data.concat(newRows);
   sheet.getRange(1, 1, fullData.length, HEADERS.length).setValues(fullData);
-
   return { added: added, updated: updated, total: rows.length };
 }
 
 function pushBirthdayRows(rows){
   setupBirthdaySheet();
   const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(BIRTHDAY_SHEET_NAME);
-
   const data = sheet.getDataRange().getValues();
   const emailCol = BIRTHDAY_HEADERS.indexOf('Email');
   const lastSentCol = BIRTHDAY_HEADERS.indexOf('Last Greeting Sent (Year)');
-
   const existingRowByEmail = {};
   for (let i = 1; i < data.length; i++){
     existingRowByEmail[String(data[i][emailCol]).toLowerCase()] = i;
   }
-
   let added = 0, updated = 0;
   const newRows = [];
-
   rows.forEach(r => {
     const dobValue = r.dateOfBirth ? new Date(r.dateOfBirth) : '';
-    const rowValues = [
-      r.fullName, r.email, r.contactNumber, r.location, dobValue, '', true // empty Last Greeting Sent, default Send Birthday? to true
-    ];
+    const rowValues = [r.fullName, r.email, r.contactNumber, r.location, dobValue, '', true];
     const idx = existingRowByEmail[String(r.email).toLowerCase()];
     if (idx !== undefined){
       const lastSent = data[idx][lastSentCol];
@@ -592,10 +483,8 @@ function pushBirthdayRows(rows){
       added++;
     }
   });
-
   const fullData = data.concat(newRows);
   sheet.getRange(1, 1, fullData.length, BIRTHDAY_HEADERS.length).setValues(fullData);
-
   return { added: added, updated: updated, total: rows.length };
 }
 
@@ -634,7 +523,6 @@ function countDueOnOffset(offsetDays){
   const targetDate = new Date();
   targetDate.setDate(targetDate.getDate() + offsetDays);
   const targetStr = Utilities.formatDate(targetDate, tz, 'yyyy-MM-dd');
-
   let count = 0;
   for (let i = 1; i < data.length; i++){
     const dueDate = data[i][col('Due Date')];
@@ -660,32 +548,21 @@ function sendDailyReminders(){
   const data = sheet.getDataRange().getValues();
   const headers = data[0];
   const col = name => headers.indexOf(name);
-
   const tz = Session.getScriptTimeZone();
   const todayStr = Utilities.formatDate(new Date(), tz, 'yyyy-MM-dd');
-
   for (let i = 1; i < data.length; i++){
     const row = data[i];
     const sendDues = row[col('Send Dues?')];
-    
-    // SKIP if Send Dues? is FALSE
     if (sendDues === false || sendDues === 'FALSE' || sendDues === 0 || sendDues === '0') continue;
-    
     const dueDate = row[col('Due Date')];
     if (!(dueDate instanceof Date)) continue;
-
     const dueDateStr = Utilities.formatDate(dueDate, tz, 'yyyy-MM-dd');
     const lastSent = row[col('Last Reminder Sent')];
     const lastSentStr = lastSent ? String(lastSent) : '';
-
     if (dueDateStr === todayStr && lastSentStr !== todayStr){
       let sent = false;
-      try{
-        sent = sendReminderEmail(row, col);
-      }catch(err){
-        bumpDailyStat('STAT_FAILED');
-        continue;
-      }
+      try{ sent = sendReminderEmail(row, col); }
+      catch(err){ bumpDailyStat('STAT_FAILED'); continue; }
       if (sent){
         bumpDailyStat('STAT_SENT');
         sheet.getRange(i + 1, col('Last Reminder Sent') + 1).setValue(todayStr);
@@ -698,27 +575,31 @@ function sendDailyReminders(){
 function sendReminderEmail(row, col){
   const email = row[col('Email')];
   if (!email) return false;
-
   const config = getBrandConfig();
   assertConfigured(config);
+
   const clientName = row[col('Client Name')];
   const product = row[col('Product')];
   const amount = row[col('Premium Amount')];
   const dueDate = row[col('Due Date')];
   const policyNumber = row[col('Policy Number')];
-
   const tz = Session.getScriptTimeZone();
   const subjectDate = Utilities.formatDate(dueDate, tz, 'MMMM d');
   const subject = 'PREMIUM DUE REMINDER - ' + subjectDate.toUpperCase();
   const htmlBody = buildReminderEmailHtml(clientName, policyNumber, product, amount, dueDate, config);
 
-  GmailApp.sendEmail(email, subject, '', {
+  // Build options \u2014 cc and replyTo are optional
+  const options = {
     htmlBody: htmlBody,
     name: config.senderName,
-    cc: config.contactEmail,
-    replyTo: config.contactEmail,
     inlineImages: getEmailImages(config)
-  });
+  };
+  if (config.contactEmail){
+    options.cc = config.contactEmail;
+    options.replyTo = config.contactEmail;
+  }
+
+  GmailApp.sendEmail(email, subject, '', options);
   return true;
 }
 
@@ -745,7 +626,6 @@ function buildReminderEmailHtml(clientName, policyNumber, product, amount, dueDa
   const formattedAmount = 'PHP ' + Number(amount).toLocaleString('en-PH', { minimumFractionDigits: 2 });
   const formattedDate = Utilities.formatDate(dueDate, tz, 'MMMM d, yyyy');
   const greetingName = formatClientName(clientName);
-
   return ''
     + '<div style="font-family:Arial,sans-serif;max-width:480px;margin:0 auto;border:1px solid #E7DFCF;border-radius:10px;overflow:hidden;">'
     + '  <img src="cid:headerImg" alt="Header" style="width:100%;display:block;">'
@@ -775,13 +655,11 @@ function buildReminderEmailHtml(clientName, policyNumber, product, amount, dueDa
 function advanceDueDate(sheet, rowNum, col, currentDueDate, premiumMode){
   const newDate = new Date(currentDueDate.getTime());
   const mode = (premiumMode || '').trim();
-
-  if (mode === 'Monthly') newDate.setMonth(newDate.getMonth() + 1);
-  else if (mode === 'Quarterly') newDate.setMonth(newDate.getMonth() + 3);
+  if (mode === 'Monthly')      newDate.setMonth(newDate.getMonth() + 1);
+  else if (mode === 'Quarterly')   newDate.setMonth(newDate.getMonth() + 3);
   else if (mode === 'Half-Yearly') newDate.setMonth(newDate.getMonth() + 6);
-  else if (mode === 'Yearly') newDate.setFullYear(newDate.getFullYear() + 1);
+  else if (mode === 'Yearly')      newDate.setFullYear(newDate.getFullYear() + 1);
   else return;
-
   sheet.getRange(rowNum, col('Due Date') + 1).setValue(newDate);
 }
 
@@ -790,14 +668,7 @@ function previewReminderEmail(){
   const config = getBrandConfig();
   assertConfigured(config);
   const sampleDueDate = new Date();
-  const htmlBody = buildReminderEmailHtml(
-    'Dela Cruz, Juan Miguel',
-    '0123456789',
-    'Sample Insurance Plan',
-    50000,
-    sampleDueDate,
-    config
-  );
+  const htmlBody = buildReminderEmailHtml('Dela Cruz, Juan Miguel', '0123456789', 'Sample Insurance Plan', 50000, sampleDueDate, config);
   const tz = Session.getScriptTimeZone();
   const subjectDate = Utilities.formatDate(sampleDueDate, tz, 'MMMM d');
   GmailApp.sendEmail(myEmail, 'PREVIEW, PREMIUM DUE REMINDER - ' + subjectDate.toUpperCase(), '', {
@@ -807,47 +678,28 @@ function previewReminderEmail(){
   });
 }
 
-// Called from the "CLIENT DUE REMINDER EMAIL TEST" button in the app.
-// Sends to config.contactEmail (not Session.getActiveUser()) because the
-// active user is unreliable from a Web App request context — contactEmail
-// is the advisor's own address, already required by assertConfigured().
+// Test email: sends to contactEmail if set, otherwise falls back to
+// the active user's email (which works fine in the Apps Script editor context).
 function sendDuesTestEmailToSelf(){
   const config = getBrandConfig();
   assertConfigured(config);
+  const recipient = Session.getEffectiveUser().getEmail();
+  if (!recipient) throw new Error('No email address available. Please set a Contact Email in Your Branding, then try again.');
   const sampleDueDate = new Date();
-  const htmlBody = buildReminderEmailHtml(
-    'Dela Cruz, Juan Miguel',
-    '0123456789',
-    'Sample Insurance Plan',
-    50000,
-    sampleDueDate,
-    config
-  );
-  const tz2 = Session.getScriptTimeZone();
-  const subjectDate2 = Utilities.formatDate(sampleDueDate, tz2, 'MMMM d');
-  GmailApp.sendEmail(config.contactEmail, 'TEST, PREMIUM DUE REMINDER - ' + subjectDate2.toUpperCase(), '', {
+  const htmlBody = buildReminderEmailHtml('Dela Cruz, Juan Miguel', '0123456789', 'Sample Insurance Plan', 50000, sampleDueDate, config);
+  const tz = Session.getScriptTimeZone();
+  const subjectDate = Utilities.formatDate(sampleDueDate, tz, 'MMMM d');
+  GmailApp.sendEmail(recipient, 'TEST, PREMIUM DUE REMINDER - ' + subjectDate.toUpperCase(), '', {
     htmlBody: htmlBody,
     name: config.senderName,
     inlineImages: getEmailImages(config)
   });
-  return { success: true, sentTo: config.contactEmail };
+  return { success: true, sentTo: recipient };
 }
 
 /* ============================================================
    BIRTHDAY GREETINGS
    ============================================================ */
-
-function assertConfiguredForBirthday(config){
-  const required = ['senderName','contactEmail','headerImageFileId','footerImageFileId'];
-  const missing = required.filter(key => !config[key]);
-  if (missing.length > 0){
-    throw new Error(
-      'Branding not set up yet. Open the app, tap "Setup", fill in ' +
-      '"Your branding" (missing: ' + missing.join(', ') + '), and tap ' +
-      'SAVE BRANDING before birthday greetings can be sent.'
-    );
-  }
-}
 
 function getBirthdaysTodayRows(){
   const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(BIRTHDAY_SHEET_NAME);
@@ -858,7 +710,6 @@ function getBirthdaysTodayRows(){
   const tz = Session.getScriptTimeZone();
   const today = new Date();
   const todayMonth = today.getMonth(), todayDay = today.getDate();
-
   const result = [];
   for (let i = 1; i < data.length; i++){
     const row = data[i];
@@ -886,7 +737,6 @@ function countBirthdaysOnOffset(offsetDays){
   const target = new Date();
   target.setDate(target.getDate() + offsetDays);
   const targetMonth = target.getMonth(), targetDay = target.getDate();
-
   let count = 0;
   for (let i = 1; i < data.length; i++){
     const dob = data[i][col('Date of Birth')];
@@ -912,32 +762,21 @@ function sendDailyBirthdayGreetings(){
   const data = sheet.getDataRange().getValues();
   const headers = data[0];
   const col = name => headers.indexOf(name);
-
   const today = new Date();
   const todayMonth = today.getMonth(), todayDay = today.getDate();
   const currentYearStr = String(today.getFullYear());
-
   for (let i = 1; i < data.length; i++){
     const row = data[i];
     const sendBday = row[col('Send Birthday?')];
-    
-    // SKIP if Send Birthday? is FALSE
     if (sendBday === false || sendBday === 'FALSE' || sendBday === 0 || sendBday === '0') continue;
-    
     const dob = row[col('Date of Birth')];
     if (!(dob instanceof Date)) continue;
     if (dob.getMonth() !== todayMonth || dob.getDate() !== todayDay) continue;
-
     const lastSentYear = String(row[col('Last Greeting Sent (Year)')] || '');
     if (lastSentYear === currentYearStr) continue;
-
     let sent = false;
-    try{
-      sent = sendBirthdayEmail(row, col);
-    }catch(err){
-      bumpDailyStat('BDAY_STAT_FAILED');
-      continue;
-    }
+    try{ sent = sendBirthdayEmail(row, col); }
+    catch(err){ bumpDailyStat('BDAY_STAT_FAILED'); continue; }
     if (sent){
       bumpDailyStat('BDAY_STAT_SENT');
       sheet.getRange(i + 1, col('Last Greeting Sent (Year)') + 1).setValue(currentYearStr);
@@ -948,21 +787,24 @@ function sendDailyBirthdayGreetings(){
 function sendBirthdayEmail(row, col){
   const email = row[col('Email')];
   if (!email) return false;
-
   const config = getBrandConfig();
   assertConfiguredForBirthday(config);
   const fullName = row[col('Full Name')];
-
   const subject = 'HAPPY BIRTHDAY FROM ' + (config.senderName || 'YOUR ADVISOR').toUpperCase() + '!';
   const htmlBody = buildBirthdayEmailHtml(fullName, config);
 
-  GmailApp.sendEmail(email, subject, '', {
+  // Build options \u2014 cc and replyTo are optional
+  const options = {
     htmlBody: htmlBody,
     name: config.senderName,
-    cc: config.contactEmail,
-    replyTo: config.contactEmail,
     inlineImages: getEmailImages(config)
-  });
+  };
+  if (config.contactEmail){
+    options.cc = config.contactEmail;
+    options.replyTo = config.contactEmail;
+  }
+
+  GmailApp.sendEmail(email, subject, '', options);
   return true;
 }
 
@@ -985,7 +827,6 @@ function buildBirthdayEmailHtml(fullName, config){
       + '      <a href="' + config.connectLink + '" style="display:inline-block;background:#C99A3B;color:#FFFFFF;text-decoration:none;padding:14px 30px;border-radius:8px;font-weight:700;font-size:14px;letter-spacing:.5px;">CONNECT WITH ME</a>'
       + '    </div>')
     : '';
-
   return ''
     + '<div style="font-family:Arial,sans-serif;max-width:480px;margin:0 auto;border:1px solid #E7DFCF;border-radius:10px;overflow:hidden;">'
     + '  <img src="cid:headerImg" alt="Header" style="width:100%;display:block;">'
@@ -1011,16 +852,18 @@ function previewBirthdayEmail(){
   });
 }
 
-// Called from the "CLIENT BIRTHDAY EMAIL TEST" button in the app.
-// Sends to config.contactEmail for the same reason as the dues test above.
+// Test email: sends to contactEmail if set, otherwise falls back to
+// the active user's email (works in the Apps Script editor context).
 function sendBirthdayTestEmailToSelf(){
   const config = getBrandConfig();
   assertConfiguredForBirthday(config);
+  const recipient = Session.getEffectiveUser().getEmail();
+  if (!recipient) throw new Error('No email address available. Please set a Contact Email in Your Branding, then try again.');
   const htmlBody = buildBirthdayEmailHtml('Juan Miguel Dela Cruz', config);
-  GmailApp.sendEmail(config.contactEmail, 'TEST \u2013 HAPPY BIRTHDAY GREETING', '', {
+  GmailApp.sendEmail(recipient, 'TEST \u2013 HAPPY BIRTHDAY GREETING', '', {
     htmlBody: htmlBody,
     name: config.senderName,
     inlineImages: getEmailImages(config)
   });
-  return { success: true, sentTo: config.contactEmail };
+  return { success: true, sentTo: recipient };
 }
