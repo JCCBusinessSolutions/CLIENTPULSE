@@ -1592,7 +1592,7 @@ input:checked + #studioSection .slider-toggle::before{transform:translateX(19px)
 
 <div class="topbar">
   <div class="topbar-row">
-  <button class="backBtn" id="backToClientPulseBtn" aria-label="Switch back to Client Pulse tab" title="Switch back to your Client Pulse tab" onclick="goBackToClientPulse()">
+  <button class="backBtn" id="backToClientPulseBtn" aria-label="Back to Client Pulse" title="Back to Client Pulse" onclick="closeHeaderFooterStudio()">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
   </button>
   <div class="logoMark">
@@ -1876,6 +1876,19 @@ function openHeaderFooterStudio(){
 function closeHeaderFooterStudio(){
   document.getElementById('studioSection').classList.remove('show');
 }
+
+// Belt-and-suspenders: wire the back button via addEventListener too,
+// since onclick attributes inside embedded sections can be unreliable
+// on iOS Safari — this runs after DOM is ready and is always safe.
+document.addEventListener('DOMContentLoaded', function(){
+  var btn = document.getElementById('backToClientPulseBtn');
+  if (btn){
+    btn.addEventListener('click', function(e){
+      e.preventDefault();
+      closeHeaderFooterStudio();
+    });
+  }
+});
 
 document.querySelectorAll('.sidebar-link[data-nav]').forEach(link => {
   link.addEventListener('click', () => {
@@ -2273,6 +2286,55 @@ async function callBackend(payload){
   return res.json();
 }
 
+// Splits a flat array into chunks of at most `size` items each.
+function chunkArray(arr, size){
+  const chunks = [];
+  for (let i = 0; i < arr.length; i += size){
+    chunks.push(arr.slice(i, i + size));
+  }
+  return chunks;
+}
+
+// Pushes a large set of rows to the backend in sequential batches instead
+// of one giant request. Apps Script Web Apps (doPost) hard-cap execution
+// at 30 seconds — a single request carrying thousands of rows (reading the
+// whole sheet, merging in memory, writing back) can blow past that and
+// fail with "Failed to fetch" even though nothing is actually broken.
+// Batching keeps each individual request small and fast, so this scales
+// to any number of clients — it just takes more round trips, not more risk.
+// `action` is 'pushDues' or 'pushBirthdays'. `onProgress(doneCount, totalCount, batchIndex, batchCount)`
+// is called after each batch so the UI can show live progress.
+async function pushRowsInBatches(action, rows, onProgress, batchSize){
+  batchSize = batchSize || 300;
+  const batches = chunkArray(rows, batchSize);
+  let added = 0, updated = 0, done = 0;
+
+  for (let i = 0; i < batches.length; i++){
+    const batch = batches[i];
+    let result;
+    try{
+      result = await callBackend({ action: action, rows: batch });
+    }catch(err){
+      // Surface exactly how far we got before failing, so a retry or
+      // support request isn't starting blind — rows already pushed in
+      // earlier batches are already saved in the sheet, nothing is lost.
+      const progressErr = new Error(
+        'Stopped after ' + done + ' of ' + rows.length + ' rows ' +
+        '(already saved — safe to try again, it will only add what\u2019s left). ' +
+        'Original error: ' + err.message
+      );
+      progressErr.partial = { added, updated, done, total: rows.length };
+      throw progressErr;
+    }
+    added += result.added || 0;
+    updated += result.updated || 0;
+    done += batch.length;
+    if (onProgress) onProgress(done, rows.length, i + 1, batches.length);
+  }
+
+  return { added: added, updated: updated, total: rows.length };
+}
+
 async function fetchSendHour(){
   const url = getScriptUrl();
   if (!url) return null;
@@ -2596,7 +2658,9 @@ el('parseBtn').addEventListener('click', async () => {
     }
 
     showStatus('mainStatus','info','Pushing ' + rows.length + ' policies to your Dues Tracker…');
-    const result = await callBackend({ action:'pushDues', rows });
+    const result = await pushRowsInBatches('pushDues', rows, (done, total) => {
+      showStatus('mainStatus','info','Pushing ' + done + ' of ' + total + ' policies to your Dues Tracker…');
+    });
 
     showStatus('mainStatus','success','Done. Your Dues Tracker is up to date.');
     el('summary').style.display = 'grid';
@@ -3098,7 +3162,9 @@ el('birthdayParseBtn').addEventListener('click', async () => {
     }
 
     showStatus('birthdayMainStatus','info','Pushing ' + rows.length + ' clients to your Birthday Tracker…');
-    const result = await callBackend({ action:'pushBirthdays', rows });
+    const result = await pushRowsInBatches('pushBirthdays', rows, (done, total) => {
+      showStatus('birthdayMainStatus','info','Pushing ' + done + ' of ' + total + ' clients to your Birthday Tracker…');
+    });
 
     showStatus('birthdayMainStatus','success','Done. Your Birthday Tracker is up to date.');
     el('birthdaySummary').style.display = 'grid';
@@ -4282,10 +4348,6 @@ let hasExportedThisSession = false;
      auto-dismiss them, which made the back button look stuck).
 ========================================================= */
 function goBackToClientPulse(){
-  if (!hasExportedThisSession){
-    document.getElementById('leaveModalOverlay').classList.add('show');
-    return;
-  }
   leaveStudioNow();
 }
 
@@ -4299,7 +4361,6 @@ function confirmLeaveStudio(){
 }
 
 function leaveStudioNow(){
-  // Studio is now embedded directly in the same page — just hide the section
   if (typeof closeHeaderFooterStudio === 'function'){
     closeHeaderFooterStudio();
   }
