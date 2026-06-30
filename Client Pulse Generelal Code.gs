@@ -588,7 +588,7 @@ function sendReminderEmail(row, col){
   const subject = 'PREMIUM DUE REMINDER - ' + subjectDate.toUpperCase();
   const htmlBody = buildReminderEmailHtml(clientName, policyNumber, product, amount, dueDate, config);
 
-  // Build options \u2014 cc and replyTo are optional
+  // Build options \u2014 cc, replyTo, and from-alias are all optional
   const options = {
     htmlBody: htmlBody,
     name: config.senderName,
@@ -598,9 +598,30 @@ function sendReminderEmail(row, col){
     options.cc = config.contactEmail;
     options.replyTo = config.contactEmail;
   }
-
-  GmailApp.sendEmail(email, subject, '', options);
+  sendWithOptionalFromAlias(email, subject, options, config.contactEmail);
   return true;
+}
+
+// Sends via GmailApp, using contactEmail as the visible "From" address
+// if it's set up as a verified "Send mail as" alias in the deploying
+// account's Gmail settings (Settings > Accounts and Import > Send mail
+// as). This is what hides a personal Gmail address from clients \u2014
+// without a verified alias, GmailApp.sendEmail() throws "Invalid from
+// address", so this always falls back to the account's own address if
+// the alias send fails for any reason (not yet verified, removed, etc.),
+// rather than letting the whole reminder/test silently fail.
+function sendWithOptionalFromAlias(to, subject, options, fromAlias){
+  if (fromAlias){
+    try{
+      const aliasOptions = Object.assign({}, options, { from: fromAlias });
+      GmailApp.sendEmail(to, subject, '', aliasOptions);
+      return;
+    }catch(err){
+      // Alias not verified (or any other from-related failure) \u2014
+      // fall through and send normally below instead of failing outright.
+    }
+  }
+  GmailApp.sendEmail(to, subject, '', options);
 }
 
 function getEmailImages(config){
@@ -683,17 +704,21 @@ function previewReminderEmail(){
 function sendDuesTestEmailToSelf(){
   const config = getBrandConfig();
   assertConfigured(config);
-  const recipient = Session.getEffectiveUser().getEmail();
-  if (!recipient) throw new Error('No email address available. Please set a Contact Email in Your Branding, then try again.');
+  // Session.getEffectiveUser().getEmail() needs the userinfo.email scope,
+  // which some Workspace policies (e.g. Sun Life's) block outright \u2014
+  // even though it works fine for personal Gmail deployments. Using
+  // contactEmail directly sidesteps that scope entirely.
+  const recipient = config.contactEmail;
+  if (!recipient) throw new Error('Please set a Contact Email in Your Branding first, then try the test email again.');
   const sampleDueDate = new Date();
   const htmlBody = buildReminderEmailHtml('Dela Cruz, Juan Miguel', '0123456789', 'Sample Insurance Plan', 50000, sampleDueDate, config);
   const tz = Session.getScriptTimeZone();
   const subjectDate = Utilities.formatDate(sampleDueDate, tz, 'MMMM d');
-  GmailApp.sendEmail(recipient, 'TEST, PREMIUM DUE REMINDER - ' + subjectDate.toUpperCase(), '', {
+  sendWithOptionalFromAlias(recipient, 'TEST, PREMIUM DUE REMINDER - ' + subjectDate.toUpperCase(), {
     htmlBody: htmlBody,
     name: config.senderName,
     inlineImages: getEmailImages(config)
-  });
+  }, config.contactEmail);
   return { success: true, sentTo: recipient };
 }
 
@@ -803,8 +828,7 @@ function sendBirthdayEmail(row, col){
     options.cc = config.contactEmail;
     options.replyTo = config.contactEmail;
   }
-
-  GmailApp.sendEmail(email, subject, '', options);
+  sendWithOptionalFromAlias(email, subject, options, config.contactEmail);
   return true;
 }
 
@@ -857,13 +881,15 @@ function previewBirthdayEmail(){
 function sendBirthdayTestEmailToSelf(){
   const config = getBrandConfig();
   assertConfiguredForBirthday(config);
-  const recipient = Session.getEffectiveUser().getEmail();
-  if (!recipient) throw new Error('No email address available. Please set a Contact Email in Your Branding, then try again.');
+  // Same scope restriction as the dues test email \u2014 use contactEmail
+  // directly instead of Session.getEffectiveUser().
+  const recipient = config.contactEmail;
+  if (!recipient) throw new Error('Please set a Contact Email in Your Branding first, then try the test email again.');
   const htmlBody = buildBirthdayEmailHtml('Juan Miguel Dela Cruz', config);
-  GmailApp.sendEmail(recipient, 'TEST \u2013 HAPPY BIRTHDAY GREETING', '', {
+  sendWithOptionalFromAlias(recipient, 'TEST \u2013 HAPPY BIRTHDAY GREETING', {
     htmlBody: htmlBody,
     name: config.senderName,
     inlineImages: getEmailImages(config)
-  });
+  }, config.contactEmail);
   return { success: true, sentTo: recipient };
 }
