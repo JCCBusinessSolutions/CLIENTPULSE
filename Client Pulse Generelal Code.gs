@@ -850,7 +850,7 @@ function previewBirthdayEmail(){
   const config = getBrandConfig();
   assertConfiguredForBirthday(config);
   const htmlBody = buildBirthdayEmailHtml('Juan Miguel Dela Cruz', config);
-  GmailApp.sendEmail(myEmail, 'PREVIEW \u2013 HAPPY BIRTHDAY, JUAN!', '', {
+  GmailApp.sendEmail(myEmail, 'HAPPY BIRTHDAY, ' + firstNameOnly('Juan Miguel Dela Cruz').toUpperCase() + '!', '', {
     htmlBody: htmlBody,
     name: config.senderName,
     inlineImages: getEmailImages(config)
@@ -863,7 +863,7 @@ function sendBirthdayTestEmailToSelf(){
   const recipient = config.contactEmail;
   if (!recipient) throw new Error('Please set a Contact Email in Your Branding first, then try the test email again.');
   const htmlBody = buildBirthdayEmailHtml('Juan Miguel Dela Cruz', config);
-  sendWithOptionalFromAlias(recipient, 'TEST \u2013 HAPPY BIRTHDAY, JUAN!', {
+  sendWithOptionalFromAlias(recipient, 'HAPPY BIRTHDAY, ' + firstNameOnly('Juan Miguel Dela Cruz').toUpperCase() + '!', {
     htmlBody: htmlBody,
     name: config.senderName,
     inlineImages: getEmailImages(config)
