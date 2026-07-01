@@ -3509,7 +3509,7 @@ el('previewBirthdayEmailBtn').addEventListener('click', async () => {
     const senderName = el('brandSenderName').value.trim() || '(sender name not set)';
     el('birthdayPreviewMeta').innerHTML =
       'From: ' + senderName + '<br>' +
-      'Subject: HAPPY BIRTHDAY, [CLIENT FIRST NAME]!';
+      'Subject: HAPPY BIRTHDAY, JUAN!';
     el('birthdayPreviewEmailBody').innerHTML = buildBirthdayPreviewEmailHtml(headerSrc, footerSrc);
     el('birthdayEmailPreviewContainer').style.display = 'block';
   }finally{
