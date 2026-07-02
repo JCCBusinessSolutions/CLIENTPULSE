@@ -2567,13 +2567,29 @@ el('saveScriptUrl').addEventListener('click', () => {
    On page load, if ?s= is present it's decoded and loaded
    automatically — no manual Setup URL entry needed.
    ============================================================ */
+// Standard base64 (btoa/atob) produces +, /, and = characters that are
+// NOT safe inside a URL query parameter — Safari, Messages, Viber, and
+// other apps can mangle or auto-"fix" these characters when a link is
+// pasted or tapped, silently breaking the encoded value. Converting to
+// URL-safe base64 (base64url: - instead of +, _ instead of /, no =
+// padding) avoids this entirely, since those three characters are safe
+// in a URL everywhere, in every context.
+function toBase64Url(b64){
+  return b64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+function fromBase64Url(b64url){
+  let b64 = b64url.replace(/-/g, '+').replace(/_/g, '/');
+  while (b64.length % 4 !== 0){ b64 += '='; }
+  return b64;
+}
+
 function encodeSetupUrl(url){
-  try{ return btoa(encodeURIComponent(url)); }
+  try{ return toBase64Url(btoa(encodeURIComponent(url))); }
   catch(e){ return null; }
 }
 
 function decodeSetupUrl(encoded){
-  try{ return decodeURIComponent(atob(encoded)); }
+  try{ return decodeURIComponent(atob(fromBase64Url(encoded))); }
   catch(e){ return null; }
 }
 
@@ -2652,7 +2668,11 @@ el('sharePersonalLinkBtn').addEventListener('click', () => {
     const encoded = params.get('s');
     if (!encoded) return;
     const decoded = decodeSetupUrl(encoded);
-    if (!decoded || !decoded.startsWith('https://script.google.com')) return;
+    if (!decoded || !decoded.startsWith('https://script.google.com')){
+      showToast('This personal link looks corrupted \u2014 please generate a new one from Settings.');
+      window.history.replaceState({}, document.title, window.location.href.split('?')[0]);
+      return;
+    }
     const existing = localStorage.getItem('duesTrackerScriptUrl');
     if (!existing){
       persistScriptUrl(decoded);
