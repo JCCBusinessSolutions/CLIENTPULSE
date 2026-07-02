@@ -1546,6 +1546,27 @@ input:checked + #studioSection .slider-toggle::before{transform:translateX(19px)
         <div class="status" id="configStatus"></div>
       </div>
 
+      <div class="card" id="personalLinkCard" style="display:none;">
+        <h2>Your Personal Link</h2>
+        <p class="sub">Want to open Client Pulse on your phone like a real app? Copy this link, paste it in your mobile browser, tap <strong>Share → Add to Home Screen</strong> — voilà, it's on your home screen!</p>
+        <div id="personalLinkBox" style="background:var(--cream,#FDF8F0);border:1px dashed var(--gold,#C99A3B);border-radius:10px;padding:12px 14px;font-size:11px;font-family:monospace;word-break:break-all;color:var(--navy,#0C447C);margin-bottom:12px;line-height:1.6;">
+          — save your Setup URL first to generate this link —
+        </div>
+        <div class="row" style="gap:8px;">
+          <button class="btn-gold" id="copyPersonalLinkBtn" disabled style="flex:1;">COPY LINK</button>
+          <button class="btn-ghost" id="sharePersonalLinkBtn" disabled style="flex:1;">SHARE / SAVE</button>
+        </div>
+        <div class="status" id="personalLinkStatus"></div>
+        <div style="margin-top:14px;background:var(--cream,#FDF8F0);border-radius:8px;padding:12px 14px;font-size:11px;color:#6B7280;line-height:1.6;">
+          <strong style="color:var(--navy,#0C447C);display:block;margin-bottom:6px;">How to add to your phone's home screen:</strong>
+          <div style="margin-bottom:4px;">1. Tap <strong>COPY LINK</strong> above.</div>
+          <div style="margin-bottom:4px;">2. Open <strong>Safari</strong> (iPhone) or <strong>Chrome</strong> (Android) and paste the link.</div>
+          <div style="margin-bottom:4px;">3. Tap the <strong>Share</strong> button → <strong>Add to Home Screen</strong> → <strong>Add</strong>.</div>
+          <div style="margin-bottom:4px;">4. Done! Open it from your home screen — your setup loads automatically, just log in.</div>
+          <div style="margin-top:8px;padding-top:8px;border-top:1px solid var(--line,#E4DCC8);color:#EB5757;font-size:10.5px;">⚠ Keep this link private — anyone with it can access your Client Pulse data.</div>
+        </div>
+      </div>
+
       <div class="card" id="brandingCard" style="display:none;">
         <h2>Your Branding</h2>
         <p class="sub">Personalize the emails clients receive — no code editing needed. Each advisor's own Apps Script saves their own values separately.</p>
@@ -2510,6 +2531,7 @@ el('toggleConfig').addEventListener('click', () => {
   const dt = el('duesTestEmailCard');
   const bp = el('birthdayPreviewCard');
   const bt = el('birthdayTestEmailCard');
+  const pl = el('personalLinkCard');
   const show = c.style.display === 'none';
   c.style.display = show ? 'block' : 'none';
   b.style.display = show ? 'block' : 'none';
@@ -2519,6 +2541,7 @@ el('toggleConfig').addEventListener('click', () => {
   dt.style.display = show ? 'block' : 'none';
   bp.style.display = show ? 'block' : 'none';
   bt.style.display = show ? 'block' : 'none';
+  pl.style.display = show ? 'block' : 'none';
 });
 
 el('saveScriptUrl').addEventListener('click', () => {
@@ -2531,7 +2554,117 @@ el('saveScriptUrl').addEventListener('click', () => {
   fetchSendHour().then(hour => populateSendHour(hour));
   loadDueToday();
   loadDailyStats();
+  refreshPersonalLink();
 });
+
+/* ============================================================
+   PERSONAL LINK — encode the Setup URL into a shareable
+   bookmark link so advisors can open Client Pulse on any
+   device without re-typing their Setup URL.
+
+   Encoding: btoa(encodeURIComponent(url)) — base64
+   The encoded value is appended as ?s=<value>.
+   On page load, if ?s= is present it's decoded and loaded
+   automatically — no manual Setup URL entry needed.
+   ============================================================ */
+function encodeSetupUrl(url){
+  try{ return btoa(encodeURIComponent(url)); }
+  catch(e){ return null; }
+}
+
+function decodeSetupUrl(encoded){
+  try{ return decodeURIComponent(atob(encoded)); }
+  catch(e){ return null; }
+}
+
+function getPersonalLink(setupUrl){
+  const encoded = encodeSetupUrl(setupUrl);
+  if (!encoded) return null;
+  const base = window.location.href.split('?')[0].split('#')[0];
+  return base + '?s=' + encoded;
+}
+
+function refreshPersonalLink(){
+  const url = getScriptUrl();
+  const box = el('personalLinkBox');
+  const copyBtn = el('copyPersonalLinkBtn');
+  const shareBtn = el('sharePersonalLinkBtn');
+  if (!url){
+    box.textContent = '— save your Setup URL first to generate this link —';
+    copyBtn.disabled = true;
+    shareBtn.disabled = true;
+    return;
+  }
+  const link = getPersonalLink(url);
+  if (!link){
+    box.textContent = '— could not generate link, check your Setup URL —';
+    copyBtn.disabled = true;
+    shareBtn.disabled = true;
+    return;
+  }
+  box.textContent = link;
+  copyBtn.disabled = false;
+  shareBtn.disabled = false;
+}
+
+el('copyPersonalLinkBtn').addEventListener('click', () => {
+  const link = el('personalLinkBox').textContent;
+  if (!link || link.startsWith('\u2014')) return;
+  navigator.clipboard.writeText(link).then(() => {
+    showStatus('personalLinkStatus','success','Link copied to clipboard!');
+    setTimeout(() => showStatus('personalLinkStatus','',''), 2500);
+  }).catch(() => {
+    const ta = document.createElement('textarea');
+    ta.value = link;
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.focus();
+    ta.select();
+    try{ document.execCommand('copy'); showStatus('personalLinkStatus','success','Link copied!'); }
+    catch(e){ showStatus('personalLinkStatus','error','Could not copy — please copy the link manually.'); }
+    document.body.removeChild(ta);
+    setTimeout(() => showStatus('personalLinkStatus','',''), 2500);
+  });
+});
+
+el('sharePersonalLinkBtn').addEventListener('click', () => {
+  const link = el('personalLinkBox').textContent;
+  if (!link || link.startsWith('\u2014')) return;
+  if (navigator.share){
+    navigator.share({
+      title: 'My Client Pulse Link',
+      text: 'Open Client Pulse with my setup already connected:',
+      url: link
+    }).catch(() => {});
+  } else {
+    navigator.clipboard.writeText(link).then(() => {
+      showStatus('personalLinkStatus','success','Link copied — Web Share not available on this device.');
+      setTimeout(() => showStatus('personalLinkStatus','',''), 3000);
+    });
+  }
+});
+
+// On page load: if ?s= is in the URL, decode and auto-load Setup URL.
+(function loadSetupUrlFromQueryParam(){
+  try{
+    const params = new URLSearchParams(window.location.search);
+    const encoded = params.get('s');
+    if (!encoded) return;
+    const decoded = decodeSetupUrl(encoded);
+    if (!decoded || !decoded.startsWith('https://script.google.com')) return;
+    const existing = localStorage.getItem('duesTrackerScriptUrl');
+    if (!existing){
+      persistScriptUrl(decoded);
+      el('scriptUrl').value = decoded;
+      el('scriptUrl').dataset.value = decoded;
+      updateSetupBlinkState();
+      showToast('Setup URL loaded from your personal link \u2014 you\'re connected!');
+    }
+    // Clean ?s= from address bar without reload
+    window.history.replaceState({}, document.title, window.location.href.split('?')[0]);
+  }catch(e){}
+})();
 
 el('saveBranding').addEventListener('click', async () => {
   const config = {
@@ -2947,6 +3080,7 @@ loadDueToday();
 loadDailyStats();
 fetchBrandConfig().then(config => populateBrandingFields(config));
 fetchSendHour().then(hour => populateSendHour(hour));
+refreshPersonalLink();
 
 </script>
 
