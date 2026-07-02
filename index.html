@@ -2583,14 +2583,41 @@ function fromBase64Url(b64url){
   return b64;
 }
 
+// Every Apps Script Web App URL follows the exact same shape:
+//   https://script.google.com/macros/s/<SCRIPT_ID>/exec
+// Encoding the whole URL wastes ~45 characters re-encoding text that's
+// identical for every advisor. Stripping this fixed prefix/suffix before
+// encoding — and encoding only the variable script ID — roughly halves
+// the link length, which matters a lot for apps like Messenger that
+// visually truncate long URLs in chat bubbles (the actual cause of
+// links failing to open correctly when copied from a truncated bubble).
+const SETUP_URL_PREFIX = 'https://script.google.com/macros/s/';
+const SETUP_URL_SUFFIX = '/exec';
+
 function encodeSetupUrl(url){
-  try{ return toBase64Url(btoa(encodeURIComponent(url))); }
-  catch(e){ return null; }
+  try{
+    let core = url;
+    if (core.startsWith(SETUP_URL_PREFIX)) core = core.slice(SETUP_URL_PREFIX.length);
+    if (core.endsWith(SETUP_URL_SUFFIX)) core = core.slice(0, -SETUP_URL_SUFFIX.length);
+    // btoa works directly on the script ID (plain alphanumeric + -/_),
+    // no need for encodeURIComponent first since there are no special
+    // characters left once the fixed URL parts are stripped.
+    return toBase64Url(btoa(core));
+  }catch(e){ return null; }
 }
 
 function decodeSetupUrl(encoded){
-  try{ return decodeURIComponent(atob(fromBase64Url(encoded))); }
-  catch(e){ return null; }
+  try{
+    const core = atob(fromBase64Url(encoded));
+    // Real Google Apps Script deployment IDs always start with "AKfycb"
+    // and run 40+ characters. If a link got visually truncated by a chat
+    // app before it was copied, atob() often still succeeds (it just
+    // decodes fewer bytes) — checking both the prefix and a realistic
+    // minimum length catches that case instead of silently loading a
+    // broken URL.
+    if (core.length < 40 || !core.startsWith('AKfycb')) return null;
+    return SETUP_URL_PREFIX + core + SETUP_URL_SUFFIX;
+  }catch(e){ return null; }
 }
 
 function getPersonalLink(setupUrl){
