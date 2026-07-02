@@ -4087,6 +4087,14 @@ function hideGate() {
     document.getElementById('gateScreen').style.zIndex = '10';
     document.getElementById('gateScreen').style.display = 'none';
     document.body.classList.add('cp-authed');
+    // Re-run all data fetches after login completes — necessary on new
+    // devices where the Setup URL was just decoded from the personal link
+    // (?s= param) and wasn't available during the initial page-load fetch.
+    loadDueToday();
+    loadDailyStats();
+    fetchBrandConfig().then(config => populateBrandingFields(config));
+    fetchSendHour().then(hour => populateSendHour(hour));
+    refreshPersonalLink();
   } catch (e) {
     var emailError = document.getElementById('emailError');
     if (emailError) emailError.textContent = 'Something went wrong unlocking the dashboard: ' + e.message;
