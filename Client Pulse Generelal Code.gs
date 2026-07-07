@@ -21,6 +21,172 @@ const CONFIG_DEFAULTS = {
 };
 const CONFIG_KEYS = Object.keys(CONFIG_DEFAULTS);
 
+/* ============================================================
+   ADVISOR ACTIVITY / HARD-STOP CHECK
+   ------------------------------------------------------------
+   Every real upload (pushDuesRows or pushBirthdayRows) stamps
+   LAST_UPLOAD_TIMESTAMP. If more than INACTIVITY_LIMIT_DAYS pass
+   without a fresh upload, the advisor is considered inactive and
+   the script hard-stops: doGet/doPost refuse every action except
+   the ones needed to let them reactivate (uploading new data, or
+   checking their own status), and the time-triggered senders
+   (daily dues reminders, birthday greetings) skip themselves
+   entirely so nothing sends on a stale account.
+   ============================================================ */
+const INACTIVITY_LIMIT_DAYS = 90;
+
+// Actions allowed to run even while hard-stopped. Uploading is
+// deliberately included — it's the only way to self-reactivate — and
+// the status/branding reads are included so the app can render a clear
+// "you're locked out, upload to continue" screen instead of a raw error.
+const ACTIONS_EXEMPT_FROM_HARD_STOP = [
+  'pushDues', 'pushBirthdays', 'getAdvisorActiveStatus', 'getConfig', 'getAdvisorProfile', 'getProfileImagePreview'
+];
+
+function recordUploadActivity(){
+  PropertiesService.getScriptProperties().setProperty('LAST_UPLOAD_TIMESTAMP', new Date().toISOString());
+}
+
+// Returns the activity status. If no upload has ever been recorded,
+// falls back to a stamped first-run install date (set on first call)
+// so a brand-new deployment gets a full grace period rather than
+// looking instantly stale.
+function getAdvisorActiveStatus(){
+  const props = PropertiesService.getScriptProperties();
+  let lastUpload = props.getProperty('LAST_UPLOAD_TIMESTAMP');
+  if (!lastUpload){
+    let installedAt = props.getProperty('FIRST_INSTALL_TIMESTAMP');
+    if (!installedAt){
+      installedAt = new Date().toISOString();
+      props.setProperty('FIRST_INSTALL_TIMESTAMP', installedAt);
+    }
+    lastUpload = installedAt;
+  }
+  const daysSince = (Date.now() - new Date(lastUpload).getTime()) / (24 * 60 * 60 * 1000);
+  return {
+    active: daysSince <= INACTIVITY_LIMIT_DAYS,
+    lastUploadTimestamp: lastUpload,
+    daysSinceLastUpload: Math.floor(daysSince),
+    daysUntilLock: Math.max(0, Math.ceil(INACTIVITY_LIMIT_DAYS - daysSince))
+  };
+}
+
+function isAdvisorActive(){
+  return getAdvisorActiveStatus().active;
+}
+
+/* ============================================================
+   AUTO-CLEAR CLIENT DATA AFTER 90 DAYS OF INACTIVITY
+   ------------------------------------------------------------
+   Runs once a day (installed alongside the other daily triggers —
+   see createInactivityPurgeTrigger). If it's been exactly
+   INACTIVITY_LIMIT_DAYS or more since the last real upload, every
+   stored client record (Dues Tracker, Birthday Tracker) is wiped —
+   but a CSV snapshot is saved to Drive first, and the advisor is
+   emailed a notice, so this is never a silent, unrecoverable
+   surprise. Guarded so it only fires once per inactivity stretch: a
+   fresh upload resets LAST_UPLOAD_TIMESTAMP, which automatically
+   re-arms it for the next 90-day window.
+   ============================================================ */
+function purgeInactiveClientData(){
+  const status = getAdvisorActiveStatus();
+  if (status.daysSinceLastUpload < INACTIVITY_LIMIT_DAYS) return; // not due yet
+
+  const props = PropertiesService.getScriptProperties();
+  if (props.getProperty('LAST_PURGE_BASELINE') === status.lastUploadTimestamp){
+    return; // already purged for this inactivity stretch
+  }
+
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const summary = { duesCleared: 0, birthdaysCleared: 0, backupFileUrl: null };
+
+  try{
+    summary.backupFileUrl = backupClientDataToDrive(ss);
+  }catch(e){
+    // Backup failing should never block the purge itself — 90 days of
+    // inactivity means data minimization takes priority.
+  }
+
+  summary.duesCleared      = clearSheetDataRows(ss, SHEET_NAME, HEADERS.length);
+  summary.birthdaysCleared = clearSheetDataRows(ss, BIRTHDAY_SHEET_NAME, BIRTHDAY_HEADERS.length);
+
+  props.setProperty('LAST_PURGE_BASELINE', status.lastUploadTimestamp);
+  props.setProperty('LAST_PURGE_TIMESTAMP', new Date().toISOString());
+
+  notifyAdvisorOfPurge(summary);
+  return summary;
+}
+
+// Clears every data row below the header in a sheet (leaves the header
+// and the sheet itself intact). Returns how many rows were cleared.
+function clearSheetDataRows(ss, sheetName, numCols){
+  const sheet = ss.getSheetByName(sheetName);
+  if (!sheet) return 0;
+  const lastRow = sheet.getLastRow();
+  if (lastRow <= 1) return 0; // header only (or empty) — nothing to clear
+  const clearedCount = lastRow - 1;
+  sheet.getRange(2, 1, clearedCount, numCols).clearContent();
+  return clearedCount;
+}
+
+// Snapshots the Dues Tracker and Birthday Tracker sheets to a single
+// timestamped CSV in a "Client Pulse Purge Backups" Drive folder,
+// right before they get wiped. Returns the backup file's URL, or null
+// if there was nothing worth backing up.
+function backupClientDataToDrive(ss){
+  const folderName = 'Client Pulse Purge Backups';
+  const existingFolders = DriveApp.getFoldersByName(folderName);
+  const folder = existingFolders.hasNext() ? existingFolders.next() : DriveApp.createFolder(folderName);
+  const tz = Session.getScriptTimeZone();
+  const stamp = Utilities.formatDate(new Date(), tz, 'yyyy-MM-dd_HHmm');
+
+  const duesSheet = ss.getSheetByName(SHEET_NAME);
+  const bdaySheet = ss.getSheetByName(BIRTHDAY_SHEET_NAME);
+  let csv = '';
+  if (duesSheet && duesSheet.getLastRow() > 1){
+    csv += 'DUES TRACKER\n' + sheetToCsv(duesSheet) + '\n\n';
+  }
+  if (bdaySheet && bdaySheet.getLastRow() > 1){
+    csv += 'BIRTHDAY TRACKER\n' + sheetToCsv(bdaySheet) + '\n';
+  }
+  if (!csv) return null;
+  const file = folder.createFile('client_pulse_backup_' + stamp + '.csv', csv, MimeType.CSV);
+  return file.getUrl();
+}
+
+function sheetToCsv(sheet){
+  const data = sheet.getDataRange().getValues();
+  const tz = Session.getScriptTimeZone();
+  return data.map(row => row.map(cell => {
+    if (cell instanceof Date) return Utilities.formatDate(cell, tz, 'yyyy-MM-dd');
+    const s = String(cell == null ? '' : cell);
+    return '"' + s.replace(/"/g, '""') + '"';
+  }).join(',')).join('\n');
+}
+
+// contactEmail (not getActiveUser/getEffectiveUser) is used deliberately
+// here — this runs from a time-driven trigger, and some Workspace
+// policies (e.g. Sun Life's) block the scope those need. contactEmail
+// sidesteps that entirely.
+function notifyAdvisorOfPurge(summary){
+  try{
+    const config = getBrandConfig();
+    const recipient = config.contactEmail;
+    if (!recipient) return; // nowhere configured to send it
+    const body =
+      'This is an automated notice from Client Pulse.\n\n' +
+      'No client data has been uploaded in ' + INACTIVITY_LIMIT_DAYS + ' days, so all stored client information has been automatically cleared:\n\n' +
+      '- Dues Tracker: ' + summary.duesCleared + ' row(s) cleared\n' +
+      '- Birthday Tracker: ' + summary.birthdaysCleared + ' row(s) cleared\n\n' +
+      (summary.backupFileUrl ? ('A backup was saved before deletion, in case you need it back:\n' + summary.backupFileUrl + '\n\n') : '') +
+      'Upload a new client list anytime to reactivate the app and start fresh.';
+    GmailApp.sendEmail(recipient, 'Client Pulse: client data auto-cleared (90 days inactive)', body);
+  }catch(e){
+    // A failed notification should never surface as a broken purge —
+    // the data clearing above has already completed successfully.
+  }
+}
+
 function getBrandConfig(){
   const props = PropertiesService.getScriptProperties();
   const config = {};
@@ -125,6 +291,7 @@ function getProfileImagePreviewData(){
 }
 
 function setupSheet(){
+  createInactivityPurgeTrigger(); // self-installs once; cheap no-op after that
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   let sheet = ss.getSheetByName(SHEET_NAME);
   if (!sheet){
@@ -199,6 +366,7 @@ function setSendHour(hour){
   PropertiesService.getScriptProperties().setProperty('SEND_HOUR', String(hour));
   createDailyTrigger(hour);
   createBirthdayDailyTrigger(hour);
+  createInactivityPurgeTrigger();
   return { hour: hour };
 }
 
@@ -223,6 +391,25 @@ function createBirthdayDailyTrigger(hour){
     .timeBased()
     .everyDays(1)
     .atHour(hour)
+    .create();
+}
+
+// Runs independently of the advisor's chosen send hour — fixed at 3AM
+// so it never competes with, or gets skipped alongside, the reminder/
+// birthday sends if the advisor later disables those. Checks for an
+// existing trigger first rather than delete-then-recreate every time,
+// since this is also called from setupSheet() on every upload — that
+// keeps it cheap and lets it self-install for advisors who were
+// already using the app before this feature existed, without needing
+// them to touch Send Hour settings.
+function createInactivityPurgeTrigger(){
+  const alreadyInstalled = ScriptApp.getProjectTriggers()
+    .some(t => t.getHandlerFunction() === 'purgeInactiveClientData');
+  if (alreadyInstalled) return;
+  ScriptApp.newTrigger('purgeInactiveClientData')
+    .timeBased()
+    .everyDays(1)
+    .atHour(3)
     .create();
 }
 
@@ -330,6 +517,10 @@ function setBirthdayPreference(email, enabled){
    ============================================================ */
 function doGet(e){
   const action = e.parameter.action;
+  if (action === 'getAdvisorActiveStatus')    return jsonResponse(getAdvisorActiveStatus());
+  if (!ACTIONS_EXEMPT_FROM_HARD_STOP.includes(action) && !isAdvisorActive()){
+    return jsonResponse(Object.assign({ error: 'ADVISOR_INACTIVE' }, getAdvisorActiveStatus()));
+  }
   if (action === 'getDuesClientList')         return jsonResponse({ clients: getDuesClientList() });
   if (action === 'getBirthdayClientList')     return jsonResponse({ clients: getBirthdayClientList() });
   if (action === 'getDueToday')               return jsonResponse({ rows: getDueTodayRows() });
@@ -395,6 +586,10 @@ function doPost(e){
   try{ body = JSON.parse(e.postData.contents); }
   catch(err){ return jsonResponse({ error: 'Invalid request body' }); }
 
+  if (!ACTIONS_EXEMPT_FROM_HARD_STOP.includes(body.action) && !isAdvisorActive()){
+    return jsonResponse(Object.assign({ error: 'ADVISOR_INACTIVE' }, getAdvisorActiveStatus()));
+  }
+
   if (body.action === 'setDuesPreference')      return jsonResponse(setDuesPreference(body.policyNumber, body.enabled));
   if (body.action === 'setBirthdayPreference')  return jsonResponse(setBirthdayPreference(body.email, body.enabled));
   if (body.action === 'saveConfig')             { saveBrandConfig(body.config || {}); return jsonResponse({ success: true }); }
@@ -449,6 +644,7 @@ function pushDuesRows(rows){
   });
   const fullData = data.concat(newRows);
   sheet.getRange(1, 1, fullData.length, HEADERS.length).setValues(fullData);
+  if (rows.length > 0) recordUploadActivity();
   return { added: added, updated: updated, total: rows.length };
 }
 
@@ -482,6 +678,7 @@ function pushBirthdayRows(rows){
   });
   const fullData = data.concat(newRows);
   sheet.getRange(1, 1, fullData.length, BIRTHDAY_HEADERS.length).setValues(fullData);
+  if (rows.length > 0) recordUploadActivity();
   return { added: added, updated: updated, total: rows.length };
 }
 
@@ -540,6 +737,7 @@ function getDailyStats(){
 
 function sendDailyReminders(){
   if (!getAutoSendStatus().enabled) return;
+  if (!isAdvisorActive()) return; // hard stop: no upload in 90+ days
   const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_NAME);
   if (!sheet) return;
   const data = sheet.getDataRange().getValues();
@@ -763,6 +961,7 @@ function getBirthdayDailyStats(){
 
 function sendDailyBirthdayGreetings(){
   if (!getBirthdayAutoSendStatus().enabled) return;
+  if (!isAdvisorActive()) return; // hard stop: no upload in 90+ days
   const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(BIRTHDAY_SHEET_NAME);
   if (!sheet) return;
   const data = sheet.getDataRange().getValues();
