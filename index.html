@@ -976,6 +976,10 @@ input:checked + #studioSection .slider-toggle::before{transform:translateX(19px)
         <button type="button" class="gate-pw-toggle" onclick="togglePasswordVisibility('gatePassword', this)" aria-label="Show password"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></button>
       </div>
       <div class="gate-error" id="emailError"></div>
+      <label style="display:flex; align-items:center; gap:8px; font-size:13px; color:#fff; margin:2px 0 14px; cursor:pointer; user-select:none;">
+        <input type="checkbox" id="rememberMeCheckbox" checked style="width:16px; height:16px; margin:0; cursor:pointer;">
+        Remember me on this device
+      </label>
       <button class="gate-btn" onclick="accessGate()" id="accessBtn">ACCESS DASHBOARD</button>
       <button type="button" class="gate-link" id="forgotPasswordLink" onclick="showForgotPasswordStep()">Forgot password?</button>
       <div class="gate-footer">JCC BUSINESS SOLUTIONS&trade;<br>All Rights Reserved 2026</div>
@@ -1027,6 +1031,26 @@ input:checked + #studioSection .slider-toggle::before{transform:translateX(19px)
       <div class="gate-footer">JCC BUSINESS SOLUTIONS&trade;<br>All Rights Reserved 2026</div>
     </div>
     </div>
+  </div>
+</div>
+
+<!-- ============================================================
+     90-DAY INACTIVITY LOCK SCREEN
+     Shown after a successful login if the backend reports the
+     advisor hasn't uploaded a Dues or Birthday list in 90+ days
+     (see checkAdvisorActiveStatus). Uploading is still reachable
+     from here — the point is to make the paused state obvious and
+     give a direct path back in, not to hide the app entirely.
+     ============================================================ -->
+<div id="inactivityLockScreen" style="display:none; position:fixed; inset:0; z-index:9998; background:rgba(12,68,124,0.97); backdrop-filter:blur(4px); align-items:center; justify-content:center; padding:24px;">
+  <div style="max-width:420px; width:100%; background:#fff; border-radius:16px; padding:32px 28px; text-align:center; box-shadow:0 20px 60px rgba(0,0,0,0.35);">
+    <div style="font-size:40px; margin-bottom:10px;">⏸️</div>
+    <div style="font-family:'Playfair Display',serif; font-size:20px; font-weight:700; color:#0C447C; margin-bottom:10px;">Dashboard Paused</div>
+    <div id="inactivityLockMessage" style="font-size:14px; color:#444; line-height:1.6; margin-bottom:22px;">
+      No client list has been uploaded in a while, so this dashboard has been paused.
+    </div>
+    <button class="gate-btn gate-btn-gold" style="width:100%;" onclick="goToUploadFromLock()">UPLOAD MY CLIENT LIST</button>
+    <div style="font-size:11px; color:#999; margin-top:14px;">Uploading a fresh Dues or Birthday list reactivates everything immediately.</div>
   </div>
 </div>
 
@@ -2415,6 +2439,58 @@ async function callBackend(payload){
   return res.json();
 }
 
+/* ============================================================
+   90-DAY INACTIVITY HARD-STOP (frontend side)
+   ------------------------------------------------------------
+   The actual enforcement lives in Code.gs — every restricted
+   backend action already refuses itself once 90 days pass with
+   no upload. This just makes that state visible instead of the
+   dashboard silently showing stale/empty data: it checks status
+   right after login (and right after any successful upload), and
+   shows/hides a full-screen pause notice accordingly.
+   ============================================================ */
+async function checkAdvisorActiveStatus(){
+  const url = getScriptUrl();
+  if (!url) return; // no Script URL configured yet — nothing to check
+  try{
+    const res = await fetch(url + '?action=getAdvisorActiveStatus');
+    const data = await res.json();
+    if (data && data.active === false){
+      showInactivityLock(data);
+    } else {
+      hideInactivityLock();
+    }
+  }catch(e){
+    // Transient network issue — don't lock someone out over a blip.
+  }
+}
+
+function showInactivityLock(status){
+  const days = status && typeof status.daysSinceLastUpload === 'number' ? status.daysSinceLastUpload : null;
+  const msgEl = document.getElementById('inactivityLockMessage');
+  if (msgEl){
+    msgEl.textContent = (days !== null
+      ? 'No client list has been uploaded in ' + days + ' days, so this dashboard has been paused.'
+      : 'No client list has been uploaded in a while, so this dashboard has been paused.'
+    ) + ' Upload your latest Dues or Birthday list to reactivate everything right away.';
+  }
+  const el = document.getElementById('inactivityLockScreen');
+  if (el) el.style.display = 'flex';
+}
+
+function hideInactivityLock(){
+  const el = document.getElementById('inactivityLockScreen');
+  if (el) el.style.display = 'none';
+}
+
+function goToUploadFromLock(){
+  // Dismiss the overlay so the upload controls underneath are reachable
+  // — uploading is exactly the one action still allowed while paused,
+  // and it's the only way to reactivate.
+  hideInactivityLock();
+  scrollToSection('upload');
+}
+
 // Splits a flat array into chunks of at most `size` items each.
 function chunkArray(arr, size){
   const chunks = [];
@@ -2955,6 +3031,7 @@ el('parseBtn').addEventListener('click', async () => {
     el('sumAdded').textContent = result.added ?? '–';
     el('sumUpdated').textContent = result.updated ?? '–';
     el('sumSkipped').textContent = skippedStatus;
+    checkAdvisorActiveStatus();
 
   }catch(e){
     let msg = e.message;
@@ -3460,6 +3537,7 @@ el('birthdayParseBtn').addEventListener('click', async () => {
     el('bdaySumAdded').textContent = result.added ?? '–';
     el('bdaySumUpdated').textContent = result.updated ?? '–';
     el('bdaySumTotal').textContent = result.total ?? rows.length;
+    checkAdvisorActiveStatus();
 
   }catch(e){
     let msg = e.message;
@@ -3837,12 +3915,76 @@ function isValidEmail(email) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 }
 
-// Check if user is already logged in (sessionStorage) AND that session
-// is still the current one on the server — handles the case where the
-// account was logged into elsewhere while this tab/device was closed.
+// How long a "remembered" login stays valid on a device before it must
+// log in again, even if it was never explicitly logged out. Capped
+// (not indefinite) so a lost or shared device doesn't stay signed in
+// forever just because the box was checked once.
+const REMEMBER_ME_MAX_DAYS = 30;
+
+// Always keeps the current tab's sessionStorage in sync (unchanged
+// behavior). When `remember` is true, also mirrors the login into
+// localStorage with a timestamp, so it survives the tab/app being
+// fully closed and reopened. Unchecking the box on a later login
+// explicitly clears any previously remembered session on this device.
+function persistSession(email, token, remember){
+  sessionStorage.setItem('clientPulseAuth', email);
+  sessionStorage.setItem('clientPulseSessionToken', token);
+  if (remember){
+    localStorage.setItem('clientPulseAuth', email);
+    localStorage.setItem('clientPulseSessionToken', token);
+    localStorage.setItem('clientPulseAuthSavedAt', String(Date.now()));
+  } else {
+    localStorage.removeItem('clientPulseAuth');
+    localStorage.removeItem('clientPulseSessionToken');
+    localStorage.removeItem('clientPulseAuthSavedAt');
+  }
+}
+
+function clearPersistedSession(){
+  sessionStorage.removeItem('clientPulseAuth');
+  sessionStorage.removeItem('clientPulseSessionToken');
+  localStorage.removeItem('clientPulseAuth');
+  localStorage.removeItem('clientPulseSessionToken');
+  localStorage.removeItem('clientPulseAuthSavedAt');
+}
+
+function isRememberMeChecked(){
+  const cb = document.getElementById('rememberMeCheckbox');
+  return !cb || cb.checked; // default to remembering if the box is somehow missing
+}
+
+// Check if user is already logged in — first via this tab's sessionStorage,
+// then falling back to a remembered (persistent) login from a previous
+// visit, capped at REMEMBER_ME_MAX_DAYS old. Either way, also confirms
+// the session is still the current one on the server — handles the case
+// where the account was logged into elsewhere while this tab/device was
+// closed.
 function checkAuth() {
-  const storedEmail = sessionStorage.getItem('clientPulseAuth');
-  const storedToken = sessionStorage.getItem('clientPulseSessionToken');
+  let storedEmail = sessionStorage.getItem('clientPulseAuth');
+  let storedToken = sessionStorage.getItem('clientPulseSessionToken');
+
+  if (!storedEmail || !storedToken){
+    const rememberedEmail = localStorage.getItem('clientPulseAuth');
+    const rememberedToken = localStorage.getItem('clientPulseSessionToken');
+    const savedAt = Number(localStorage.getItem('clientPulseAuthSavedAt')) || 0;
+    const ageDays = savedAt ? (Date.now() - savedAt) / (24 * 60 * 60 * 1000) : Infinity;
+    if (rememberedEmail && rememberedToken && ageDays <= REMEMBER_ME_MAX_DAYS){
+      storedEmail = rememberedEmail;
+      storedToken = rememberedToken;
+      // Mirror into sessionStorage so the rest of the app — which only
+      // ever reads sessionStorage during normal use — behaves identically
+      // whether this login came from this tab or a remembered one.
+      sessionStorage.setItem('clientPulseAuth', storedEmail);
+      sessionStorage.setItem('clientPulseSessionToken', storedToken);
+    } else if (rememberedEmail){
+      // Expired remembered session — clear it rather than leaving stale
+      // data sitting in localStorage indefinitely.
+      localStorage.removeItem('clientPulseAuth');
+      localStorage.removeItem('clientPulseSessionToken');
+      localStorage.removeItem('clientPulseAuthSavedAt');
+    }
+  }
+
   if (storedEmail && isValidEmail(storedEmail) && storedToken) {
     const row = liveAccessList.find(r => r.email === storedEmail);
     if (row && row.sessionToken === storedToken) {
@@ -3853,8 +3995,7 @@ function checkAuth() {
       return true;
     }
     // Stale or superseded session — clear it and fall through to the gate
-    sessionStorage.removeItem('clientPulseAuth');
-    sessionStorage.removeItem('clientPulseSessionToken');
+    clearPersistedSession();
   }
   return false;
 }
@@ -3955,8 +4096,7 @@ async function accessGate() {
     if (status === 'PAID' && data.token) {
       currentEmail = email.toLowerCase();
       currentSessionToken = data.token;
-      sessionStorage.setItem('clientPulseAuth', currentEmail);
-      sessionStorage.setItem('clientPulseSessionToken', currentSessionToken);
+      persistSession(currentEmail, currentSessionToken, isRememberMeChecked());
       hideGate();
       startSessionWatch();
     } else if (status === 'NEEDS_SETUP') {
@@ -4003,8 +4143,7 @@ async function submitSetupPassword() {
     if (data && data.status === 'PAID' && data.token) {
       currentEmail = pendingFlowEmail.toLowerCase();
       currentSessionToken = data.token;
-      sessionStorage.setItem('clientPulseAuth', currentEmail);
-      sessionStorage.setItem('clientPulseSessionToken', currentSessionToken);
+      persistSession(currentEmail, currentSessionToken, isRememberMeChecked());
       hideGate();
       startSessionWatch();
     } else if (data && data.status === 'ALREADY_SET') {
@@ -4091,8 +4230,7 @@ async function submitResetPassword() {
     if (data && data.status === 'ok' && data.token) {
       currentEmail = pendingFlowEmail.toLowerCase();
       currentSessionToken = data.token;
-      sessionStorage.setItem('clientPulseAuth', currentEmail);
-      sessionStorage.setItem('clientPulseSessionToken', currentSessionToken);
+      persistSession(currentEmail, currentSessionToken, isRememberMeChecked());
       hideGate();
       startSessionWatch();
     } else if (data && data.status === 'EXPIRED_CODE') {
@@ -4142,6 +4280,7 @@ function hideGate() {
     fetchBrandConfig().then(config => populateBrandingFields(config));
     fetchSendHour().then(hour => populateSendHour(hour));
     refreshPersonalLink();
+    checkAdvisorActiveStatus();
   } catch (e) {
     var emailError = document.getElementById('emailError');
     if (emailError) emailError.textContent = 'Something went wrong unlocking the dashboard: ' + e.message;
@@ -4150,8 +4289,7 @@ function hideGate() {
 
 function logoutUser(message) {
   if (sessionCheckIntervalId) { clearInterval(sessionCheckIntervalId); sessionCheckIntervalId = null; }
-  sessionStorage.removeItem('clientPulseAuth');
-  sessionStorage.removeItem('clientPulseSessionToken');
+  clearPersistedSession();
   currentEmail = '';
   currentSessionToken = '';
   document.body.classList.remove('cp-authed');
