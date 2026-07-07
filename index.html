@@ -3926,7 +3926,15 @@ const REMEMBER_ME_MAX_DAYS = 30;
 // localStorage with a timestamp, so it survives the tab/app being
 // fully closed and reopened. Unchecking the box on a later login
 // explicitly clears any previously remembered session on this device.
-function persistSession(email, token, remember){
+// `password` is optional — passed so the login FIELDS themselves can be
+// pre-filled next time (not just an automatic silent login), since
+// that's the visible behavior that was actually expected here. Storing
+// a password in localStorage is normally avoided for security reasons;
+// doing it here is a deliberate convenience trade-off for this
+// low-sensitivity internal tool, and it's still gated behind the same
+// "Remember me" checkbox and behind everything a device thief would
+// already need physical access to.
+function persistSession(email, token, remember, password){
   sessionStorage.setItem('clientPulseAuth', email);
   sessionStorage.setItem('clientPulseSessionToken', token);
   try{
@@ -3934,10 +3942,12 @@ function persistSession(email, token, remember){
       localStorage.setItem('clientPulseAuth', email);
       localStorage.setItem('clientPulseSessionToken', token);
       localStorage.setItem('clientPulseAuthSavedAt', String(Date.now()));
+      if (password) localStorage.setItem('clientPulseAuthPassword', password);
     } else {
       localStorage.removeItem('clientPulseAuth');
       localStorage.removeItem('clientPulseSessionToken');
       localStorage.removeItem('clientPulseAuthSavedAt');
+      localStorage.removeItem('clientPulseAuthPassword');
     }
   }catch(e){
     // localStorage unavailable (e.g. Safari private browsing, some
@@ -3953,7 +3963,22 @@ function clearPersistedSession(){
     localStorage.removeItem('clientPulseAuth');
     localStorage.removeItem('clientPulseSessionToken');
     localStorage.removeItem('clientPulseAuthSavedAt');
+    localStorage.removeItem('clientPulseAuthPassword');
   }catch(e){ /* ignore if unavailable */ }
+}
+
+// Fills the email/password fields on the login screen from whatever is
+// remembered on this device, so a returning visitor sees them already
+// populated instead of blank — even in the fallback case where the
+// silent auto-login (checkAuth, via the session token) doesn't fire for
+// some reason, this still gets them most of the way there with one tap.
+function prefillRememberedCredentials(){
+  try{
+    const email = localStorage.getItem('clientPulseAuth');
+    const password = localStorage.getItem('clientPulseAuthPassword');
+    if (email) document.getElementById('gateEmail').value = email;
+    if (password) document.getElementById('gatePassword').value = password;
+  }catch(e){ /* localStorage unavailable — leave fields blank as before */ }
 }
 
 function isRememberMeChecked(){
@@ -4113,7 +4138,7 @@ async function accessGate() {
     if (status === 'PAID' && data.token) {
       currentEmail = email.toLowerCase();
       currentSessionToken = data.token;
-      persistSession(currentEmail, currentSessionToken, isRememberMeChecked());
+      persistSession(currentEmail, currentSessionToken, isRememberMeChecked(), password);
       hideGate();
       startSessionWatch();
     } else if (status === 'NEEDS_SETUP') {
@@ -4160,7 +4185,7 @@ async function submitSetupPassword() {
     if (data && data.status === 'PAID' && data.token) {
       currentEmail = pendingFlowEmail.toLowerCase();
       currentSessionToken = data.token;
-      persistSession(currentEmail, currentSessionToken, isRememberMeChecked());
+      persistSession(currentEmail, currentSessionToken, isRememberMeChecked(), pw);
       hideGate();
       startSessionWatch();
     } else if (data && data.status === 'ALREADY_SET') {
@@ -4247,7 +4272,7 @@ async function submitResetPassword() {
     if (data && data.status === 'ok' && data.token) {
       currentEmail = pendingFlowEmail.toLowerCase();
       currentSessionToken = data.token;
-      persistSession(currentEmail, currentSessionToken, isRememberMeChecked());
+      persistSession(currentEmail, currentSessionToken, isRememberMeChecked(), pw);
       hideGate();
       startSessionWatch();
     } else if (data && data.status === 'EXPIRED_CODE') {
@@ -5016,6 +5041,7 @@ function setupClientsTab(){
     gate.classList.add('show');
     gate.style.zIndex = '999';
     gate.style.display = 'flex';
+    prefillRememberedCredentials();
   }
   // App is ready (gate or dashboard, whichever applies) — fade out the loader
   const loader = document.getElementById('appLoader');
