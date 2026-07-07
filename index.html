@@ -3929,23 +3929,31 @@ const REMEMBER_ME_MAX_DAYS = 30;
 function persistSession(email, token, remember){
   sessionStorage.setItem('clientPulseAuth', email);
   sessionStorage.setItem('clientPulseSessionToken', token);
-  if (remember){
-    localStorage.setItem('clientPulseAuth', email);
-    localStorage.setItem('clientPulseSessionToken', token);
-    localStorage.setItem('clientPulseAuthSavedAt', String(Date.now()));
-  } else {
-    localStorage.removeItem('clientPulseAuth');
-    localStorage.removeItem('clientPulseSessionToken');
-    localStorage.removeItem('clientPulseAuthSavedAt');
+  try{
+    if (remember){
+      localStorage.setItem('clientPulseAuth', email);
+      localStorage.setItem('clientPulseSessionToken', token);
+      localStorage.setItem('clientPulseAuthSavedAt', String(Date.now()));
+    } else {
+      localStorage.removeItem('clientPulseAuth');
+      localStorage.removeItem('clientPulseSessionToken');
+      localStorage.removeItem('clientPulseAuthSavedAt');
+    }
+  }catch(e){
+    // localStorage unavailable (e.g. Safari private browsing, some
+    // embedded/PWA webviews) — sessionStorage above still succeeded, so
+    // login itself isn't affected, it just won't survive a full close.
   }
 }
 
 function clearPersistedSession(){
   sessionStorage.removeItem('clientPulseAuth');
   sessionStorage.removeItem('clientPulseSessionToken');
-  localStorage.removeItem('clientPulseAuth');
-  localStorage.removeItem('clientPulseSessionToken');
-  localStorage.removeItem('clientPulseAuthSavedAt');
+  try{
+    localStorage.removeItem('clientPulseAuth');
+    localStorage.removeItem('clientPulseSessionToken');
+    localStorage.removeItem('clientPulseAuthSavedAt');
+  }catch(e){ /* ignore if unavailable */ }
 }
 
 function isRememberMeChecked(){
@@ -3964,9 +3972,16 @@ function checkAuth() {
   let storedToken = sessionStorage.getItem('clientPulseSessionToken');
 
   if (!storedEmail || !storedToken){
-    const rememberedEmail = localStorage.getItem('clientPulseAuth');
-    const rememberedToken = localStorage.getItem('clientPulseSessionToken');
-    const savedAt = Number(localStorage.getItem('clientPulseAuthSavedAt')) || 0;
+    let rememberedEmail = null, rememberedToken = null, savedAt = 0;
+    try{
+      rememberedEmail = localStorage.getItem('clientPulseAuth');
+      rememberedToken = localStorage.getItem('clientPulseSessionToken');
+      savedAt = Number(localStorage.getItem('clientPulseAuthSavedAt')) || 0;
+    }catch(e){
+      // localStorage unavailable — just means no remembered login to fall
+      // back to; sessionStorage-based login (already checked above) is
+      // unaffected.
+    }
     const ageDays = savedAt ? (Date.now() - savedAt) / (24 * 60 * 60 * 1000) : Infinity;
     if (rememberedEmail && rememberedToken && ageDays <= REMEMBER_ME_MAX_DAYS){
       storedEmail = rememberedEmail;
@@ -3979,9 +3994,11 @@ function checkAuth() {
     } else if (rememberedEmail){
       // Expired remembered session — clear it rather than leaving stale
       // data sitting in localStorage indefinitely.
-      localStorage.removeItem('clientPulseAuth');
-      localStorage.removeItem('clientPulseSessionToken');
-      localStorage.removeItem('clientPulseAuthSavedAt');
+      try{
+        localStorage.removeItem('clientPulseAuth');
+        localStorage.removeItem('clientPulseSessionToken');
+        localStorage.removeItem('clientPulseAuthSavedAt');
+      }catch(e){ /* ignore if unavailable */ }
     }
   }
 
