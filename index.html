@@ -4336,6 +4336,7 @@ function logoutUser(message) {
   currentSessionToken = '';
   document.body.classList.remove('cp-authed');
   document.getElementById('gateEmail').value = '';
+  document.getElementById('gatePassword').value = '';
   document.getElementById('emailError').textContent = message || '';
   document.getElementById('gateScreen').classList.add('show');
   document.getElementById('gateScreen').style.zIndex = '999';
