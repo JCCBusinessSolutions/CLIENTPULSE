@@ -5026,15 +5026,22 @@ function setupClientsTab(){
 (async function() {
   setupPasswordHandling();
   setupClientsTab();
-  // These three calls don't depend on each other, so run them in
-  // parallel instead of waiting for each one to finish before starting
-  // the next — cuts startup time roughly to the slowest single call
-  // instead of the sum of all three.
-  await Promise.all([
-    fetchAccessList(),
-    refreshDuesClientList(true),
-    refreshBirthdayClientList(true)
-  ]);
+  // Only fetchAccessList actually gates what the person sees next (it's
+  // the access-control check the login gate itself depends on) — dues
+  // and birthday client data are NOT needed to show the gate or the
+  // dashboard shell, so blocking on them here was adding two full
+  // Apps Script round-trips (each 1-3+ seconds in practice) to every
+  // single app open before the person could even see the login screen,
+  // even though refreshDuesClientList/refreshBirthdayClientList already
+  // render cached data instantly on their own and only need their live
+  // refresh to happen at some point, not necessarily before first paint.
+  await fetchAccessList();
+  // Fire and forget — these run in the background. Each one shows its
+  // own cached data immediately (useCache=true) and updates in place
+  // once the live fetch resolves, so there's nothing for the boot
+  // sequence to wait on here.
+  refreshDuesClientList(true);
+  refreshBirthdayClientList(true);
   if (!checkAuth()) {
     // Show gate with proper z-index and show class
     const gate = document.getElementById('gateScreen');
