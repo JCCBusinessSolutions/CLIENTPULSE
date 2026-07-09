@@ -25,15 +25,21 @@ const CONFIG_KEYS = Object.keys(CONFIG_DEFAULTS);
    ADVISOR ACTIVITY / HARD-STOP CHECK
    ------------------------------------------------------------
    Every real upload (pushDuesRows or pushBirthdayRows) stamps
-   LAST_UPLOAD_TIMESTAMP. If more than INACTIVITY_LIMIT_DAYS pass
-   without a fresh upload, the advisor is considered inactive and
-   the script hard-stops: doGet/doPost refuse every action except
-   the ones needed to let them reactivate (uploading new data, or
-   checking their own status), and the time-triggered senders
-   (daily dues reminders, birthday greetings) skip themselves
-   entirely so nothing sends on a stale account.
+   LAST_UPLOAD_TIMESTAMP. The deadline is calendar-anchored rather
+   than a flat rolling count: it's the 1st day of the month AFTER
+   the last upload, plus INACTIVITY_GRACE_DAYS. E.g. an upload any
+   time in June anchors to July 1, giving a deadline of ~July 31 —
+   a predictable "you have through the end of next month" cadence
+   tied to calendar months, instead of an arbitrary window measured
+   from the exact upload timestamp. Once that deadline passes, the
+   advisor is considered inactive and the script hard-stops:
+   doGet/doPost refuse every action except the ones needed to let
+   them reactivate (uploading new data, or checking their own
+   status), and the time-triggered senders (daily dues reminders,
+   birthday greetings) skip themselves entirely so nothing sends on
+   a stale account.
    ============================================================ */
-const INACTIVITY_LIMIT_DAYS = 90;
+const INACTIVITY_GRACE_DAYS = 30;
 
 // Actions allowed to run even while hard-stopped. Uploading is
 // deliberately included — it's the only way to self-reactivate — and
@@ -45,6 +51,17 @@ const ACTIONS_EXEMPT_FROM_HARD_STOP = [
 
 function recordUploadActivity(){
   PropertiesService.getScriptProperties().setProperty('LAST_UPLOAD_TIMESTAMP', new Date().toISOString());
+}
+
+// 1st day of the month following the given timestamp, plus the grace
+// window — e.g. an upload on June 25 anchors to July 1, deadline
+// July 31. Computed in UTC purely for clean month-boundary math; a
+// few hours of timezone drift doesn't matter for a 30-day business
+// rule like this one.
+function computeInactivityDeadline(lastUploadIso){
+  const lastUpload = new Date(lastUploadIso);
+  const anchor = new Date(Date.UTC(lastUpload.getUTCFullYear(), lastUpload.getUTCMonth() + 1, 1));
+  return new Date(anchor.getTime() + INACTIVITY_GRACE_DAYS * 24 * 60 * 60 * 1000);
 }
 
 // Returns the activity status. If no upload has ever been recorded,
@@ -62,12 +79,15 @@ function getAdvisorActiveStatus(){
     }
     lastUpload = installedAt;
   }
+  const deadline = computeInactivityDeadline(lastUpload);
+  const msRemaining = deadline.getTime() - Date.now();
   const daysSince = (Date.now() - new Date(lastUpload).getTime()) / (24 * 60 * 60 * 1000);
   return {
-    active: daysSince <= INACTIVITY_LIMIT_DAYS,
+    active: msRemaining > 0,
     lastUploadTimestamp: lastUpload,
     daysSinceLastUpload: Math.floor(daysSince),
-    daysUntilLock: Math.max(0, Math.ceil(INACTIVITY_LIMIT_DAYS - daysSince))
+    daysUntilLock: Math.max(0, Math.ceil(msRemaining / (24 * 60 * 60 * 1000))),
+    cycleDeadline: deadline.toISOString()
   };
 }
 
@@ -76,21 +96,21 @@ function isAdvisorActive(){
 }
 
 /* ============================================================
-   AUTO-CLEAR CLIENT DATA AFTER 90 DAYS OF INACTIVITY
+   AUTO-CLEAR CLIENT DATA — 30 DAYS FROM THE 1ST OF THE MONTH
    ------------------------------------------------------------
    Runs once a day (installed alongside the other daily triggers —
-   see createInactivityPurgeTrigger). If it's been exactly
-   INACTIVITY_LIMIT_DAYS or more since the last real upload, every
+   see createInactivityPurgeTrigger). Once the calendar-anchored
+   deadline computed in getAdvisorActiveStatus() has passed, every
    stored client record (Dues Tracker, Birthday Tracker) is wiped —
    but a CSV snapshot is saved to Drive first, and the advisor is
    emailed a notice, so this is never a silent, unrecoverable
    surprise. Guarded so it only fires once per inactivity stretch: a
    fresh upload resets LAST_UPLOAD_TIMESTAMP, which automatically
-   re-arms it for the next 90-day window.
+   re-arms it for the next cycle.
    ============================================================ */
 function purgeInactiveClientData(){
   const status = getAdvisorActiveStatus();
-  if (status.daysSinceLastUpload < INACTIVITY_LIMIT_DAYS) return; // not due yet
+  if (status.active) return; // deadline hasn't passed yet — not due
 
   const props = PropertiesService.getScriptProperties();
   if (props.getProperty('LAST_PURGE_BASELINE') === status.lastUploadTimestamp){
@@ -103,8 +123,8 @@ function purgeInactiveClientData(){
   try{
     summary.backupFileUrl = backupClientDataToDrive(ss);
   }catch(e){
-    // Backup failing should never block the purge itself — 90 days of
-    // inactivity means data minimization takes priority.
+    // Backup failing should never block the purge itself — being past
+    // the inactivity deadline means data minimization takes priority.
   }
 
   summary.duesCleared      = clearSheetDataRows(ss, SHEET_NAME, HEADERS.length);
@@ -175,16 +195,67 @@ function notifyAdvisorOfPurge(summary){
     if (!recipient) return; // nowhere configured to send it
     const body =
       'This is an automated notice from Client Pulse.\n\n' +
-      'No client data has been uploaded in ' + INACTIVITY_LIMIT_DAYS + ' days, so all stored client information has been automatically cleared:\n\n' +
+      'No client data has been uploaded in time, so all stored client information has been automatically cleared:\n\n' +
       '- Dues Tracker: ' + summary.duesCleared + ' row(s) cleared\n' +
       '- Birthday Tracker: ' + summary.birthdaysCleared + ' row(s) cleared\n\n' +
       (summary.backupFileUrl ? ('A backup was saved before deletion, in case you need it back:\n' + summary.backupFileUrl + '\n\n') : '') +
       'Upload a new client list anytime to reactivate the app and start fresh.';
-    GmailApp.sendEmail(recipient, 'Client Pulse: client data auto-cleared (90 days inactive)', body);
+    GmailApp.sendEmail(recipient, 'Client Pulse: client data auto-cleared (inactive too long)', body);
   }catch(e){
     // A failed notification should never surface as a broken purge —
     // the data clearing above has already completed successfully.
   }
+}
+
+/* ============================================================
+   5-DAY ADVANCE REMINDER
+   ------------------------------------------------------------
+   Runs daily alongside the purge check (see dailyInactivityCheck).
+   Once the advisor is within REMINDER_DAYS_BEFORE_LOCK days of the
+   hard-stop/purge deadline, sends one heads-up email so they get a
+   chance to re-upload before everything gets wiped — not just find
+   out after the fact. Fires once per inactivity cycle, same
+   once-only guard pattern as the purge itself; a fresh upload
+   automatically re-arms it for the next cycle.
+   ============================================================ */
+const REMINDER_DAYS_BEFORE_LOCK = 5;
+
+function sendInactivityReminderIfNeeded(){
+  const status = getAdvisorActiveStatus();
+  if (!status.active) return; // already past the deadline — the purge handles this case
+  if (status.daysUntilLock > REMINDER_DAYS_BEFORE_LOCK) return; // not close enough yet
+
+  const props = PropertiesService.getScriptProperties();
+  if (props.getProperty('LAST_REMINDER_BASELINE') === status.lastUploadTimestamp){
+    return; // already reminded for this cycle
+  }
+
+  try{
+    const config = getBrandConfig();
+    const recipient = config.contactEmail;
+    if (recipient){
+      const days = status.daysUntilLock;
+      const body =
+        'You have ' + days + ' day' + (days === 1 ? '' : 's') + ' remaining to reupload your life policy list and client list.\n\n' +
+        'After which the app will clear your data and stop auto reminder.\n\n' +
+        'Upload your latest Dues or Birthday list anytime before then to keep Client Pulse running without interruption.';
+      GmailApp.sendEmail(recipient, 'Client Pulse: ' + days + ' day' + (days === 1 ? '' : 's') + ' left before your data is cleared', body);
+    }
+  }catch(e){
+    // A failed reminder should never block the purge check from running.
+  }
+
+  props.setProperty('LAST_REMINDER_BASELINE', status.lastUploadTimestamp);
+}
+
+// Installed on the daily 3AM trigger — sends the 5-day advance
+// reminder first, then runs the purge check. Order matters only in
+// that both should run every day; the reminder's own "already past
+// deadline" guard means it naturally stops firing once the purge has
+// taken over for that cycle.
+function dailyInactivityCheck(){
+  sendInactivityReminderIfNeeded();
+  purgeInactiveClientData();
 }
 
 function getBrandConfig(){
@@ -403,10 +474,16 @@ function createBirthdayDailyTrigger(hour){
 // already using the app before this feature existed, without needing
 // them to touch Send Hour settings.
 function createInactivityPurgeTrigger(){
+  // Clean up the old direct-purge trigger from before the 5-day
+  // reminder existed, so it isn't left running alongside the new
+  // combined check.
+  ScriptApp.getProjectTriggers().forEach(t => {
+    if (t.getHandlerFunction() === 'purgeInactiveClientData') ScriptApp.deleteTrigger(t);
+  });
   const alreadyInstalled = ScriptApp.getProjectTriggers()
-    .some(t => t.getHandlerFunction() === 'purgeInactiveClientData');
+    .some(t => t.getHandlerFunction() === 'dailyInactivityCheck');
   if (alreadyInstalled) return;
-  ScriptApp.newTrigger('purgeInactiveClientData')
+  ScriptApp.newTrigger('dailyInactivityCheck')
     .timeBased()
     .everyDays(1)
     .atHour(3)
@@ -737,7 +814,7 @@ function getDailyStats(){
 
 function sendDailyReminders(){
   if (!getAutoSendStatus().enabled) return;
-  if (!isAdvisorActive()) return; // hard stop: no upload in 90+ days
+  if (!isAdvisorActive()) return; // hard stop: past the inactivity deadline
   const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_NAME);
   if (!sheet) return;
   const data = sheet.getDataRange().getValues();
@@ -961,7 +1038,7 @@ function getBirthdayDailyStats(){
 
 function sendDailyBirthdayGreetings(){
   if (!getBirthdayAutoSendStatus().enabled) return;
-  if (!isAdvisorActive()) return; // hard stop: no upload in 90+ days
+  if (!isAdvisorActive()) return; // hard stop: past the inactivity deadline
   const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(BIRTHDAY_SHEET_NAME);
   if (!sheet) return;
   const data = sheet.getDataRange().getValues();
