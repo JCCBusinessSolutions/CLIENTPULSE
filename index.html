@@ -170,6 +170,14 @@
     animation: setupBlink 1.1s ease-in-out infinite;
   }
 
+  @keyframes inactivityWarningBlink{
+    0%, 100% { background:#B91C1C; }
+    50% { background:#7A1414; }
+  }
+  #inactivityWarningBanner.blinking{
+    animation: inactivityWarningBlink 1.1s ease-in-out infinite;
+  }
+
   .due-item{
     border:1px solid var(--line); border-radius:16px;
     padding:14px 16px; margin-bottom:10px; background:var(--cream);
@@ -871,7 +879,8 @@ input:checked + #studioSection .slider-toggle::before{transform:translateX(19px)
      (a sticky-positioned header was visually escaping the overlay). */
   body:not(.cp-authed) #mobileHeaderBar,
   body:not(.cp-authed) #mainContentWrapper,
-  body:not(.cp-authed) #mobileBottomNav { display:none !important; }
+  body:not(.cp-authed) #mobileBottomNav,
+  body:not(.cp-authed) #inactivityWarningBanner { display:none !important; }
   
   .gate-card { width:100%; max-width:420px; background:rgb(0, 59, 122); border:1px solid rgba(0, 59, 122, 0.5); border-radius:16px; padding:32px 24px; text-align:center; box-shadow:0 4px 20px rgba(0,0,0,0.15); }
   body.dark-mode .gate-card { background:rgb(0, 59, 122); border-color:rgba(0, 59, 122, 0.5); }
@@ -1081,6 +1090,20 @@ input:checked + #studioSection .slider-toggle::before{transform:translateX(19px)
     <div class="sidebar-link" onclick="location.reload()"><span>↩️</span>Refresh App</div>
   </div>
 </aside>
+
+<!-- ============================================================
+     INACTIVITY WARNING BANNER
+     Shown once the advisor is within REMINDER_DAYS_BEFORE_LOCK days
+     of the hard-stop/purge deadline (same window as the email
+     reminder — this is the in-app equivalent, for anyone who
+     doesn't check that inbox). Blinks continuously and stays up
+     until a real upload pushes the deadline back out, since a
+     one-time dismiss would defeat the point of an urgent warning.
+     ============================================================ -->
+<div id="inactivityWarningBanner" style="display:none; position:sticky; top:0; z-index:31; align-items:center; gap:10px; padding:10px 16px; background:#B91C1C; color:#fff; font-size:13px; font-weight:600; text-align:center; justify-content:center; flex-wrap:wrap;">
+  <span id="inactivityWarningText">⚠️ Your data will be cleared soon — upload your latest list now.</span>
+  <button type="button" onclick="goToUploadFromBanner()" style="background:#fff; color:#B91C1C; border:none; border-radius:6px; padding:4px 12px; font-size:12px; font-weight:700; cursor:pointer;">UPLOAD NOW</button>
+</div>
 
 <!-- ============================================================
      MOBILE HEADER
@@ -2457,12 +2480,47 @@ async function checkAdvisorActiveStatus(){
     const data = await res.json();
     if (data && data.active === false){
       showInactivityLock(data);
+      hideInactivityWarningBanner(); // full lock screen already covers it
     } else {
       hideInactivityLock();
+      if (data && typeof data.daysUntilLock === 'number' && data.daysUntilLock <= REMINDER_DAYS_BEFORE_LOCK_FRONTEND){
+        showInactivityWarningBanner(data.daysUntilLock);
+      } else {
+        hideInactivityWarningBanner();
+      }
     }
   }catch(e){
     // Transient network issue — don't lock someone out over a blip.
   }
+}
+
+// Mirrors REMINDER_DAYS_BEFORE_LOCK in Code.gs — kept as a separate
+// frontend constant since this file can't import from the Apps Script
+// project directly. Keep these two in sync if either changes.
+const REMINDER_DAYS_BEFORE_LOCK_FRONTEND = 5;
+
+function showInactivityWarningBanner(daysUntilLock){
+  const textEl = document.getElementById('inactivityWarningText');
+  if (textEl){
+    textEl.textContent = '⚠️ ' + daysUntilLock + ' day' + (daysUntilLock === 1 ? '' : 's') + ' left to upload your latest policy and client list — after that, your data will be cleared.';
+  }
+  const el = document.getElementById('inactivityWarningBanner');
+  if (el){
+    el.style.display = 'flex';
+    el.classList.add('blinking');
+  }
+}
+
+function hideInactivityWarningBanner(){
+  const el = document.getElementById('inactivityWarningBanner');
+  if (el){
+    el.style.display = 'none';
+    el.classList.remove('blinking');
+  }
+}
+
+function goToUploadFromBanner(){
+  scrollToSection('upload');
 }
 
 function showInactivityLock(status){
@@ -3915,69 +3973,46 @@ function isValidEmail(email) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 }
 
-// How long a "remembered" login stays valid on a device before it must
-// log in again, even if it was never explicitly logged out. Capped
-// (not indefinite) so a lost or shared device doesn't stay signed in
-// forever just because the box was checked once.
-const REMEMBER_ME_MAX_DAYS = 30;
-
-// Always keeps the current tab's sessionStorage in sync (unchanged
-// behavior). When `remember` is true, also mirrors the login into
-// localStorage with a timestamp, so it survives the tab/app being
-// fully closed and reopened. Unchecking the box on a later login
-// explicitly clears any previously remembered session on this device.
-// `password` is optional — passed so the login FIELDS themselves can be
-// pre-filled next time (not just an automatic silent login), since
-// that's the visible behavior that was actually expected here. Storing
-// a password in localStorage is normally avoided for security reasons;
-// doing it here is a deliberate convenience trade-off for this
-// low-sensitivity internal tool, and it's still gated behind the same
-// "Remember me" checkbox and behind everything a device thief would
-// already need physical access to.
+// "Remember me" here is deliberately aligned with CLIENT_PULSE_V5.html's
+// simpler model, since this is the client-facing app: the login session
+// itself is NEVER persisted beyond this tab (sessionStorage only, gone
+// the moment the app is fully closed) — every reopen requires an actual
+// login tap, there's no silent auto-login. What "remember" saves is
+// just the email/password, so that tap is one click instead of a
+// retype. Storing a password in localStorage is normally avoided for
+// security reasons; doing it here is a deliberate convenience
+// trade-off, still opt-in via the checkbox.
 function persistSession(email, token, remember, password){
   sessionStorage.setItem('clientPulseAuth', email);
   sessionStorage.setItem('clientPulseSessionToken', token);
   try{
     if (remember){
-      localStorage.setItem('clientPulseAuth', email);
-      localStorage.setItem('clientPulseSessionToken', token);
-      localStorage.setItem('clientPulseAuthSavedAt', String(Date.now()));
-      if (password) localStorage.setItem('clientPulseAuthPassword', password);
+      localStorage.setItem('cpRememberedEmail', email);
+      localStorage.setItem('cpRememberedPassword', password || '');
     } else {
-      localStorage.removeItem('clientPulseAuth');
-      localStorage.removeItem('clientPulseSessionToken');
-      localStorage.removeItem('clientPulseAuthSavedAt');
-      localStorage.removeItem('clientPulseAuthPassword');
+      localStorage.removeItem('cpRememberedEmail');
+      localStorage.removeItem('cpRememberedPassword');
     }
   }catch(e){
     // localStorage unavailable (e.g. Safari private browsing, some
     // embedded/PWA webviews) — sessionStorage above still succeeded, so
-    // login itself isn't affected, it just won't survive a full close.
+    // login itself isn't affected, remembering the fields just won't work.
   }
-}
-
-function clearPersistedSession(){
-  sessionStorage.removeItem('clientPulseAuth');
-  sessionStorage.removeItem('clientPulseSessionToken');
-  try{
-    localStorage.removeItem('clientPulseAuth');
-    localStorage.removeItem('clientPulseSessionToken');
-    localStorage.removeItem('clientPulseAuthSavedAt');
-    localStorage.removeItem('clientPulseAuthPassword');
-  }catch(e){ /* ignore if unavailable */ }
 }
 
 // Fills the email/password fields on the login screen from whatever is
 // remembered on this device, so a returning visitor sees them already
-// populated instead of blank — even in the fallback case where the
-// silent auto-login (checkAuth, via the session token) doesn't fire for
-// some reason, this still gets them most of the way there with one tap.
+// populated instead of blank, and just needs to tap ACCESS DASHBOARD.
 function prefillRememberedCredentials(){
   try{
-    const email = localStorage.getItem('clientPulseAuth');
-    const password = localStorage.getItem('clientPulseAuthPassword');
+    const email = localStorage.getItem('cpRememberedEmail');
+    const password = localStorage.getItem('cpRememberedPassword');
     if (email) document.getElementById('gateEmail').value = email;
     if (password) document.getElementById('gatePassword').value = password;
+    if (email && password){
+      const cb = document.getElementById('rememberMeCheckbox');
+      if (cb) cb.checked = true;
+    }
   }catch(e){ /* localStorage unavailable — leave fields blank as before */ }
 }
 
@@ -3986,47 +4021,15 @@ function isRememberMeChecked(){
   return !cb || cb.checked; // default to remembering if the box is somehow missing
 }
 
-// Check if user is already logged in — first via this tab's sessionStorage,
-// then falling back to a remembered (persistent) login from a previous
-// visit, capped at REMEMBER_ME_MAX_DAYS old. Either way, also confirms
-// the session is still the current one on the server — handles the case
-// where the account was logged into elsewhere while this tab/device was
-// closed.
+// Check if user is already logged in (sessionStorage) AND that session
+// is still the current one on the server — handles the case where the
+// account was logged into elsewhere while this tab/device was closed.
+// Deliberately session-only (no localStorage fallback): closing the app
+// fully always requires a fresh login tap, by design, for this
+// client-facing app.
 function checkAuth() {
-  let storedEmail = sessionStorage.getItem('clientPulseAuth');
-  let storedToken = sessionStorage.getItem('clientPulseSessionToken');
-
-  if (!storedEmail || !storedToken){
-    let rememberedEmail = null, rememberedToken = null, savedAt = 0;
-    try{
-      rememberedEmail = localStorage.getItem('clientPulseAuth');
-      rememberedToken = localStorage.getItem('clientPulseSessionToken');
-      savedAt = Number(localStorage.getItem('clientPulseAuthSavedAt')) || 0;
-    }catch(e){
-      // localStorage unavailable — just means no remembered login to fall
-      // back to; sessionStorage-based login (already checked above) is
-      // unaffected.
-    }
-    const ageDays = savedAt ? (Date.now() - savedAt) / (24 * 60 * 60 * 1000) : Infinity;
-    if (rememberedEmail && rememberedToken && ageDays <= REMEMBER_ME_MAX_DAYS){
-      storedEmail = rememberedEmail;
-      storedToken = rememberedToken;
-      // Mirror into sessionStorage so the rest of the app — which only
-      // ever reads sessionStorage during normal use — behaves identically
-      // whether this login came from this tab or a remembered one.
-      sessionStorage.setItem('clientPulseAuth', storedEmail);
-      sessionStorage.setItem('clientPulseSessionToken', storedToken);
-    } else if (rememberedEmail){
-      // Expired remembered session — clear it rather than leaving stale
-      // data sitting in localStorage indefinitely.
-      try{
-        localStorage.removeItem('clientPulseAuth');
-        localStorage.removeItem('clientPulseSessionToken');
-        localStorage.removeItem('clientPulseAuthSavedAt');
-      }catch(e){ /* ignore if unavailable */ }
-    }
-  }
-
+  const storedEmail = sessionStorage.getItem('clientPulseAuth');
+  const storedToken = sessionStorage.getItem('clientPulseSessionToken');
   if (storedEmail && isValidEmail(storedEmail) && storedToken) {
     const row = liveAccessList.find(r => r.email === storedEmail);
     if (row && row.sessionToken === storedToken) {
@@ -4037,7 +4040,8 @@ function checkAuth() {
       return true;
     }
     // Stale or superseded session — clear it and fall through to the gate
-    clearPersistedSession();
+    sessionStorage.removeItem('clientPulseAuth');
+    sessionStorage.removeItem('clientPulseSessionToken');
   }
   return false;
 }
@@ -4331,12 +4335,29 @@ function hideGate() {
 
 function logoutUser(message) {
   if (sessionCheckIntervalId) { clearInterval(sessionCheckIntervalId); sessionCheckIntervalId = null; }
-  clearPersistedSession();
+  sessionStorage.removeItem('clientPulseAuth');
+  sessionStorage.removeItem('clientPulseSessionToken');
   currentEmail = '';
   currentSessionToken = '';
   document.body.classList.remove('cp-authed');
-  document.getElementById('gateEmail').value = '';
-  document.getElementById('gatePassword').value = '';
+
+  // Respect "Remember me": if the person opted in, keep the fields
+  // filled after logout so logging back in is one tap, not a retype.
+  let rememberedEmail = null, rememberedPassword = null;
+  try{
+    rememberedEmail = localStorage.getItem('cpRememberedEmail');
+    rememberedPassword = localStorage.getItem('cpRememberedPassword');
+  }catch(e){ /* ignore if unavailable */ }
+  if (rememberedEmail && rememberedPassword){
+    document.getElementById('gateEmail').value = rememberedEmail;
+    document.getElementById('gatePassword').value = rememberedPassword;
+    const cb = document.getElementById('rememberMeCheckbox');
+    if (cb) cb.checked = true;
+  } else {
+    document.getElementById('gateEmail').value = '';
+    document.getElementById('gatePassword').value = '';
+  }
+
   document.getElementById('emailError').textContent = message || '';
   document.getElementById('gateScreen').classList.add('show');
   document.getElementById('gateScreen').style.zIndex = '999';
