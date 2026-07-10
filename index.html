@@ -1966,6 +1966,9 @@ input:checked + #studioSection .slider-toggle::before{transform:translateX(19px)
           <button class="btn-primary" id="bcSendBtn">SEND BROADCAST</button>
         </div>
         <div class="row" style="margin-top:8px;">
+          <button class="btn-primary" id="bcStopSendBtn" style="width:100%; display:none; background:#B91C1C;">STOP SENDING</button>
+        </div>
+        <div class="row" style="margin-top:8px;">
           <button class="btn-ghost" id="bcSaveDraftBtn" style="width:100%;">SAVE AS DRAFT</button>
         </div>
         <div class="status" id="broadcastStatus"></div>
@@ -4608,6 +4611,17 @@ el('broadcastEditor').addEventListener('drop', async (e) => {
   }
 });
 
+// Sets the abort flag checked before each batch in runBroadcastSend —
+// doesn't cancel a batch already in flight (those emails are already
+// being sent server-side), just stops any further batches from
+// starting. Gives immediate visual feedback since the actual stop
+// only takes effect once the current in-flight batch finishes.
+el('bcStopSendBtn').addEventListener('click', () => {
+  bcSendAborted = true;
+  el('bcStopSendBtn').disabled = true;
+  el('bcStopSendBtn').textContent = 'STOPPING\u2026';
+});
+
 el('bcSendBtn').addEventListener('click', async () => {
   const subject = el('broadcastSubject').value.trim();
   const body = stripEditorControls(el('broadcastEditor').innerHTML.trim());
@@ -4759,6 +4773,7 @@ async function runScheduleBroadcast(recipients, subject, body, useTemplate, sche
 // a send completes fully (success or with all recipients accounted
 // for) or once a person starts composing a genuinely new broadcast.
 let bcResumableSend = null; // { subject, body, useTemplate, remainingRows, alreadySentEmails, alreadyFailedReasons }
+let bcSendAborted = false; // set true by STOP SENDING — checked before each batch starts
 
 // A pending "Continue Sending" only makes sense if the message and
 // recipients haven't changed since the failed attempt — resuming with
@@ -4777,6 +4792,10 @@ function invalidateResumableSend(){
 async function runBroadcastSend(recipients, subject, body, useTemplate, resumeFrom){
   el('bcSendBtn').disabled = true;
   el('bcPreviewBtn').disabled = true;
+  bcSendAborted = false;
+  el('bcStopSendBtn').style.display = 'block';
+  el('bcStopSendBtn').disabled = false;
+  el('bcStopSendBtn').textContent = 'STOP SENDING';
   // When resuming, only the rows that were never successfully confirmed
   // are re-attempted — everyone already sent to in a completed batch is
   // skipped entirely, which is exactly what makes a retry safe rather
@@ -4796,9 +4815,19 @@ async function runBroadcastSend(recipients, subject, body, useTemplate, resumeFr
   const allFailureReasons = alreadyFailedReasons;
   const sentEmailsThisRun = []; // built up as each batch actually completes, for resumability if this run itself fails partway
   const completedRowEmails = new Set(); // every email whose batch actually finished (sent OR failed) — anything NOT in here still needs to be attempted on resume
+  let stoppedByUser = false;
 
   try{
     for (let i = 0; i < batches.length; i++){
+      // Checked BEFORE starting the next batch, not mid-batch — a batch
+      // already in flight is a real request the server is already
+      // acting on (sending real emails), so it's left to finish rather
+      // than abandoned in an unknown state. STOP just means "don't
+      // start any more after this one."
+      if (bcSendAborted){
+        stoppedByUser = true;
+        break;
+      }
       showStatus('broadcastStatus','info',
         'Sending batch ' + (i + 1) + ' of ' + batches.length + ' (' + (totalSent + totalFailed) + ' of ' + totalOriginalCount + ' done)\u2026'
       );
@@ -4826,21 +4855,45 @@ async function runBroadcastSend(recipients, subject, body, useTemplate, resumeFr
       totalFailed += result.failed || 0;
       if (result.failureReasons) allFailureReasons.push(...result.failureReasons);
     }
-    let msg = 'Done \u2014 sent to ' + totalSent + ' of ' + totalOriginalCount + ' clients';
-    if (totalFailed > 0){
-      // Show up to 3 concrete reasons instead of a generic "check their
-      // email addresses" — the real cause (bad address, attachment too
-      // large, blocked recipient, etc.) is now visible immediately.
-      const sample = allFailureReasons.slice(0, 3)
-        .map(f => '\u2022 ' + f.email + ': ' + f.reason)
-        .join('  ');
-      msg += ' (' + totalFailed + ' failed). ' + sample;
-      if (allFailureReasons.length > 3) msg += '  \u2026and ' + (allFailureReasons.length - 3) + ' more.';
+
+    if (stoppedByUser){
+      const remainingRows = rows.filter(r => !completedRowEmails.has(r.email));
+      if (remainingRows.length > 0){
+        bcResumableSend = {
+          subject: subject,
+          body: body,
+          useTemplate: useTemplate,
+          remainingRows: remainingRows,
+          alreadySentEmails: (resumeFrom ? resumeFrom.alreadySentEmails : []).concat(sentEmailsThisRun),
+          alreadyFailedReasons: allFailureReasons.slice()
+        };
+      } else {
+        bcResumableSend = null;
+      }
+      const resumeHint = bcResumableSend
+        ? ' Tap "CONTINUE SENDING" below whenever you\u2019re ready to send to the remaining ' + bcResumableSend.remainingRows.length + ' \u2014 no one will get a duplicate.'
+        : '';
+      showStatus('broadcastStatus','error',
+        'Stopped \u2014 sent to ' + totalSent + ' of ' + totalOriginalCount + ' before you stopped it.' + resumeHint
+      );
+      updateResumeSendButton();
     } else {
-      msg += '.';
+      let msg = 'Done \u2014 sent to ' + totalSent + ' of ' + totalOriginalCount + ' clients';
+      if (totalFailed > 0){
+        // Show up to 3 concrete reasons instead of a generic "check their
+        // email addresses" — the real cause (bad address, attachment too
+        // large, blocked recipient, etc.) is now visible immediately.
+        const sample = allFailureReasons.slice(0, 3)
+          .map(f => '\u2022 ' + f.email + ': ' + f.reason)
+          .join('  ');
+        msg += ' (' + totalFailed + ' failed). ' + sample;
+        if (allFailureReasons.length > 3) msg += '  \u2026and ' + (allFailureReasons.length - 3) + ' more.';
+      } else {
+        msg += '.';
+      }
+      showStatus('broadcastStatus', totalFailed > 0 ? 'error' : 'success', msg);
+      bcResumableSend = null; // fully accounted for — nothing left to resume
     }
-    showStatus('broadcastStatus', totalFailed > 0 ? 'error' : 'success', msg);
-    bcResumableSend = null; // fully accounted for — nothing left to resume
   }catch(err){
     const isLikelyNetworkFailure = /load failed|failed to fetch|network ?error/i.test(err.message || '');
     // Any row not in completedRowEmails was never part of a batch that
@@ -4872,6 +4925,7 @@ async function runBroadcastSend(recipients, subject, body, useTemplate, resumeFr
   }finally{
     el('bcSendBtn').disabled = false;
     el('bcPreviewBtn').disabled = false;
+    el('bcStopSendBtn').style.display = 'none';
   }
 }
 
