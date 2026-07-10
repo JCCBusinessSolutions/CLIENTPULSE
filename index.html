@@ -62,6 +62,23 @@
     --bad:#EB5757;
   }
   *{box-sizing:border-box;}
+
+  /* Hardcoded fallback for the mobile header bar — this is normally
+     positioned by Tailwind's `sticky top-0 z-30` utility classes, but
+     those only exist if the Tailwind CDN script (cdn.tailwindcss.com)
+     successfully loads. On a slow/unreliable connection, or if the CDN
+     is blocked by a firewall, Tailwind silently never initializes and
+     every utility class does nothing — the header then falls back to
+     plain document flow (position:static), so it scrolls away instead
+     of staying fixed, and the Setup button ends up wherever the header
+     happens to land on the page instead of always being reachable at
+     the top. This rule guarantees correct positioning regardless of
+     whether the CDN loads, since it doesn't depend on Tailwind at all. */
+  #mobileHeaderBar{
+    position: sticky;
+    top: 0;
+    z-index: 30;
+  }
   body{
     margin:0;
     background:var(--cream);
@@ -206,6 +223,9 @@
   #birthdaysTodayBody.collapsed{ display:none; }
   #duesClientsBody.collapsed{ display:none; }
   #birthdayClientsBody.collapsed{ display:none; }
+  #planSummaryWrap.collapsed{ display:none; }
+  #clientsSummaryBody.collapsed{ display:none; }
+  #lapsedClientsBody.collapsed{ display:none; }
 
   /* ============================================================
      NEW DASHBOARD CHROME — sidebar, hero, KPIs, mobile nav.
@@ -414,6 +434,58 @@
   body.dark-mode #fileDrop p:last-of-type{ color:#8DA0BC !important; }
   body.dark-mode #birthdayFileDrop p{ color:#FFFFFF !important; }
   body.dark-mode #birthdayFileDrop p:last-of-type{ color:#8DA0BC !important; }
+
+  /* Client Summary and Lapsed Policies specifically go full dark navy
+     in night mode (unlike most .card elements, which intentionally stay
+     light per the app's usual pattern) — every element inside needs its
+     own adjustment since they were originally styled assuming a light
+     card background. */
+  body.dark-mode #clientsSummaryCard,
+  body.dark-mode #lapsedClientsCard{
+    background:#16233A !important;
+    border-color:#27374D !important;
+  }
+  body.dark-mode #clientsSummaryCard h2,
+  body.dark-mode #lapsedClientsCard h2{
+    color:#FFFFFF !important;
+  }
+  body.dark-mode #clientsSummaryCard .sub,
+  body.dark-mode #lapsedClientsCard .sub,
+  body.dark-mode #clientsSummaryCard p[style*="color:#9CA3AF"],
+  body.dark-mode #lapsedClientsCard p[style*="color:#9CA3AF"]{
+    color:#8DA0BC !important;
+  }
+  /* Fund Value bar chart: bar-name labels and value labels rendered as
+     plain divs with inline navy/gray colors — swap to light equivalents. */
+  body.dark-mode #fundValueChart div[style*="color:#0C447C"]{ color:#FFFFFF !important; }
+  body.dark-mode #fundValueChart div[style*="color:#6B7280"]{ color:#8DA0BC !important; }
+  /* Fund Value breakdown panel (revealed on tap) and its client rows */
+  body.dark-mode #fvBreakdownPanel{
+    background:#1B2A42 !important;
+    border-color:#27374D !important;
+  }
+  body.dark-mode #fvBreakdownPanel div[style*="color:#0C447C"]{ color:#FFFFFF !important; }
+  body.dark-mode #fvBreakdownPanel span[style*="color:#374151"]{ color:#E8EDF5 !important; }
+  body.dark-mode #fvBreakdownPanel span[style*="color:#0C447C"]{ color:#FFFFFF !important; }
+  body.dark-mode #fvBreakdownPanel span[style*="color:#9CA3AF"]{ color:#8DA0BC !important; }
+  body.dark-mode #fvBreakdownPanel div[style*="border-bottom:1px solid #EFE6D2"]{ border-bottom-color:#27374D !important; }
+  /* Plan Summary rows and their expandable breakdown panels */
+  body.dark-mode .plan-summary-row{ background:#1B2A42 !important; }
+  body.dark-mode .plan-summary-row span[style*="color:#374151"]{ color:#E8EDF5 !important; }
+  body.dark-mode .plan-summary-row span[style*="color:#0C447C"]{ color:#FFFFFF !important; }
+  body.dark-mode #planSummaryWrap div[style*="background:#FDF8F0"]{ background:#1B2A42 !important; border-color:#27374D !important; }
+  body.dark-mode #planSummaryWrap div[style*="color:#0C447C"]{ color:#FFFFFF !important; }
+  body.dark-mode #planSummaryWrap span[style*="color:#374151"]{ color:#E8EDF5 !important; }
+  body.dark-mode #planSummaryWrap span[style*="color:#0C447C"]{ color:#FFFFFF !important; }
+  body.dark-mode #planSummaryWrap div[style*="border-bottom:1px solid #EFE6D2"]{ border-bottom-color:#27374D !important; }
+  body.dark-mode #planSummaryShowAllBtn{ color:#FFFFFF !important; border-color:#27374D !important; }
+  /* Lapsed Policies rows — same treatment as the dues/birthday list rows */
+  body.dark-mode #lapsedClientsList div[style*="background:#FDF1F0"]{
+    background:#2A1B1E !important;
+  }
+  body.dark-mode #lapsedClientsList div[style*="color:#0C447C"]{ color:#FFFFFF !important; }
+  body.dark-mode #lapsedClientsList div[style*="color:#6B7280"]{ color:#8DA0BC !important; }
+  body.dark-mode #lapsedClientsSub{ color:#8DA0BC !important; }
   /* The "Your name" box inside Branding uses .bg-bgcream, which goes
      dark navy in night mode (see rule above) — its label and SAVE NAME
      button text must switch to white here too, or they're unreadable
@@ -929,6 +1001,167 @@ input:checked + #studioSection .slider-toggle::before{transform:translateX(19px)
   .theme-switch-track.is-on{ background:#003B7A; }
   .theme-switch-track.is-on .theme-switch-thumb{ transform:translateX(18px); }
   body.dark-mode .theme-switch-track.is-on{ background:#FFFFFF; }
+
+  /* Broadcast Email rich text toolbar — compact inline buttons instead
+     of full-width blocks, so multiple tools fit per row on mobile. */
+  .bc-tool-btn{
+    flex: 0 0 auto;
+    width: auto !important;
+    min-height: auto;
+    padding: 6px 12px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--navy, #0C447C);
+    background: #fff;
+    border: 1px solid var(--line, #E4DCC8);
+    border-radius: 6px;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .bc-tool-btn:hover{ background: var(--cream, #FDF8F0); }
+  .bc-tool-btn:active{ background: var(--gold, #C99A3B); color: #fff; border-color: var(--gold, #C99A3B); }
+  #broadcastEditor:empty:before{
+    content: attr(data-placeholder);
+    color: #9CA3AF;
+    white-space: pre-wrap;
+  }
+
+  /* Recipient picker — quick-select shortcuts and list rows */
+  .bc-quick-btn{
+    flex: 0 0 auto;
+    width: auto !important;
+    min-height: auto;
+    padding: 6px 12px;
+    font-size: 11.5px;
+    font-weight: 600;
+    color: var(--navy, #0C447C);
+    background: #fff;
+    border: 1px solid var(--line, #E4DCC8);
+    border-radius: 100px;
+    cursor: pointer;
+  }
+  .bc-quick-btn:active{ background: var(--gold, #C99A3B); color: #fff; border-color: var(--gold, #C99A3B); }
+
+  .bc-sort-btn{
+    flex: 0 0 auto;
+    width: auto !important;
+    min-height: auto;
+    padding: 7px 14px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--navy, #0C447C);
+    background: var(--cream, #FDF8F0);
+    border: 1px solid var(--line, #E4DCC8);
+    border-radius: 100px;
+    cursor: pointer;
+  }
+  .bc-sort-btn.active{
+    background: var(--navy, #0C447C);
+    color: #fff;
+    border-color: var(--navy, #0C447C);
+  }
+  .bc-when-btn, .bc-day-btn{
+    width: auto !important;
+    min-height: auto;
+    padding: 10px 12px;
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--navy, #0C447C);
+    background: #fff;
+    border: 1.5px solid var(--line, #E4DCC8);
+    border-radius: 10px;
+    cursor: pointer;
+  }
+  .bc-when-btn.active, .bc-day-btn.active{
+    background: var(--navy, #0C447C);
+    color: #fff;
+    border-color: var(--navy, #0C447C);
+  }
+  .bc-scheduled-row{
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 10px; background: var(--cream, #FDF8F0); border: 1px solid var(--line, #E4DCC8);
+    border-radius: 10px; padding: 10px 12px; margin-bottom: 8px; font-size: 12.5px;
+  }
+  .bc-scheduled-cancel{
+    width: auto !important; min-height: auto; flex: 0 0 auto;
+    background: none; border: none; color: #EB5757; font-weight: 700;
+    font-size: 12px; cursor: pointer; padding: 4px 8px;
+  }
+  .bc-completed-row{
+    background: var(--cream, #FDF8F0); border: 1px solid var(--line, #E4DCC8);
+    border-left: 4px solid var(--good, #27AE60);
+    border-radius: 10px; padding: 10px 12px; margin-bottom: 8px; font-size: 12.5px;
+  }
+  .bc-completed-row.has-failures{
+    border-left-color: var(--bad, #EB5757);
+  }
+  .bc-swipe-wrap{
+    position: relative;
+    overflow: hidden;
+    border-radius: 10px;
+    margin-bottom: 8px;
+  }
+  .bc-swipe-wrap .bc-completed-row{
+    margin-bottom: 0;
+    position: relative;
+    transition: transform 0.2s ease;
+    touch-action: pan-y;
+  }
+  .bc-swipe-delete-action{
+    position: absolute;
+    top: 0; right: 0; bottom: 0;
+    width: 90px;
+    background: var(--bad, #EB5757);
+    color: #fff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+    font-size: 12px;
+    letter-spacing: 0.5px;
+    border-radius: 0 10px 10px 0;
+  }
+  .bc-picker-row{
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 10px;
+    border-bottom: 1px solid var(--line, #E4DCC8);
+    cursor: pointer;
+  }
+  .bc-picker-row:active{ background: rgba(201,154,59,.08); }
+  .bc-picker-checkbox{
+    width: 20px; height: 20px; flex: 0 0 auto;
+    border: 1.5px solid var(--line, #E4DCC8);
+    border-radius: 6px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 13px; color: #fff;
+  }
+  .bc-picker-row.checked .bc-picker-checkbox{
+    background: var(--gold, #C99A3B); border-color: var(--gold, #C99A3B);
+  }
+  .bc-picker-info{ flex: 1 1 auto; min-width: 0; }
+  .bc-picker-name{ font-size: 13.5px; font-weight: 600; color: var(--ink, #13202B); }
+  .bc-picker-meta{ font-size: 11.5px; color: #9CA3AF; margin-top: 1px; }
+  .bc-picker-amount{ font-size: 13px; font-weight: 700; color: var(--navy, #0C447C); flex: 0 0 auto; }
+
+  /* Dark mode: broadcast editor and attachment drop zone text were
+     invisible (dark text on the app's dark background, or unstyled
+     white-on-white in the opposite direction) because both use inline
+     styles set for light mode only. These overrides only apply under
+     body.dark-mode, so light mode is untouched. */
+  body.dark-mode #broadcastEditor{
+    background: #14243D !important;
+    color: #FFFFFF !important;
+    border-color: #27374D !important;
+  }
+  body.dark-mode #broadcastEditor:empty:before{ color: #8DA0BC !important; }
+  body.dark-mode #bcAttachmentDrop span{ color: #FFFFFF !important; }
+  body.dark-mode #personalLinkBox{
+    background: #14243D !important;
+    color: #FFFFFF !important;
+    border-color: #27374D !important;
+  }
 </style>
 </head>
 <body class="bg-bgcream text-ink font-body">
@@ -984,11 +1217,11 @@ input:checked + #studioSection .slider-toggle::before{transform:translateX(19px)
         <input type="password" id="gatePassword" class="gate-input" placeholder="Password" autocomplete="current-password">
         <button type="button" class="gate-pw-toggle" onclick="togglePasswordVisibility('gatePassword', this)" aria-label="Show password"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></button>
       </div>
-      <div class="gate-error" id="emailError"></div>
-      <label style="display:flex; align-items:center; gap:8px; font-size:13px; color:#fff; margin:2px 0 14px; cursor:pointer; user-select:none;">
-        <input type="checkbox" id="rememberMeCheckbox" checked style="width:16px; height:16px; margin:0; cursor:pointer;">
-        Remember me on this device
+      <label style="display:flex; align-items:center; gap:8px; margin:10px 2px 4px; font-size:12.5px; color:#6B7280; cursor:pointer;">
+        <input type="checkbox" id="gateRememberMe" style="width:16px; height:16px; margin:0; cursor:pointer; accent-color:#0C447C;">
+        Remember my email and password on this device
       </label>
+      <div class="gate-error" id="emailError"></div>
       <button class="gate-btn" onclick="accessGate()" id="accessBtn">ACCESS DASHBOARD</button>
       <button type="button" class="gate-link" id="forgotPasswordLink" onclick="showForgotPasswordStep()">Forgot password?</button>
       <div class="gate-footer">JCC BUSINESS SOLUTIONS&trade;<br>All Rights Reserved 2026</div>
@@ -1044,12 +1277,13 @@ input:checked + #studioSection .slider-toggle::before{transform:translateX(19px)
 </div>
 
 <!-- ============================================================
-     90-DAY INACTIVITY LOCK SCREEN
+     INACTIVITY LOCK SCREEN
      Shown after a successful login if the backend reports the
-     advisor hasn't uploaded a Dues or Birthday list in 90+ days
-     (see checkAdvisorActiveStatus). Uploading is still reachable
-     from here — the point is to make the paused state obvious and
-     give a direct path back in, not to hide the app entirely.
+     advisor hasn't uploaded a Dues or Birthday list before the
+     calendar-anchored deadline (see checkAdvisorActiveStatus).
+     Uploading is still reachable from here — the point is to make
+     the paused state obvious and give a direct path back in, not
+     to hide the app entirely.
      ============================================================ -->
 <div id="inactivityLockScreen" style="display:none; position:fixed; inset:0; z-index:9998; background:rgba(12,68,124,0.97); backdrop-filter:blur(4px); align-items:center; justify-content:center; padding:24px;">
   <div style="max-width:420px; width:100%; background:#fff; border-radius:16px; padding:32px 28px; text-align:center; box-shadow:0 20px 60px rgba(0,0,0,0.35);">
@@ -1077,6 +1311,7 @@ input:checked + #studioSection .slider-toggle::before{transform:translateX(19px)
     <div class="sidebar-link" data-nav="upload"><span>📤</span>Upload &amp; Parse</div>
     <div class="sidebar-link" data-nav="reports"><span>📈</span>Reports</div>
     <div class="sidebar-link" data-nav="clients"><span>🧑‍🤝‍🧑</span>Clients</div>
+    <div class="sidebar-link" data-nav="broadcast"><span>📣</span>Broadcast Email</div>
     <div class="sidebar-link" data-nav="settings" id="sidebarSettingsLink"><span>⚙️</span>Settings<span class="dot" id="sidebarSettingsDot" style="display:none;"></span></div>
     <div class="sidebar-link" id="sidebarLogoutLink" onclick="logoutUser()" style="color:#FF8A80;"><span>🚪</span>Logout</div>
   </nav>
@@ -1134,7 +1369,7 @@ input:checked + #studioSection .slider-toggle::before{transform:translateX(19px)
         <span class="theme-switch-track"><span class="theme-switch-thumb"></span></span>
       </button>
       <button class="!w-10 !h-10 !min-h-0 !p-0 !rounded-full bg-bgcream border border-bordertan text-base" onclick="showToast('No new notifications.')">🔔</button>
-      <div class="flex items-center gap-3 cursor-pointer" onclick="document.getElementById('toggleConfig').click(); scrollToSection('settings');">
+      <div class="flex items-center gap-3 cursor-pointer" onclick="openSettingsPage();">
         <div class="w-10 h-10 rounded-full bg-navy text-gold font-heading font-bold flex items-center justify-center text-sm" id="headerAdvisorAvatar">--</div>
         <div>
           <div class="text-sm font-semibold text-ink leading-tight" id="headerAdvisorName">Your Name</div>
@@ -1290,7 +1525,7 @@ input:checked + #studioSection .slider-toggle::before{transform:translateX(19px)
         <div class="flex items-start gap-1.5 mt-3">
           <span class="text-[11px] flex-shrink-0">🔒</span>
           <ul class="footer-note !text-left m-0 pl-4" style="list-style:disc;">
-            <li>JCC Business Solutions · Dues Tracker Parser · Only "Premium paying" policies are imported. Skipped automatically: Lapsed, Paid-Up, Surrendered, Extended Term.</li>
+            <li>JCC Business Solutions · Dues Tracker Parser · Premium Paying and Paid-Up policies are imported together (Paid-Up policies won't receive due reminders, since they have no due date). Lapsed policies are imported separately for follow-up. Skipped automatically: Surrendered, Expired, Cancelled, Terminated, Matured.</li>
             <li class="mt-1">The developer has no access to uploaded files under any circumstance — everything is processed in your browser and pushed only into your own Google Sheet once set up.</li>
           </ul>
         </div>
@@ -1517,6 +1752,7 @@ input:checked + #studioSection .slider-toggle::before{transform:translateX(19px)
       <div class="card" id="clientsIntroCard">
         <h2>📋 Manage Your Clients</h2>
         <p class="sub">Choose which clients will receive dues reminders and birthday greetings. Toggle off any clients you don't want to reach out to automatically.</p>
+        <p style="font-size:10px; color:#C99A3B; margin:8px 0 0; font-weight:600;">Build: 2026-07-05-reorder-v2 \u2014 if this line isn\u2019t visible, you\u2019re viewing a cached/old copy of this page.</p>
       </div>
 
       <!-- DUES CLIENTS -->
@@ -1527,6 +1763,18 @@ input:checked + #studioSection .slider-toggle::before{transform:translateX(19px)
         </div>
         <div id="duesClientsBody">
           <div style="padding:12px 16px;border-bottom:1px solid #e7dfcf;">
+            <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;">
+              <select id="duesPlanFilter" style="flex:1 1 140px;min-width:0;padding:9px 10px;border:1px solid #ddd;border-radius:8px;font-size:12.5px;font-family:inherit;background:#fff;color:#374151;">
+                <option value="">All Plans</option>
+              </select>
+              <select id="duesSortSelect" style="flex:1 1 160px;min-width:0;padding:9px 10px;border:1px solid #ddd;border-radius:8px;font-size:12.5px;font-family:inherit;background:#fff;color:#374151;">
+                <option value="dueDate">Sort: Due Date (soonest)</option>
+                <option value="fundValueDesc">Sort: Fund Value (highest first)</option>
+                <option value="fundValueAsc">Sort: Fund Value (lowest first)</option>
+                <option value="nameAsc">Sort: Name (A–Z)</option>
+                <option value="nameDesc">Sort: Name (Z–A)</option>
+              </select>
+            </div>
             <div style="display:flex;gap:8px;align-items:center;">
               <input type="text" id="duesSearchInput" placeholder="Search by name, product, or policy #..." style="flex:1;min-width:0;padding:10px 12px;border:1px solid #ddd;border-radius:8px;font-size:13px;font-family:inherit;">
               <button type="button" id="duesSearchClearBtn" style="width:auto;min-height:0;flex-shrink:0;background:none;border:1px solid #ddd;border-radius:8px;cursor:pointer;color:#999;font-size:16px;padding:8px 12px;">✕</button>
@@ -1572,6 +1820,240 @@ input:checked + #studioSection .slider-toggle::before{transform:translateX(19px)
             <button class="btn-gold" id="saveBirthdayPreferences" style="display:flex;align-items:center;justify-content:center;gap:7px;margin-left:8px;">✓ SAVE CHANGES</button>
           </div>
           <div class="status" id="birthdayClientsStatus"></div>
+        </div>
+      </div>
+
+      <!-- SUMMARY CHARTS — Fund Value distribution and per-plan counts,
+           drawn as plain <canvas> bar charts so this stays a single,
+           self-contained file with no extra chart library dependency. -->
+      <div class="card" id="clientsSummaryCard">
+        <div class="card-header-row" id="clientsSummaryHeader">
+          <h2 style="margin:0;">Client Summary</h2>
+          <button class="collapse-toggle" id="toggleClientsSummary" aria-label="Collapse">&#8943;</button>
+        </div>
+        <div id="clientsSummaryBody">
+          <p class="sub" style="margin-bottom:4px;">Fund Value Distribution</p>
+          <p style="font-size:11px; color:#9CA3AF; margin:0 0 8px;">Tap a bar to see which clients are in that range.</p>
+          <div id="fundValueChart"></div>
+
+          <div style="display:flex; justify-content:space-between; align-items:center; margin:20px 0 4px;">
+            <p class="sub" style="margin:0;">Plan Summary</p>
+            <button type="button" id="togglePlanSummary" class="collapse-toggle" aria-label="Collapse">&#8943;</button>
+          </div>
+          <div id="planSummaryWrap">
+            <p style="font-size:11px; color:#9CA3AF; margin:0 0 8px;">Tap a plan to see its clients, ranked by issue date.</p>
+            <div id="planSummaryList"></div>
+            <button type="button" id="planSummaryShowAllBtn" style="display:none; width:100%; margin-top:10px; padding:8px; background:none; border:1px dashed #ddd; border-radius:8px; color:#0C447C; font-size:12px; font-weight:600; cursor:pointer;"></button>
+          </div>
+        </div>
+      </div>
+
+      <!-- LAPSED POLICIES — display-only, no reminder toggle since
+           lapsed policies never get dues reminders in the first place -->
+      <div class="card" id="lapsedClientsCard">
+        <div class="card-header-row" id="lapsedClientsHeader">
+          <h2 style="margin:0;">Lapsed Policies</h2>
+          <button class="collapse-toggle" id="toggleLapsedClients" aria-label="Collapse">&#8943;</button>
+        </div>
+        <div id="lapsedClientsBody">
+          <div style="padding:12px 16px;border-bottom:1px solid #e7dfcf;">
+            <select id="lapsedSortSelect" style="width:100%;padding:9px 10px;border:1px solid #ddd;border-radius:8px;font-size:12.5px;font-family:inherit;background:#fff;color:#374151;margin-bottom:10px;">
+              <option value="recent">Sort: Most recently lapsed</option>
+              <option value="lt1">Less than 1 year lapsed</option>
+              <option value="lt2">Less than 2 years lapsed</option>
+              <option value="lt3">Less than 3 years lapsed</option>
+              <option value="gt3">More than 3 years lapsed</option>
+            </select>
+            <div style="display:flex;gap:8px;align-items:center;">
+              <input type="text" id="lapsedSearchInput" placeholder="Search by name or product..." style="flex:1;min-width:0;padding:10px 12px;border:1px solid #ddd;border-radius:8px;font-size:13px;font-family:inherit;">
+              <button type="button" id="lapsedSearchClearBtn" style="width:auto;min-height:0;flex-shrink:0;background:none;border:1px solid #ddd;border-radius:8px;cursor:pointer;color:#999;font-size:16px;padding:8px 12px;">✕</button>
+            </div>
+            <div style="font-size:11px;color:#6b7280;margin-top:8px;" id="lapsedSearchCount"></div>
+          </div>
+          <p class="sub" id="lapsedClientsSub">Loading lapsed policies…</p>
+          <div id="lapsedClientsList" style="max-height:400px;overflow-y:auto;padding:12px 16px;border:1px solid #e7dfcf;border-radius:6px;"></div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- ============================================================
+         BROADCAST EMAIL — its own page, separate from Settings
+         ============================================================ -->
+    <div id="page-broadcast" style="display:none;">
+
+      <div class="card" id="broadcastIntroCard">
+        <h2>📣 Broadcast Email</h2>
+        <p class="sub">Write a custom message and choose exactly who receives it. Use <strong>{FirstName}</strong> anywhere in your message and it will be replaced with each client's actual first name.</p>
+      </div>
+
+      <div class="card" id="broadcastCard">
+        <label for="broadcastSubject">Subject</label>
+        <input type="text" id="broadcastSubject" placeholder="e.g. A quick update from your advisor">
+
+        <label style="margin-top:12px;">Message</label>
+        <div id="broadcastToolbar" style="display:flex; gap:4px; flex-wrap:wrap; align-items:center; margin:6px 0 8px; padding:8px; background:var(--cream,#FDF8F0); border:1px solid var(--line,#E4DCC8); border-radius:8px 8px 0 0;">
+          <select id="bcFontSizeSelect" title="Font size" style="flex:0 0 auto; width:auto; min-height:auto; padding:6px 8px; font-size:12px; font-weight:600; color:var(--navy,#0C447C); background:#fff; border:1px solid var(--line,#E4DCC8); border-radius:6px; cursor:pointer;">
+            <option value="13">Small</option>
+            <option value="14" selected>Normal</option>
+            <option value="18">Large</option>
+            <option value="24">Huge</option>
+          </select>
+          <span style="width:1px; background:var(--line,#E4DCC8); margin:2px 4px;"></span>
+          <button type="button" class="bc-tool-btn" data-cmd="bold" title="Bold" style="font-weight:800;">B</button>
+          <button type="button" class="bc-tool-btn" data-cmd="italic" title="Italic" style="font-style:italic;">I</button>
+          <button type="button" class="bc-tool-btn" data-cmd="underline" title="Underline" style="text-decoration:underline;">U</button>
+          <span style="width:1px; background:var(--line,#E4DCC8); margin:2px 4px;"></span>
+          <button type="button" class="bc-tool-btn" id="bcInsertLinkBtn" title="Insert link">🔗 Link</button>
+          <button type="button" class="bc-tool-btn" id="bcInsertImageBtn" title="Insert image">🖼️ Image</button>
+          <span style="width:1px; background:var(--line,#E4DCC8); margin:2px 4px;"></span>
+          <button type="button" class="bc-tool-btn" data-cmd="insertUnorderedList" title="Bullet list">• List</button>
+          <button type="button" class="bc-tool-btn" id="bcClearFormatBtn" title="Clear formatting">Clear</button>
+        </div>
+        <div id="broadcastEditor" contenteditable="true"
+             style="min-height:420px; max-height:640px; overflow-y:auto; background:#fff; border:1px solid var(--line,#E4DCC8); border-top:none; border-radius:0 0 8px 8px; padding:14px 16px; font-size:14px; line-height:1.6; color:var(--ink,#13202B);"
+             data-placeholder="Hi {FirstName},&#10;&#10;Write your message here...">Hi {FirstName},<br><br></div>
+        <div style="font-size:11px; color:#9CA3AF; margin-top:6px;">Tip: select text first, then choose a size from the dropdown above to resize just that text. Click an inserted image to select it, then use the resize handle that appears in its corner to make it bigger or smaller. Hover an image to reveal a small × button to remove it.</div>
+
+        <div id="bcTemplateToggleWrap" style="display:flex; align-items:center; justify-content:space-between; gap:10px; margin-top:16px; background:var(--cream,#FDF8F0); border:1px solid var(--line,#E4DCC8); border-radius:10px; padding:12px 14px;">
+          <div style="flex:1 1 auto; min-width:0;">
+            <div style="font-size:13px; font-weight:700; color:var(--ink,#13202B);">Use header & footer template</div>
+            <div id="bcTemplateStatusText" style="font-size:11px; color:#9CA3AF; margin-top:2px;">Wraps your message with the same header/footer photos from your Branding Studio.</div>
+          </div>
+          <button type="button" class="theme-switch" id="bcTemplateToggle" style="flex:0 0 auto;">
+            <span class="theme-switch-track"><span class="theme-switch-thumb"></span></span>
+          </button>
+        </div>
+        <input type="file" id="bcImageFileInput" accept="image/*" style="display:none;">
+
+        <label style="margin-top:16px;">Attachments (optional)</label>
+        <div class="file-drop" id="bcAttachmentDrop" style="padding:14px; cursor:pointer;">
+          <span>Tap to attach images or PDF files — sent as real email attachments</span>
+        </div>
+        <input type="file" id="bcAttachmentFileInput" accept="image/*,application/pdf" multiple style="display:none;">
+        <div id="bcAttachmentList" style="margin-top:8px;"></div>
+
+        <label style="margin-top:16px;">Recipients</label>
+        <div id="bcRecipientSummary" style="display:flex; align-items:center; justify-content:space-between; gap:10px; background:var(--cream,#FDF8F0); border:1px solid var(--line,#E4DCC8); border-radius:10px; padding:12px 14px; flex-wrap:wrap;">
+          <span id="bcRecipientSummaryText" style="font-size:13px; color:var(--ink,#13202B); flex:1 1 auto; min-width:0;">No recipients selected yet</span>
+          <button type="button" class="btn-gold" id="bcChooseRecipientsBtn" style="flex:0 0 auto; width:auto; min-height:auto; padding:9px 16px; font-size:12px; white-space:nowrap;">CHOOSE RECIPIENTS</button>
+        </div>
+
+        <div id="bcSizeIndicator" style="font-size:11px; color:#9CA3AF; margin-top:12px; text-align:right;">Message size: calculating\u2026</div>
+
+        <label style="margin-top:16px;">When to send</label>
+        <div style="display:flex; gap:6px; margin-bottom:10px;">
+          <button type="button" class="bc-when-btn active" id="bcSendNowBtn" data-when="now" style="flex:1;">SEND NOW</button>
+          <button type="button" class="bc-when-btn" id="bcSendLaterBtn" data-when="later" style="flex:1;">SEND LATER</button>
+        </div>
+
+        <div id="bcScheduleWrap" style="display:none; background:var(--cream,#FDF8F0); border:1px solid var(--line,#E4DCC8); border-radius:10px; padding:14px; margin-bottom:14px;">
+          <div style="display:flex; gap:6px; margin-bottom:10px;">
+            <button type="button" class="bc-day-btn active" id="bcDayTodayBtn" data-day="today" style="flex:1;">Today</button>
+            <button type="button" class="bc-day-btn" id="bcDayTomorrowBtn" data-day="tomorrow" style="flex:1;">Tomorrow</button>
+            <button type="button" class="bc-day-btn" id="bcDayPickBtn" data-day="pick" style="flex:1;">Pick a date</button>
+          </div>
+          <input type="date" id="bcScheduleDateInput" style="display:none; width:100%; padding:10px 12px; border:1px solid var(--line,#E4DCC8); border-radius:8px; background:#fff; font-size:14px; margin-bottom:10px;">
+
+          <label style="font-size:12px; color:#6B7280; margin-bottom:6px; display:block;">Time (every 30 minutes, 6:00 AM \u2013 6:00 PM)</label>
+          <select id="bcScheduleTimeSelect" style="width:100%; padding:10px 12px; border:1px solid var(--line,#E4DCC8); border-radius:8px; background:#fff; font-size:14px;"></select>
+
+          <div id="bcScheduleSummary" style="font-size:12px; color:var(--navy,#0C447C); font-weight:600; margin-top:10px;"></div>
+        </div>
+
+        <div class="row" style="margin-top:6px;">
+          <button class="btn-gold" id="bcPreviewBtn">PREVIEW</button>
+          <button class="btn-primary" id="bcSendBtn">SEND BROADCAST</button>
+        </div>
+        <div class="row" style="margin-top:8px;">
+          <button class="btn-ghost" id="bcSaveDraftBtn" style="width:100%;">SAVE AS DRAFT</button>
+        </div>
+        <div class="status" id="broadcastStatus"></div>
+        <div class="row" style="margin-top:8px;">
+          <button class="btn-primary" id="bcResumeSendBtn" style="width:100%; display:none; background:var(--gold,#C99A3B);">CONTINUE SENDING</button>
+        </div>
+
+        <div id="bcDraftsListWrap" style="margin-top:20px;">
+          <label>Saved Drafts</label>
+          <div id="bcDraftsList" style="font-size:13px; color:#9CA3AF;">No saved drafts.</div>
+        </div>
+
+        <div id="bcScheduledListWrap" style="margin-top:20px;">
+          <label>Scheduled Broadcasts</label>
+          <div id="bcScheduledList" style="font-size:13px; color:#9CA3AF;">No scheduled broadcasts.</div>
+        </div>
+
+        <div id="bcCompletedListWrap" style="margin-top:20px;">
+          <label>Completed Broadcasts</label>
+          <div id="bcCompletedList" style="font-size:13px; color:#9CA3AF;">No completed broadcasts yet.</div>
+        </div>
+
+        <div id="bcPreviewContainer" style="display:none; margin-top:16px; border:1px solid var(--line,#E4DCC8); border-radius:10px; overflow:hidden;">
+          <div style="background:var(--cream,#FDF8F0); padding:8px 14px; font-size:11px; font-weight:700; color:var(--navy,#0C447C); border-bottom:1px solid var(--line,#E4DCC8);">PREVIEW — sent to: Dela Cruz, Juan Miguel</div>
+          <div id="bcPreviewBody" style="padding:16px; background:#fff; font-size:14px; line-height:1.6;"></div>
+        </div>
+
+        <div id="bcConfirmOverlay" style="display:none; position:fixed; inset:0; z-index:400; background:rgba(8,20,35,.6); align-items:center; justify-content:center; padding:20px;" onclick="if(event.target===this) this.style.display='none';">
+          <div style="background:#fff; border-radius:16px; max-width:360px; width:100%; padding:24px 22px; text-align:center;">
+            <div style="font-size:15px; font-weight:700; color:var(--navy,#0C447C); margin-bottom:8px;">Send this broadcast?</div>
+            <div id="bcConfirmCount" style="font-size:13px; color:#6B7280; margin-bottom:20px; line-height:1.6; white-space:pre-line;"></div>
+            <div style="display:flex; gap:8px;">
+              <button class="btn-ghost" id="bcConfirmCancel" style="flex:1;">CANCEL</button>
+              <button class="btn-primary" id="bcConfirmSend" style="flex:1;">YES, SEND</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Recipient Picker — full-screen modal, opened from "CHOOSE RECIPIENTS" -->
+      <div id="bcPickerOverlay" style="display:none; position:fixed; inset:0; z-index:450; background:var(--cream,#FDF8F0); flex-direction:column;">
+        <div style="background:var(--navy,#0C447C); padding:14px 16px; display:flex; align-items:center; justify-content:space-between; flex:0 0 auto;">
+          <div style="color:#fff; font-weight:700; font-size:15px;">Choose Recipients</div>
+          <button type="button" id="bcPickerCloseBtn" style="flex:0 0 auto; width:auto; min-height:auto; background:rgba(255,255,255,.15); border:none; color:#fff; border-radius:8px; padding:6px 12px; font-size:13px; font-weight:600; cursor:pointer;">Done</button>
+        </div>
+
+        <div style="padding:12px 16px; flex:0 0 auto; background:#fff; border-bottom:1px solid var(--line,#E4DCC8);">
+          <input type="text" id="bcPickerSearch" placeholder="Search by name..." style="width:100%; padding:10px 14px; border:1px solid var(--line,#E4DCC8); border-radius:10px; background:var(--cream,#FDF8F0); font-size:14px; margin-bottom:10px;">
+
+          <div style="font-size:11px; color:#6B7280; margin-bottom:6px;">Sort by:</div>
+          <div style="display:flex; gap:6px; flex-wrap:wrap; align-items:center; margin-bottom:10px;">
+            <button type="button" class="bc-sort-btn active" data-sort="fundValue">Fund Value</button>
+            <button type="button" class="bc-sort-btn" data-sort="product">Plan Name</button>
+            <button type="button" class="bc-sort-btn" data-sort="clientName">Name</button>
+            <button type="button" class="bc-sort-btn" data-sort="dueDate">Due Date</button>
+          </div>
+
+          <div id="bcPlanFilterWrap" style="margin-bottom:10px;">
+            <select id="bcPlanFilter" style="width:100%; padding:9px 12px; border:1px solid var(--line,#E4DCC8); border-radius:10px; background:var(--cream,#FDF8F0); font-size:13px; color:var(--ink,#13202B);">
+              <option value="">All plans</option>
+            </select>
+          </div>
+
+          <div id="bcLapsedFilterWrap" style="margin-bottom:10px;">
+            <select id="bcLapsedFilter" style="width:100%; padding:9px 12px; border:1px solid var(--line,#E4DCC8); border-radius:10px; background:var(--cream,#FDF8F0); font-size:13px; color:var(--ink,#13202B);">
+              <option value="">All clients (any lapsed status)</option>
+              <option value="lt1">Lapsed: Less than 1 year</option>
+              <option value="1to2">Lapsed: More than 1 year, less than 2 years</option>
+              <option value="2to3">Lapsed: More than 2 years, less than 3 years</option>
+            </select>
+          </div>
+
+          <div style="display:flex; gap:6px; flex-wrap:wrap; align-items:center;">
+            <span style="font-size:11px; color:#6B7280; margin-right:2px;">Quick select:</span>
+            <button type="button" class="bc-quick-btn" data-top="10">Top 10</button>
+            <button type="button" class="bc-quick-btn" data-top="50">Top 50</button>
+            <button type="button" class="bc-quick-btn" data-top="100">Top 100</button>
+            <button type="button" class="bc-quick-btn" id="bcSelectAllBtn">Select All</button>
+            <button type="button" class="bc-quick-btn" id="bcClearSelectionBtn">Clear</button>
+          </div>
+          <div id="bcSortHint" style="font-size:11px; color:#9CA3AF; margin-top:8px;">Sorted by fund value (highest first) · tap Top N to select the N clients shown below</div>
+        </div>
+
+        <div id="bcPickerList" style="flex:1 1 auto; overflow-y:auto; padding:8px 12px 90px;"></div>
+
+        <div style="position:fixed; bottom:0; left:0; right:0; background:#fff; border-top:1px solid var(--line,#E4DCC8); padding:12px 16px; display:flex; align-items:center; justify-content:space-between;">
+          <span id="bcPickerSelectedCount" style="font-size:13px; font-weight:700; color:var(--navy,#0C447C);">0 selected</span>
+          <button type="button" class="btn-primary" id="bcPickerDoneBtn" style="flex:0 0 auto; width:auto; min-height:auto; padding:11px 24px; font-size:13px;">DONE</button>
         </div>
       </div>
 
@@ -1752,6 +2234,7 @@ input:checked + #studioSection .slider-toggle::before{transform:translateX(19px)
   <div class="mobile-nav-item" data-nav="birthday" onclick="scrollToSection('birthday')"><span class="ico">🎂</span>Birthdays</div>
   <div class="mobile-nav-item" data-nav="upload" onclick="scrollToSection('upload')"><span class="ico">📤</span>Upload</div>
   <div class="mobile-nav-item" data-nav="clients" onclick="scrollToSection('clients')"><span class="ico">👥</span>Clients</div>
+  <div class="mobile-nav-item" data-nav="broadcast" onclick="scrollToSection('broadcast')"><span class="ico">📣</span>Broadcast</div>
   <div class="mobile-nav-item" id="mobileLogoutLink" onclick="logoutUser()" style="color:#d32f2f;"><span class="ico">🚪</span>Logout</div>
 </nav>
 
@@ -1990,27 +2473,82 @@ input:checked + #studioSection .slider-toggle::before{transform:translateX(19px)
 let currentPage = 'dues';
 
 function showPage(pageName){
-  if (pageName !== 'dues' && pageName !== 'birthday' && pageName !== 'clients') return;
+  if (pageName !== 'dues' && pageName !== 'birthday' && pageName !== 'clients' && pageName !== 'broadcast') return;
   currentPage = pageName;
   document.getElementById('page-dues').style.display = (pageName === 'dues') ? '' : 'none';
   document.getElementById('page-birthday').style.display = (pageName === 'birthday') ? '' : 'none';
   document.getElementById('page-clients').style.display = (pageName === 'clients') ? '' : 'none';
+  document.getElementById('page-broadcast').style.display = (pageName === 'broadcast') ? '' : 'none';
+  // Settings isn't one of the switchable pages, but it must never sit
+  // visible underneath another page (e.g. Broadcast Email) — hide it
+  // any time a real page is explicitly shown.
+  document.getElementById('settingsSection').style.display = 'none';
+
+  // Defensive: if the broadcast confirm dialog or recipient picker was
+  // left open (person navigated away via the sidebar instead of tapping
+  // Cancel/Confirm/Done), both are position:fixed;inset:0 with a
+  // z-index above the topbar — left open, they silently block every
+  // click on the page, including the Setup button, without being
+  // visually obvious once the person has scrolled or switched pages.
+  // This is the actual cause behind "Setup button doesn't work sometimes."
+  const confirmOverlay = document.getElementById('bcConfirmOverlay');
+  if (confirmOverlay) confirmOverlay.style.display = 'none';
+  const pickerOverlay = document.getElementById('bcPickerOverlay');
+  if (pickerOverlay) pickerOverlay.style.display = 'none';
 
   const titles = pageName === 'birthday'
     ? { line1: 'Client Birthday', line2: 'Greetings', full: 'Client Birthday Greetings' }
     : pageName === 'clients'
     ? { line1: 'Manage Your', line2: 'Clients', full: 'Manage Your Clients' }
+    : pageName === 'broadcast'
+    ? { line1: 'Broadcast', line2: 'Email', full: 'Broadcast Email' }
     : { line1: 'Premium Due', line2: 'Reminders', full: 'Premium Due Reminders' };
   document.getElementById('sidebarTitleLine1').textContent = titles.line1;
   document.getElementById('sidebarTitleLine2').textContent = titles.line2;
   document.getElementById('mobileTitleLine1').textContent = titles.line1;
   document.getElementById('mobileTitleLine2').textContent = titles.line2;
   document.getElementById('desktopTitle').textContent = titles.full;
+
+  if (pageName === 'broadcast' && typeof updateSizeIndicator === 'function'){
+    updateSizeIndicator();
+  }
+  if (pageName === 'broadcast' && typeof refreshScheduledBroadcastsList === 'function'){
+    refreshScheduledBroadcastsList();
+  }
+  if (pageName === 'broadcast' && typeof refreshDraftsList === 'function'){
+    refreshDraftsList();
+  }
+}
+
+// Settings isn't part of the page-X switching system (its cards toggle
+// individually via #toggleConfig), but it must never sit visible at
+// the same time as another page like Broadcast Email. This hides every
+// page-X container, shows settingsSection, opens its cards, and scrolls
+// to it — used by every entry point that opens Settings (sidebar link,
+// profile avatar, mobile nav) so they all behave identically.
+function openSettingsPage(){
+  document.getElementById('page-dues').style.display = 'none';
+  document.getElementById('page-birthday').style.display = 'none';
+  document.getElementById('page-clients').style.display = 'none';
+  document.getElementById('page-broadcast').style.display = 'none';
+  document.getElementById('settingsSection').style.display = '';
+  document.querySelectorAll('.sidebar-link, .mobile-nav-item').forEach(el => el.classList.remove('active'));
+  document.querySelectorAll('[data-nav="settings"]').forEach(el => el.classList.add('active'));
+  // Same defensive cleanup as showPage() — a stray open overlay left
+  // over from Broadcast Email would otherwise silently block every
+  // click on the page, including the Setup button that just opened
+  // Settings in the first place.
+  const confirmOverlay = document.getElementById('bcConfirmOverlay');
+  if (confirmOverlay) confirmOverlay.style.display = 'none';
+  const pickerOverlay = document.getElementById('bcPickerOverlay');
+  if (pickerOverlay) pickerOverlay.style.display = 'none';
+  showSettingsCards();
+  document.getElementById('settingsSection').scrollIntoView({ behavior:'smooth', block:'start' });
 }
 
 function scrollToSection(name){
   // Full page switches
-  if (name === 'dues' || name === 'birthday' || name === 'clients'){
+  if (name === 'dues' || name === 'birthday' || name === 'clients' || name === 'broadcast'){
     showPage(name);
     window.scrollTo({ top:0, behavior:'smooth' });
     document.querySelectorAll('.sidebar-link, .mobile-nav-item').forEach(el => el.classList.remove('active'));
@@ -2072,8 +2610,7 @@ document.querySelectorAll('.sidebar-link[data-nav]').forEach(link => {
       return;
     }
     if (nav === 'settings'){
-      document.getElementById('toggleConfig').click();
-      scrollToSection('settings');
+      openSettingsPage();
       return;
     }
     scrollToSection(nav);
@@ -2329,6 +2866,29 @@ async function decryptXlsxBytes(fileBytes, password){
    claimed once, so a generic word like "name" can't accidentally
    steal the column meant for a more specific field.
    ============================================================ */
+// Parses a raw cell value (Date object, string, or number) into an ISO
+// date string, but rejects anything that lands outside a sane calendar
+// range instead of trusting whatever `new Date(String(raw))` comes up
+// with. Without this, a stray non-date value in the cell — a leftover
+// number, a typo, a serial number read as a bare year — can silently
+// become a garbage date (e.g. year 44197) that then breaks any "years
+// since X" math built on top of it. `allowFuture` should be true only
+// for dates that are legitimately upcoming (like a premium due date);
+// everything else (lapse date, issue date, birth date) must be in the
+// past. `maxSpanYears` bounds how far into the past (or, when
+// allowFuture is true, how far in either direction) a parse is still
+// considered plausible.
+function parseSafeDate(raw, { allowFuture = false, maxSpanYears = 100 } = {}){
+  const parsed = raw instanceof Date ? raw : new Date(String(raw));
+  if (isNaN(parsed.getTime())) return null;
+  const now = Date.now();
+  const spanMs = maxSpanYears * 365.25 * 24 * 60 * 60 * 1000;
+  if (!allowFuture && parsed.getTime() > now) return null;
+  if (parsed.getTime() < now - spanMs) return null;
+  if (allowFuture && parsed.getTime() > now + spanMs) return null;
+  return parsed;
+}
+
 function findColumn(headers, claimed, exactTerms, fuzzyTerms){
   const lower = headers.map(h => String(h||'').toLowerCase().trim());
   for (const term of exactTerms){
@@ -2384,11 +2944,14 @@ function parseDuesFromWorkbook(workbook){
   const idxEmail        = findColumn(headers, claimed, ['email address','email'], ['email','e-mail','mail']);
   const idxPolicyNumber = findColumn(headers, claimed, ['policy number','policy no'], ['policy number','policy no','policy']);
   const idxDueDate       = findColumn(headers, claimed, ['premium due date','due date'], ['due date','renewal date','anniversary date','due']);
+  const idxLapseDate     = findColumn(headers, claimed, ['lapsed/cease date','lapse date','date lapsed'], ['lapsed/cease','cease date','lapse date','lapsed date','date lapsed']);
+  const idxIssuedDate    = findColumn(headers, claimed, ['issue date','issued date','date issued'], ['issue date','issued date','date issued','inception date','effective date']);
   const idxStatus        = findColumn(headers, claimed, ['policy status','status'], ['status']);
   const idxMode          = findColumn(headers, claimed, ['premium mode','payment mode'], ['mode','frequency']);
   const idxProduct       = findColumn(headers, claimed, ['policy name','product name','plan name'], ['product','plan','description']);
   const idxTotalPremium  = findColumn(headers, claimed, ['total premium'], ['total premium']);
   const idxPremiumAmt    = findColumn(headers, claimed, ['premium amount'], ['premium amount','amount due','premium']);
+  const idxFundValue     = findColumn(headers, claimed, ['fund value','total fund value'], ['fund value','fund']);
   const idxClientName    = findColumn(headers, claimed, ['client name','policy owner','insured name'], ['client name','owner','insured','name']);
 
   const missingLabels = [];
@@ -2400,12 +2963,14 @@ function parseDuesFromWorkbook(workbook){
 
   const out = [];
   let skippedStatus = 0;
-  // Statuses that mean a policy is no longer active, across the wording
-  // different insurers tend to use. Anything NOT matching one of these
-  // (e.g. "Premium paying", "Active", "In force", "Current", etc.) is
-  // treated as active and included, rather than requiring one exact
-  // "good" status string.
-  const INACTIVE_KEYWORDS = ['lapsed','lapse','paid-up','paid up','surrendered','expired','cancelled','canceled','terminated','matured'];
+  // Statuses that mean a policy is fully closed out — no further action
+  // possible on Sun Life's end, so these are the only ones still
+  // excluded entirely. Paid-Up and Lapsed are handled separately below
+  // (kept, not skipped) since the advisor still wants visibility into
+  // both, just not mixed into the due-date reminder flow.
+  const DEAD_KEYWORDS = ['surrendered','expired','cancelled','canceled','terminated','matured'];
+  const PAID_UP_KEYWORDS = ['paid-up','paid up'];
+  const LAPSED_KEYWORDS = ['lapsed','lapse'];
 
   for (let i = headerIdx+1; i < rows.length; i++){
     const r = rows[i];
@@ -2417,13 +2982,38 @@ function parseDuesFromWorkbook(workbook){
 
     const policyStatus = idxStatus !== -1 ? String(r[idxStatus]||'').trim() : '';
     const statusLower = policyStatus.toLowerCase();
-    if (idxStatus !== -1 && INACTIVE_KEYWORDS.some(k => statusLower.includes(k))){
+
+    if (idxStatus !== -1 && DEAD_KEYWORDS.some(k => statusLower.includes(k))){
       skippedStatus++;
       continue;
     }
 
+    const isPaidUp = idxStatus !== -1 && PAID_UP_KEYWORDS.some(k => statusLower.includes(k));
+    const isLapsed = idxStatus !== -1 && LAPSED_KEYWORDS.some(k => statusLower.includes(k));
+
     const dueDateRaw = r[idxDueDate];
-    const dueDate = dueDateRaw instanceof Date ? dueDateRaw : new Date(String(dueDateRaw));
+    // Due dates are legitimately upcoming, so future dates are allowed —
+    // but still bounded, so a misread serial number can't land 40,000+
+    // years out and pass as valid.
+    const dueDateParsed = parseSafeDate(dueDateRaw, { allowFuture: true, maxSpanYears: 30 });
+
+    let lapseDate = null;
+    if (idxLapseDate !== -1){
+      const lapseDateRaw = r[idxLapseDate];
+      // A lapse can't be in the future. Rejecting invalid/future/absurdly
+      // old parses here stops a garbage date from later showing up as a
+      // negative "years since lapse", which would otherwise slot an old
+      // record into the "Less than 1 year lapsed" bucket.
+      const parsedLapseDate = parseSafeDate(lapseDateRaw, { allowFuture: false, maxSpanYears: 100 });
+      if (parsedLapseDate) lapseDate = parsedLapseDate.toISOString();
+    }
+
+    let issuedDate = null;
+    if (idxIssuedDate !== -1){
+      const issuedDateRaw = r[idxIssuedDate];
+      const parsedIssuedDate = parseSafeDate(issuedDateRaw, { allowFuture: false, maxSpanYears: 100 });
+      if (parsedIssuedDate) issuedDate = parsedIssuedDate.toISOString();
+    }
 
     // Prefer a "total premium" style column when present and nonzero (the
     // actual amount currently due); fall back to a plain premium amount
@@ -2431,6 +3021,7 @@ function parseDuesFromWorkbook(workbook){
     const totalPremium = idxTotalPremium !== -1 ? (Number(r[idxTotalPremium]) || 0) : 0;
     const premiumAmount = idxPremiumAmt !== -1 ? (Number(r[idxPremiumAmt]) || 0) : 0;
     const amountDue = totalPremium !== 0 ? totalPremium : premiumAmount;
+    const fundValue = idxFundValue !== -1 ? (Number(r[idxFundValue]) || 0) : 0;
 
     out.push({
       policyNumber: policyNumber,
@@ -2439,8 +3030,25 @@ function parseDuesFromWorkbook(workbook){
       product: idxProduct !== -1 ? String(r[idxProduct]||'').trim() : '',
       premiumMode: idxMode !== -1 ? String(r[idxMode]||'').trim() : '',
       premiumAmount: amountDue,
-      dueDate: isNaN(dueDate.getTime()) ? null : dueDate.toISOString(),
-      policyStatus: policyStatus
+      fundValue: fundValue,
+      // Paid-Up policies never have a real due date going forward — a
+      // policy that's paid-up needs no further premium reminders, so
+      // this is deliberately set to null (never a real Date) regardless
+      // of whatever the export file happened to list, which is exactly
+      // what keeps sendDailyReminders() in Code.gs from ever picking it
+      // up (that function only considers rows where the Due Date cell
+      // is an actual Date, so null here means automatic exclusion).
+      dueDate: isPaidUp ? null : (dueDateParsed ? dueDateParsed.toISOString() : null),
+      // Only meaningful for Lapsed rows — a distinct column from Due
+      // Date, since the export tracks exactly when a policy actually
+      // lapsed separately from its regular premium due date.
+      lapseDate: lapseDate,
+      // When policy was originally issued — used to rank clients within
+      // a plan's breakdown (Plan Summary), independent of Due Date.
+      issuedDate: issuedDate,
+      policyStatus: policyStatus,
+      isPaidUp: isPaidUp,
+      isLapsed: isLapsed
     });
   }
 
@@ -2453,22 +3061,35 @@ function parseDuesFromWorkbook(workbook){
 async function callBackend(payload){
   const url = getScriptUrl();
   if (!url) throw new Error('NO_SCRIPT_URL');
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-    body: JSON.stringify(payload)
-  });
-  if (!res.ok) throw new Error('HTTP_' + res.status);
-  return res.json();
+  const bodyStr = JSON.stringify(payload);
+  try{
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: bodyStr
+    });
+    if (!res.ok) throw new Error('HTTP_' + res.status);
+    return res.json();
+  }catch(err){
+    // Diagnostic: when the request itself fails at the network level
+    // (e.g. "Load failed", "Failed to fetch"), attach the ACTUAL request
+    // body size in the error message. The frontend's own size estimate
+    // (calculateBroadcastSizeMB) has been unreliable for payloads loaded
+    // back from a saved schedule/draft, so this measures the real
+    // outgoing request directly instead of trusting that estimate.
+    const actualRequestMB = (new Blob([bodyStr]).size / (1024 * 1024)).toFixed(2);
+    err.message = err.message + ' (actual request size: ~' + actualRequestMB + 'MB)';
+    throw err;
+  }
 }
 
 /* ============================================================
-   90-DAY INACTIVITY HARD-STOP (frontend side)
+   INACTIVITY HARD-STOP (frontend side)
    ------------------------------------------------------------
    The actual enforcement lives in Code.gs — every restricted
-   backend action already refuses itself once 90 days pass with
-   no upload. This just makes that state visible instead of the
-   dashboard silently showing stale/empty data: it checks status
+   backend action already refuses itself once the calendar-anchored
+   deadline passes. This just makes that state visible instead of
+   the dashboard silently showing stale/empty data: it checks status
    right after login (and right after any successful upload), and
    shows/hides a full-screen pause notice accordingly.
    ============================================================ */
@@ -2656,26 +3277,25 @@ function showStatus(id, type, msg){
 }
 function hideStatus(id){ el(id).className = 'status'; }
 
+// Shows every Settings card explicitly (not a toggle) — the old version
+// inferred "already open, so hide" from configCard's leftover display
+// value, which broke when Settings was reached from another page (e.g.
+// Broadcast Email): settingsSection itself was hidden by page-switching,
+// but the individual cards inside it could still carry a stale "block"
+// state from an earlier visit, so the toggle guessed wrong and hid
+// everything instead of showing it — the Setup button appeared to do
+// nothing. This is now explicit and always shows, no guessing.
+function showSettingsCards(){
+  ['configCard','brandingCard','sendHourCard','headerFooterStudioCard','duesPreviewCard',
+   'duesTestEmailCard','birthdayPreviewCard','birthdayTestEmailCard','personalLinkCard'
+  ].forEach(id => {
+    const node = el(id);
+    if (node) node.style.display = 'block';
+  });
+}
+
 el('toggleConfig').addEventListener('click', () => {
-  const c = el('configCard');
-  const b = el('brandingCard');
-  const h = el('sendHourCard');
-  const hf = el('headerFooterStudioCard');
-  const dp = el('duesPreviewCard');
-  const dt = el('duesTestEmailCard');
-  const bp = el('birthdayPreviewCard');
-  const bt = el('birthdayTestEmailCard');
-  const pl = el('personalLinkCard');
-  const show = c.style.display === 'none';
-  c.style.display = show ? 'block' : 'none';
-  b.style.display = show ? 'block' : 'none';
-  h.style.display = show ? 'block' : 'none';
-  hf.style.display = show ? 'block' : 'none';
-  dp.style.display = show ? 'block' : 'none';
-  dt.style.display = show ? 'block' : 'none';
-  bp.style.display = show ? 'block' : 'none';
-  bt.style.display = show ? 'block' : 'none';
-  pl.style.display = show ? 'block' : 'none';
+  openSettingsPage();
 });
 
 el('saveScriptUrl').addEventListener('click', () => {
@@ -2847,6 +3467,1445 @@ el('sharePersonalLinkBtn').addEventListener('click', () => {
   }catch(e){}
 })();
 
+/* ============================================================
+   BROADCAST EMAIL — custom message + attachments sent to every
+   client in the Dues Tracker, with {FirstName} personalization.
+   Uses contenteditable for rich text (bold/italic/underline/
+   links/lists/images), converts attached files to base64, and
+   sends in small batches via sendBroadcastEmailBatch (Code.gs)
+   since each row triggers a real GmailApp.sendEmail() call \u2014
+   much slower per-row than a sheet write, so batches are kept
+   small to stay well under the 30-second Web App execution cap.
+   ============================================================ */
+
+let bcAttachments = []; // { base64, mimeType, filename }
+
+// Toolbar formatting buttons (bold/italic/underline/list) use the
+// classic execCommand API. It's deprecated but still the only
+// cross-browser way to drive a contenteditable rich text editor
+// without pulling in a third-party editor library.
+// Font size dropdown: document.execCommand('fontSize', ...) only accepts
+// legacy sizes 1-7 and produces <font size="7"> tags, not real pixel
+// values, and some email clients strip <font> tags outright. The
+// standard workaround is to run the command with the highest legacy
+// size (7) as a unique marker, then immediately find whichever <font
+// size="7"> tags it just created and swap them for real
+// <span style="font-size:Xpx"> elements carrying the actual chosen size —
+// this survives into the final sent email exactly as expected.
+let bcLastAppliedFontSize = 14; // tracks the most recently chosen size, so any
+                                  // stray <font> marker gets cleaned up to the
+                                  // size the person actually picked, not a guess
+
+el('bcFontSizeSelect').addEventListener('change', () => {
+  const sizePx = el('bcFontSizeSelect').value;
+  bcLastAppliedFontSize = sizePx;
+  el('broadcastEditor').focus();
+  document.execCommand('fontSize', false, '7');
+  el('broadcastEditor').querySelectorAll('font[size="7"]').forEach(node => {
+    const span = document.createElement('span');
+    span.style.fontSize = sizePx + 'px';
+    span.innerHTML = node.innerHTML;
+    node.replaceWith(span);
+  });
+  el('bcFontSizeSelect').selectedIndex = 1; // reset display to "Normal" after applying
+});
+
+document.querySelectorAll('.bc-tool-btn[data-cmd]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    el('broadcastEditor').focus();
+    document.execCommand(btn.dataset.cmd, false, null);
+  });
+});
+
+el('bcClearFormatBtn').addEventListener('click', () => {
+  el('broadcastEditor').focus();
+  document.execCommand('removeFormat', false, null);
+});
+
+el('bcInsertLinkBtn').addEventListener('click', () => {
+  const url = prompt('Paste the link URL:');
+  if (!url) return;
+  el('broadcastEditor').focus();
+  document.execCommand('createLink', false, url);
+});
+
+// Image insertion: converts the picked image to base64 and inserts
+// it directly into the email body as an inline <img> — this becomes
+// part of the HTML email itself (like a newsletter), separate from
+// the optional file attachments below.
+el('bcInsertImageBtn').addEventListener('click', () => el('bcImageFileInput').click());
+el('bcImageFileInput').addEventListener('change', async (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  if (!file.type.startsWith('image/')){
+    showStatus('broadcastStatus','error','Please choose an image file.');
+    return;
+  }
+  try{
+    // Resized to a sensible inline-email width, kept at good quality.
+    // (The very tight 900px/82%/400KB cap tried earlier was chasing a
+    // "Broadcast Email too large" bug that turned out to be unrelated \u2014
+    // an assertConfigured requirement bug, not image size \u2014 so this is
+    // back to sharper, better-looking compression.)
+    const resized = await resizeImageForUpload(file, 1200, 0.88);
+    el('broadcastEditor').focus();
+    insertResizableImage('data:' + resized.mimeType + ';base64,' + resized.base64);
+  }catch(err){
+    showStatus('broadcastStatus','error','Could not insert image: ' + err.message);
+  }
+  e.target.value = '';
+});
+
+// Inserts an image wrapped in a small non-editable control div, so a
+// remove (×) button and a resize handle can sit on top of it without
+// the person accidentally typing into the image itself. The wrapper
+// and controls are cosmetic only — when the message is sent, only the
+// <img> tag with its final width survives (see stripEditorControls),
+// so the actual email just contains a normal, appropriately-sized image.
+let bcImgIdCounter = 0;
+function insertResizableImage(src){
+  const id = 'bcimg' + (++bcImgIdCounter);
+  document.execCommand('insertHTML', false,
+    '<span class="bc-img-wrap" data-img-id="' + id + '" contenteditable="false" style="position:relative; display:inline-block; max-width:100%; margin:8px 0;">' +
+      '<img src="' + src + '" data-img-id="' + id + '" style="max-width:100%; width:320px; border-radius:8px; display:block;">' +
+      '<button type="button" class="bc-img-remove" data-img-id="' + id + '" title="Remove image" style="position:absolute; top:-8px; right:-8px; width:22px; height:22px; border-radius:50%; background:#EB5757; color:#fff; border:2px solid #fff; font-size:13px; line-height:1; cursor:pointer; display:none; align-items:center; justify-content:center;">\u00d7</button>' +
+      '<span class="bc-img-resize" data-img-id="' + id + '" title="Drag to resize" style="position:absolute; bottom:-2px; right:-2px; width:16px; height:16px; background:var(--gold,#C99A3B); border:2px solid #fff; border-radius:3px; cursor:nwse-resize; display:none;"></span>' +
+    '</span>&nbsp;'
+  );
+  wireImageControls();
+}
+
+// Shows/hides each image's remove + resize controls on hover (desktop)
+// and wires up the drag-to-resize behavior. Called after every image
+// insertion since new DOM nodes need fresh listeners.
+function wireImageControls(){
+  document.querySelectorAll('.bc-img-wrap').forEach(wrap => {
+    if (wrap.dataset.wired) return;
+    wrap.dataset.wired = '1';
+
+    const removeBtn = wrap.querySelector('.bc-img-remove');
+    const resizeHandle = wrap.querySelector('.bc-img-resize');
+    const img = wrap.querySelector('img');
+
+    wrap.addEventListener('mouseenter', () => {
+      removeBtn.style.display = 'flex';
+      resizeHandle.style.display = 'block';
+    });
+    wrap.addEventListener('mouseleave', () => {
+      removeBtn.style.display = 'none';
+      resizeHandle.style.display = 'none';
+    });
+    // Touch devices have no hover — tapping the image toggles controls
+    img.addEventListener('click', (e) => {
+      e.preventDefault();
+      const showing = removeBtn.style.display === 'flex';
+      removeBtn.style.display = showing ? 'none' : 'flex';
+      resizeHandle.style.display = showing ? 'none' : 'block';
+    });
+
+    removeBtn.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      wrap.remove();
+    });
+
+    let resizing = false, startX = 0, startWidth = 0;
+    function startResize(clientX){
+      resizing = true;
+      startX = clientX;
+      startWidth = img.getBoundingClientRect().width;
+    }
+    function doResize(clientX){
+      if (!resizing) return;
+      const delta = clientX - startX;
+      const newWidth = Math.max(60, Math.min(640, startWidth + delta));
+      img.style.width = newWidth + 'px';
+    }
+    function endResize(){ resizing = false; }
+
+    resizeHandle.addEventListener('mousedown', (e) => { e.preventDefault(); startResize(e.clientX); });
+    document.addEventListener('mousemove', (e) => doResize(e.clientX));
+    document.addEventListener('mouseup', endResize);
+
+    resizeHandle.addEventListener('touchstart', (e) => { startResize(e.touches[0].clientX); }, { passive: true });
+    document.addEventListener('touchmove', (e) => {
+      if (resizing && e.touches[0]) doResize(e.touches[0].clientX);
+    }, { passive: true });
+    document.addEventListener('touchend', endResize);
+  });
+}
+
+// Strips the cosmetic wrapper/controls before the message is sent or
+// previewed, leaving plain <img width="..."> tags — the only thing
+// that actually needs to reach GmailApp.sendEmail(). Operates on a
+// detached clone so the live editor (with its controls) is untouched.
+function stripEditorControls(html){
+  const temp = document.createElement('div');
+  temp.innerHTML = html;
+  temp.querySelectorAll('.bc-img-wrap').forEach(wrap => {
+    const img = wrap.querySelector('img');
+    if (img){
+      const width = img.style.width || img.getBoundingClientRect().width + 'px';
+      img.setAttribute('width', parseInt(width, 10));
+      img.removeAttribute('data-img-id');
+      img.style.cssText = 'max-width:100%; border-radius:8px; display:block; margin:8px 0;';
+      wrap.replaceWith(img);
+    }
+  });
+  // Safety net: the font-size dropdown normally converts its <font
+  // size="7"> marker into a real pixel-based span immediately, but if
+  // the person typed new text right after choosing a size with no text
+  // selected (rather than resizing existing text), the browser can keep
+  // wrapping newly-typed characters in that same <font> tag as they're
+  // typed, before the immediate replacement logic ran again. Catching
+  // any leftover <font> tags here, right before send/preview, guarantees
+  // the final HTML never contains them — <font> tags aren't reliably
+  // supported the same way across email clients as real inline styles.
+  temp.querySelectorAll('font[size]').forEach(node => {
+    const span = document.createElement('span');
+    span.style.fontSize = bcLastAppliedFontSize + 'px';
+    span.innerHTML = node.innerHTML;
+    node.replaceWith(span);
+  });
+  return temp.innerHTML;
+}
+
+// Attachments (images or PDFs) — sent as real email attachments,
+// separate from the inline body image above.
+el('bcAttachmentDrop').addEventListener('click', () => el('bcAttachmentFileInput').click());
+el('bcAttachmentFileInput').addEventListener('change', async (e) => {
+  const files = Array.from(e.target.files || []);
+  for (const file of files){
+    if (bcAttachments.length >= 5){
+      showStatus('broadcastStatus','error','Maximum 5 attachments per broadcast.');
+      break;
+    }
+    try{
+      // Image attachments (a phone photo, a screenshot, etc.) were
+      // previously stored completely uncompressed — unlike the
+      // header/footer template and inline body images, which already
+      // go through resizeImageForUpload(). An uncompressed photo can
+      // easily be several MB raw before any MIME/base64 encoding
+      // overhead is even factored in, which is exactly the kind of gap
+      // that could push a broadcast's real transmitted size well past
+      // what looks safe. PDFs are left untouched — they can't be
+      // meaningfully compressed client-side without a dedicated
+      // library, and are typically a reasonable size to begin with.
+      if (file.type && file.type.startsWith('image/')){
+        const resized = await resizeImageForUpload(file, 1600, 0.85, 1.5 * 1024 * 1024);
+        bcAttachments.push({ base64: resized.base64, mimeType: resized.mimeType, filename: file.name });
+      } else {
+        const base64 = await fileToBase64(file);
+        bcAttachments.push({ base64: base64, mimeType: file.type, filename: file.name });
+      }
+    }catch(err){
+      showStatus('broadcastStatus','error','Could not attach ' + file.name + ': ' + err.message);
+    }
+  }
+  renderBcAttachmentList();
+  e.target.value = '';
+});
+
+function renderBcAttachmentList(){
+  const container = el('bcAttachmentList');
+  if (bcAttachments.length === 0){ container.innerHTML = ''; }
+  else {
+    container.innerHTML = bcAttachments.map((a, i) => `
+      <div style="display:flex; align-items:center; justify-content:space-between; background:var(--cream,#FDF8F0); border:1px solid var(--line,#E4DCC8); border-radius:8px; padding:8px 12px; margin-bottom:6px; font-size:12px;">
+        <span style="color:var(--ink,#13202B);">📎 ${escapeHtml(a.filename)}</span>
+        <button type="button" data-idx="${i}" class="bc-remove-attachment" style="background:none;border:none;color:#EB5757;font-size:16px;cursor:pointer;line-height:1;">×</button>
+      </div>
+    `).join('');
+    container.querySelectorAll('.bc-remove-attachment').forEach(btn => {
+      btn.addEventListener('click', () => {
+        bcAttachments.splice(Number(btn.dataset.idx), 1);
+        renderBcAttachmentList();
+      });
+    });
+  }
+  updateSizeIndicator();
+}
+
+function escapeHtml(str){
+  const d = document.createElement('div');
+  d.textContent = str;
+  return d.innerHTML;
+}
+
+function fileToBase64(file){
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result.split(',')[1]);
+    reader.onerror = () => reject(new Error('Could not read file'));
+    reader.readAsDataURL(file);
+  });
+}
+
+/* ============================================================
+   RECIPIENT PICKER — lets the advisor choose exactly who a
+   broadcast goes to, instead of always sending to every Dues
+   Tracker client. Four sort modes (Fund Value, Plan Name, Name,
+   Due Date) plus a Plan filter dropdown and free-text search,
+   all composable together — "Top N" always applies to whatever
+   is currently visible after search + plan filter + sort.
+   ============================================================ */
+let bcAllClients = [];      // full client list, loaded once per picker open
+
+// A client with multiple policies (same email, different products/
+// policy numbers) would otherwise appear once per policy in any raw
+// client list — correct for the Dues Tracker itself, but wrong for a
+// broadcast recipient list, where a person should only ever appear
+// once no matter how many policies they hold. Used everywhere
+// bcAllClients gets populated, so this guarantee holds regardless of
+// which code path (fresh fetch, loaded schedule, loaded draft) built it.
+// A client with multiple policies (same email, different products/
+// policy numbers) would otherwise appear once per policy in any raw
+// client list — correct for the Dues Tracker itself, but wrong for a
+// broadcast recipient list, where a person should only ever appear
+// once no matter how many policies they hold. Used everywhere
+// bcAllClients gets populated, so this guarantee holds regardless of
+// which code path (fresh fetch, loaded schedule, loaded draft) built it.
+//
+// When a client's policies have different lapseDate values, the kept
+// entry's lapseDate is explicitly set to the MOST RECENT one across
+// all of that email's policies. Without this, the entry that happened
+// to appear earliest in the underlying sheet would win arbitrarily —
+// meaning the Lapsed Duration filter's result for a multi-policy
+// client depended entirely on unrelated row order, not on any
+// meaningful choice of which lapse date actually represents them.
+function deduplicateClientsByEmail(clients){
+  const seenEmails = new Set();
+  const result = [];
+  const entryByEmail = {};
+  (clients || []).forEach(c => {
+    if (!c.email) return;
+    const emailKey = c.email.toLowerCase();
+    if (!seenEmails.has(emailKey)){
+      seenEmails.add(emailKey);
+      result.push(c);
+      entryByEmail[emailKey] = c;
+      return;
+    }
+    // Already have an entry for this email — if this additional policy
+    // has a more recent lapseDate than what's currently kept, adopt it.
+    const kept = entryByEmail[emailKey];
+    if (c.lapseDate && (!kept.lapseDate || c.lapseDate > kept.lapseDate)){
+      kept.lapseDate = c.lapseDate;
+    }
+  });
+  return result;
+}
+let bcSelectedEmails = new Set(); // currently selected recipient emails
+let bcSortField = 'fundValue';    // 'fundValue' | 'product' | 'clientName' | 'dueDate'
+
+const BC_SORT_LABELS = {
+  fundValue: 'fund value (highest first)',
+  product: 'plan name (A\u2013Z)',
+  clientName: 'name (A\u2013Z)',
+  dueDate: 'due date (soonest first)'
+};
+
+el('bcChooseRecipientsBtn').addEventListener('click', async () => {
+  el('bcChooseRecipientsBtn').disabled = true;
+  el('bcChooseRecipientsBtn').textContent = 'LOADING\u2026';
+  try{
+    const clients = await fetchDuesClientList();
+    bcAllClients = deduplicateClientsByEmail(clients);
+    if (bcAllClients.length === 0){
+      showStatus('broadcastStatus','error','No clients with an email address found in your Dues Tracker.');
+      return;
+    }
+    el('bcPickerSearch').value = '';
+    el('bcPlanFilter').value = '';
+    if (el('bcLapsedFilter')) el('bcLapsedFilter').value = '';
+    populatePlanFilterOptions();
+    renderPickerList(currentFilteredClients());
+    el('bcPickerOverlay').style.display = 'flex';
+  }catch(err){
+    showStatus('broadcastStatus','error','Could not load clients: ' + err.message);
+  }finally{
+    el('bcChooseRecipientsBtn').disabled = false;
+    el('bcChooseRecipientsBtn').textContent = 'CHOOSE RECIPIENTS';
+  }
+});
+
+function populatePlanFilterOptions(){
+  const plans = Array.from(new Set(bcAllClients.map(c => (c.product || '').trim()).filter(Boolean))).sort();
+  const select = el('bcPlanFilter');
+  select.innerHTML = '<option value="">All plans</option>' +
+    plans.map(p => `<option value="${escapeHtml(p)}">${escapeHtml(p)}</option>`).join('');
+  // No point showing a filter with nothing to filter by
+  el('bcPlanFilterWrap').style.display = plans.length > 0 ? 'block' : 'none';
+}
+
+function sortClients(clients, field){
+  const sorted = clients.slice();
+  if (field === 'fundValue'){
+    sorted.sort((a, b) => (Number(b.fundValue) || 0) - (Number(a.fundValue) || 0));
+  } else if (field === 'product'){
+    sorted.sort((a, b) => String(a.product || '').localeCompare(String(b.product || '')));
+  } else if (field === 'clientName'){
+    sorted.sort((a, b) => String(a.clientName || '').localeCompare(String(b.clientName || '')));
+  } else if (field === 'dueDate'){
+    sorted.sort((a, b) => {
+      const da = a.dueDate ? new Date(a.dueDate).getTime() : Infinity;
+      const db = b.dueDate ? new Date(b.dueDate).getTime() : Infinity;
+      return da - db;
+    });
+  }
+  return sorted;
+}
+
+function formatPickerRowValue(c, field){
+  if (field === 'product'){
+    return escapeHtml(c.product || '\u2014');
+  }
+  if (field === 'clientName'){
+    return ''; // name is already the row title, no need to repeat it as the value
+  }
+  if (field === 'dueDate'){
+    if (!c.dueDate) return '\u2014';
+    try{
+      return new Date(c.dueDate).toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' });
+    }catch(e){ return '\u2014'; }
+  }
+  // default: fundValue
+  return 'PHP ' + Number(c.fundValue || 0).toLocaleString('en-PH', { minimumFractionDigits: 0 });
+}
+
+document.querySelectorAll('.bc-sort-btn[data-sort]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    bcSortField = btn.dataset.sort;
+    document.querySelectorAll('.bc-sort-btn').forEach(b => b.classList.toggle('active', b === btn));
+    el('bcSortHint').textContent = 'Sorted by ' + BC_SORT_LABELS[bcSortField] + ' \u00b7 tap Top N to select the N clients shown below';
+    renderPickerList(currentFilteredClients());
+  });
+});
+
+el('bcPlanFilter').addEventListener('change', () => {
+  renderPickerList(currentFilteredClients());
+});
+
+el('bcLapsedFilter')?.addEventListener('change', () => {
+  renderPickerList(currentFilteredClients());
+});
+
+function renderPickerList(clients){
+  const container = el('bcPickerList');
+  if (clients.length === 0){
+    container.innerHTML = '<div style="text-align:center; padding:40px 20px; color:#9CA3AF; font-size:13px;">No clients match your search/filter.</div>';
+    return;
+  }
+  container.innerHTML = clients.map(c => {
+    const checked = bcSelectedEmails.has(c.email);
+    const value = formatPickerRowValue(c, bcSortField);
+    const isLapsed = isLapsedStatus(c.policyStatus);
+    const lapsedBadge = isLapsed
+      ? '<span style="display:inline-block;background:var(--bad,#EB5757);color:#fff;font-size:9px;font-weight:700;padding:1px 6px;border-radius:100px;letter-spacing:.3px;margin-right:6px;vertical-align:middle;">LAPSED</span>'
+      : '';
+    // Shown right next to the badge so the advisor can see exactly when
+    // this person lapsed without leaving the picker to cross-check the
+    // Lapsed Policies page separately.
+    const lapsedDateNote = (isLapsed && c.lapseDate)
+      ? '<span style="color:#9CA3AF; font-size:10.5px; margin-right:6px;">Lapsed ' + formatDateDisplay(c.lapseDate) + '</span>'
+      : '';
+    return `
+      <div class="bc-picker-row${checked ? ' checked' : ''}" data-email="${escapeHtml(c.email)}">
+        <div class="bc-picker-checkbox">${checked ? '\u2713' : ''}</div>
+        <div class="bc-picker-info">
+          <div class="bc-picker-name">${escapeHtml(c.clientName || c.email)}</div>
+          <div class="bc-picker-meta">${lapsedBadge}${lapsedDateNote}${escapeHtml(c.email)}${bcSortField !== 'product' && c.product ? ' \u00b7 ' + escapeHtml(c.product) : ''}</div>
+        </div>
+        <div class="bc-picker-amount">${value}</div>
+      </div>
+    `;
+  }).join('');
+
+  container.querySelectorAll('.bc-picker-row').forEach(row => {
+    row.addEventListener('click', () => {
+      const email = row.dataset.email;
+      if (bcSelectedEmails.has(email)) bcSelectedEmails.delete(email);
+      else bcSelectedEmails.add(email);
+      row.classList.toggle('checked');
+      row.querySelector('.bc-picker-checkbox').textContent = bcSelectedEmails.has(email) ? '\u2713' : '';
+      updatePickerCount();
+    });
+  });
+}
+
+function updatePickerCount(){
+  const n = bcSelectedEmails.size;
+  el('bcPickerSelectedCount').textContent = n + ' selected';
+}
+
+function currentFilteredClients(){
+  const query = el('bcPickerSearch').value.trim().toLowerCase();
+  const plan = el('bcPlanFilter').value;
+  const lapsedFilter = el('bcLapsedFilter') ? el('bcLapsedFilter').value : '';
+  let list = bcAllClients;
+  if (query){
+    list = list.filter(c => (c.clientName || '').toLowerCase().includes(query));
+  }
+  if (plan){
+    list = list.filter(c => (c.product || '') === plan);
+  }
+  if (lapsedFilter){
+    // Requires BOTH conditions to match, not lapseDate alone: the
+    // client's actual current Policy Status must say Lapsed (via
+    // isLapsedStatus, the same check used everywhere else in the app),
+    // AND their lapseDate must fall in the selected range. Checking
+    // lapseDate alone would incorrectly include a client whose export
+    // still carries an old Lapse Date value but whose current status is
+    // something else entirely (e.g. reinstated back to Premium Paying)
+    // — the status is the actual source of truth for "is this client
+    // lapsed", and the date only measures how long ago for those who
+    // genuinely are.
+    list = list.filter(c => {
+      if (!isLapsedStatus(c.policyStatus)) return false;
+      const years = yearsSinceLapse(c.lapseDate);
+      if (years === null) return false;
+      if (lapsedFilter === 'lt1') return years < 1;
+      if (lapsedFilter === '1to2') return years >= 1 && years < 2;
+      if (lapsedFilter === '2to3') return years >= 2 && years < 3;
+      return true;
+    });
+  }
+  return sortClients(list, bcSortField);
+}
+
+el('bcPickerSearch').addEventListener('input', () => {
+  renderPickerList(currentFilteredClients());
+});
+
+document.querySelectorAll('.bc-quick-btn[data-top]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const n = Number(btn.dataset.top);
+    const visible = currentFilteredClients();
+    visible.slice(0, n).forEach(c => bcSelectedEmails.add(c.email));
+    renderPickerList(visible);
+    updatePickerCount();
+  });
+});
+
+el('bcSelectAllBtn').addEventListener('click', () => {
+  const visible = currentFilteredClients();
+  visible.forEach(c => bcSelectedEmails.add(c.email));
+  renderPickerList(visible);
+  updatePickerCount();
+});
+
+el('bcClearSelectionBtn').addEventListener('click', () => {
+  bcSelectedEmails.clear();
+  renderPickerList(currentFilteredClients());
+  updatePickerCount();
+});
+
+function closeBcPicker(){
+  el('bcPickerOverlay').style.display = 'none';
+  const n = bcSelectedEmails.size;
+  el('bcRecipientSummaryText').textContent = n === 0
+    ? 'No recipients selected yet'
+    : n + ' recipient' + (n === 1 ? '' : 's') + ' selected';
+  invalidateResumableSend();
+}
+el('bcPickerCloseBtn').addEventListener('click', closeBcPicker);
+el('bcPickerDoneBtn').addEventListener('click', closeBcPicker);
+
+/* ============================================================
+   SEND NOW / SEND LATER — lets the advisor queue a broadcast for
+   a specific future date/time instead of sending immediately.
+   Time slots are every 30 minutes from 6:00 AM to 6:00 PM. The
+   actual scheduling call happens in the Send button handler
+   further below; this block only manages the picker UI and
+   produces the final chosen Date.
+   ============================================================ */
+let bcSendMode = 'now'; // 'now' | 'later'
+let bcScheduleDay = 'today'; // 'today' | 'tomorrow' | 'pick'
+
+// Generates every 30-minute slot from 6:00 AM to 6:00 PM, labeled in
+// 12-hour time (e.g. "6:00 AM", "6:30 AM" ... "6:00 PM"), with the
+// value being the 24-hour "HH:mm" the rest of the code works with.
+function populateScheduleTimeOptions(){
+  const select = el('bcScheduleTimeSelect');
+  const options = [];
+  for (let totalMinutes = 6 * 60; totalMinutes <= 18 * 60; totalMinutes += 30){
+    const h24 = Math.floor(totalMinutes / 60);
+    const m = totalMinutes % 60;
+    const period = h24 < 12 ? 'AM' : 'PM';
+    const h12 = h24 % 12 === 0 ? 12 : h24 % 12;
+    const label = h12 + ':' + String(m).padStart(2, '0') + ' ' + period;
+    const value = String(h24).padStart(2, '0') + ':' + String(m).padStart(2, '0');
+    options.push('<option value="' + value + '">' + label + '</option>');
+  }
+  select.innerHTML = options.join('');
+}
+populateScheduleTimeOptions();
+
+// Defaults the date input to today (used when "Pick a date" is chosen),
+// with a min of today so a past date can't be selected.
+function initScheduleDateInput(){
+  const today = new Date();
+  const iso = today.toISOString().split('T')[0];
+  el('bcScheduleDateInput').min = iso;
+  el('bcScheduleDateInput').value = iso;
+}
+initScheduleDateInput();
+
+el('bcSendNowBtn').addEventListener('click', () => {
+  bcSendMode = 'now';
+  el('bcSendNowBtn').classList.add('active');
+  el('bcSendLaterBtn').classList.remove('active');
+  el('bcScheduleWrap').style.display = 'none';
+  el('bcSendBtn').textContent = 'SEND BROADCAST';
+});
+
+el('bcSendLaterBtn').addEventListener('click', () => {
+  bcSendMode = 'later';
+  el('bcSendLaterBtn').classList.add('active');
+  el('bcSendNowBtn').classList.remove('active');
+  el('bcScheduleWrap').style.display = 'block';
+  el('bcSendBtn').textContent = 'SCHEDULE BROADCAST';
+  updateScheduleSummary();
+});
+
+['bcDayTodayBtn','bcDayTomorrowBtn','bcDayPickBtn'].forEach(id => {
+  el(id).addEventListener('click', () => {
+    bcScheduleDay = el(id).dataset.day;
+    document.querySelectorAll('.bc-day-btn').forEach(b => b.classList.toggle('active', b.id === id));
+    el('bcScheduleDateInput').style.display = bcScheduleDay === 'pick' ? 'block' : 'none';
+    updateScheduleSummary();
+  });
+});
+el('bcScheduleDateInput').addEventListener('change', updateScheduleSummary);
+el('bcScheduleTimeSelect').addEventListener('change', updateScheduleSummary);
+
+// Resolves the currently-selected day option + time slot into a real
+// Date object. Returns null if the resulting moment is already in the
+// past (e.g. "Today" + an earlier time slot than right now).
+function resolveScheduledDate(){
+  const timeValue = el('bcScheduleTimeSelect').value; // "HH:mm"
+  const [hh, mm] = timeValue.split(':').map(Number);
+
+  let baseDate;
+  if (bcScheduleDay === 'today'){
+    baseDate = new Date();
+  } else if (bcScheduleDay === 'tomorrow'){
+    baseDate = new Date();
+    baseDate.setDate(baseDate.getDate() + 1);
+  } else {
+    const picked = el('bcScheduleDateInput').value; // "YYYY-MM-DD"
+    if (!picked) return null;
+    const [y, mo, d] = picked.split('-').map(Number);
+    baseDate = new Date(y, mo - 1, d);
+  }
+  baseDate.setHours(hh, mm, 0, 0);
+  return baseDate;
+}
+
+function updateScheduleSummary(){
+  const date = resolveScheduledDate();
+  const summaryEl = el('bcScheduleSummary');
+  if (!date){
+    summaryEl.textContent = '';
+    return;
+  }
+  const now = new Date();
+  const formatted = date.toLocaleString('en-PH', { weekday: 'long', month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true });
+  if (date.getTime() <= now.getTime()){
+    summaryEl.textContent = '\u26a0 That time has already passed \u2014 pick a later slot.';
+    summaryEl.style.color = '#EB5757';
+  } else {
+    summaryEl.textContent = 'Will send on ' + formatted;
+    summaryEl.style.color = 'var(--navy, #0C447C)';
+  }
+}
+
+// Loads and renders the list of currently-queued scheduled broadcasts,
+// each with a Cancel button. Called on page load and after any
+// schedule/cancel action so the list always reflects the latest state.
+async function refreshScheduledBroadcastsList(){
+  const container = el('bcScheduledList');
+  const completedContainer = el('bcCompletedList');
+  try{
+    const data = await callBackend({ action: 'getScheduledBroadcasts' });
+    const schedules = (data && data.schedules) || [];
+    const active = schedules.filter(s => s.status === 'scheduled' || s.status === 'sending');
+    const completed = schedules.filter(s => s.status === 'sent' || s.status === 'failed');
+
+    if (active.length === 0){
+      container.innerHTML = '<div style="font-size:13px; color:#9CA3AF;">No scheduled broadcasts.</div>';
+    } else {
+      container.innerHTML = active.map(s => {
+        const when = new Date(s.scheduledFor).toLocaleString('en-PH', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true });
+        const isSending = s.status === 'sending';
+        const progressLine = isSending
+          ? '<br><span style="color:var(--gold,#C99A3B); font-weight:700;">Sending\u2026 ' + (s.sentCount + s.failedCount) + ' processed so far</span>'
+          : '';
+        return '<div class="bc-scheduled-row">'
+          + '<span style="flex:1 1 auto; min-width:0;"><strong>' + escapeHtml(s.subject || '(no subject)') + '</strong><br>' + when + progressLine + '</span>'
+          + '<button type="button" class="bc-scheduled-cancel" data-id="' + escapeHtml(s.scheduleId) + '">CANCEL</button>'
+          + '</div>';
+      }).join('');
+      container.querySelectorAll('.bc-scheduled-cancel').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          btn.disabled = true;
+          btn.textContent = '...';
+          try{
+            await callBackend({ action: 'cancelScheduledBroadcast', scheduleId: btn.dataset.id });
+            await refreshScheduledBroadcastsList();
+          }catch(err){
+            showStatus('broadcastStatus','error','Could not cancel: ' + err.message);
+          }
+        });
+      });
+    }
+
+    // Completed broadcasts (status 'sent' or 'failed') — shows exactly
+    // how many recipients actually received the email vs failed, for
+    // every past scheduled broadcast, most recent first. This is the
+    // only place in the app itself (rather than the underlying Sheet)
+    // where the advisor can see that outcome after the fact.
+    if (completed.length === 0){
+      completedContainer.innerHTML = '<div style="font-size:13px; color:#9CA3AF;">No completed broadcasts yet.</div>';
+    } else {
+      completed.sort((a, b) => new Date(b.sentAt || b.createdAt) - new Date(a.sentAt || a.createdAt));
+      completedContainer.innerHTML = completed.slice(0, 20).map(s => {
+        const when = s.sentAt ? new Date(s.sentAt).toLocaleString('en-PH', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true }) : '\u2014';
+        const hasFailures = s.failedCount > 0;
+        const resultLine = hasFailures
+          ? '<span style="color:var(--bad,#EB5757); font-weight:700;">' + s.sentCount + ' sent, ' + s.failedCount + ' failed</span>'
+          : '<span style="color:var(--good,#27AE60); font-weight:700;">' + s.sentCount + ' sent</span>';
+        const errorLine = s.error ? '<div style="font-size:11px; color:#9CA3AF; margin-top:4px; word-break:break-word;">' + escapeHtml(s.error.length > 150 ? s.error.substring(0, 150) + '\u2026' : s.error) + '</div>' : '';
+        // Swipe-to-delete: bc-swipe-wrap clips a red delete action behind
+        // the row, which bc-completed-row slides left to reveal via
+        // touch/drag — see wireSwipeToDelete() for the gesture handling.
+        return '<div class="bc-swipe-wrap" data-id="' + escapeHtml(s.scheduleId) + '">'
+          + '<div class="bc-swipe-delete-action">DELETE</div>'
+          + '<div class="bc-completed-row' + (hasFailures ? ' has-failures' : '') + '">'
+          + '<strong>' + escapeHtml(s.subject || '(no subject)') + '</strong><br>'
+          + '<span style="color:#9CA3AF;">' + when + '</span> \u2014 ' + resultLine
+          + errorLine
+          + '</div>'
+          + '</div>';
+      }).join('');
+      wireSwipeToDelete(completedContainer);
+    }
+  }catch(err){
+    container.innerHTML = '<div style="font-size:13px; color:#9CA3AF;">Could not load scheduled broadcasts.</div>';
+    completedContainer.innerHTML = '<div style="font-size:13px; color:#9CA3AF;">Could not load completed broadcasts.</div>';
+  }
+}
+
+// Swipe-left-to-delete for Completed Broadcasts rows. Dragging the row
+// left reveals a red DELETE button underneath it (matching the
+// standard iOS/Android "swipe to reveal" pattern); tapping that button
+// confirms the removal, and releasing the swipe without reaching the
+// reveal threshold snaps the row back into place instead of deleting.
+// Supports both touch (mobile) and mouse drag (desktop/testing), since
+// Client Pulse runs in both contexts.
+const SWIPE_REVEAL_PX = 90; // matches .bc-swipe-delete-action's width
+
+function wireSwipeToDelete(container){
+  container.querySelectorAll('.bc-swipe-wrap').forEach(wrap => {
+    const row = wrap.querySelector('.bc-completed-row');
+    const deleteBtn = wrap.querySelector('.bc-swipe-delete-action');
+    const scheduleId = wrap.dataset.id;
+    let startX = 0, currentX = 0, dragging = false;
+
+    function onDragStart(clientX){
+      dragging = true;
+      startX = clientX;
+      row.style.transition = 'none';
+    }
+    function onDragMove(clientX){
+      if (!dragging) return;
+      currentX = clientX - startX;
+      if (currentX > 0) currentX = 0; // only allow swiping left, never right
+      if (currentX < -SWIPE_REVEAL_PX) currentX = -SWIPE_REVEAL_PX; // cap at fully revealed
+      row.style.transform = 'translateX(' + currentX + 'px)';
+    }
+    function onDragEnd(){
+      if (!dragging) return;
+      dragging = false;
+      row.style.transition = 'transform 0.2s ease';
+      // Past halfway → snap fully open (revealed); otherwise snap closed.
+      if (currentX < -SWIPE_REVEAL_PX / 2){
+        row.style.transform = 'translateX(-' + SWIPE_REVEAL_PX + 'px)';
+      } else {
+        row.style.transform = 'translateX(0)';
+      }
+      currentX = 0;
+    }
+
+    row.addEventListener('touchstart', (e) => onDragStart(e.touches[0].clientX), { passive: true });
+    row.addEventListener('touchmove', (e) => onDragMove(e.touches[0].clientX), { passive: true });
+    row.addEventListener('touchend', onDragEnd);
+
+    // Mouse drag support for desktop/testing — mirrors the touch handlers.
+    row.addEventListener('mousedown', (e) => { onDragStart(e.clientX); e.preventDefault(); });
+    document.addEventListener('mousemove', (e) => onDragMove(e.clientX));
+    document.addEventListener('mouseup', onDragEnd);
+
+    deleteBtn.addEventListener('click', async () => {
+      deleteBtn.textContent = '...';
+      deleteBtn.disabled = true;
+      try{
+        const result = await callBackend({ action: 'deleteCompletedBroadcast', scheduleId: scheduleId });
+        if (!result.success){
+          throw new Error(result.error || 'Could not delete.');
+        }
+        // Collapse the row out of the list smoothly rather than an
+        // abrupt disappearance, then remove it from the DOM once the
+        // animation finishes.
+        wrap.style.transition = 'max-height 0.25s ease, opacity 0.25s ease, margin-bottom 0.25s ease';
+        wrap.style.maxHeight = wrap.offsetHeight + 'px';
+        requestAnimationFrame(() => {
+          wrap.style.maxHeight = '0px';
+          wrap.style.opacity = '0';
+          wrap.style.marginBottom = '0px';
+        });
+        setTimeout(() => {
+          wrap.remove();
+          // If that was the last completed broadcast, show the empty state.
+          if (el('bcCompletedList').children.length === 0){
+            el('bcCompletedList').innerHTML = '<div style="font-size:13px; color:#9CA3AF;">No completed broadcasts yet.</div>';
+          }
+        }, 260);
+      }catch(err){
+        showStatus('broadcastStatus','error','Could not delete: ' + err.message);
+        deleteBtn.textContent = 'DELETE';
+        deleteBtn.disabled = false;
+        row.style.transform = 'translateX(0)';
+      }
+    });
+  });
+}
+
+/* ============================================================
+   BROADCAST DRAFTS — save a message in progress (subject, body,
+   recipients, attachments, template flag) without sending or
+   scheduling it, so it can be finished later or reused as a
+   starting point.
+   ============================================================ */
+let bcEditingDraftId = null;
+
+el('bcSaveDraftBtn').addEventListener('click', async () => {
+  const subject = el('broadcastSubject').value.trim();
+  const body = stripEditorControls(el('broadcastEditor').innerHTML.trim());
+  if (!subject && !body){
+    showStatus('broadcastStatus','error','Nothing to save yet \u2014 write a subject or message first.');
+    return;
+  }
+  el('bcSaveDraftBtn').disabled = true;
+  const originalText = el('bcSaveDraftBtn').textContent;
+  el('bcSaveDraftBtn').textContent = 'SAVING...';
+  try{
+    const recipients = bcAllClients.filter(c => bcSelectedEmails.has(c.email));
+    const payload = {
+      rows: recipients.map(c => ({ email: c.email, clientName: c.clientName })),
+      subject: subject,
+      htmlBody: body,
+      attachments: bcAttachments,
+      useTemplate: !!bcUseTemplate
+    };
+    const result = await callBackend({ action: 'saveDraft', draftId: bcEditingDraftId, payload: payload });
+    if (!result.success){
+      throw new Error(result.error || 'Unknown error from server');
+    }
+    bcEditingDraftId = result.draftId; // subsequent saves update this same draft
+    showStatus('broadcastStatus','success','Draft saved.');
+    await refreshDraftsList();
+  }catch(err){
+    showStatus('broadcastStatus','error','Could not save draft: ' + err.message);
+  }finally{
+    el('bcSaveDraftBtn').disabled = false;
+    el('bcSaveDraftBtn').textContent = originalText;
+  }
+});
+
+async function refreshDraftsList(){
+  const container = el('bcDraftsList');
+  try{
+    const data = await callBackend({ action: 'getDrafts' });
+    const drafts = (data && data.drafts) || [];
+    if (drafts.length === 0){
+      container.innerHTML = '<div style="font-size:13px; color:#9CA3AF;">No saved drafts.</div>';
+      return;
+    }
+    container.innerHTML = drafts.map(d => {
+      const updated = new Date(d.updatedAt).toLocaleDateString('en-PH', { month: 'short', day: 'numeric' });
+      return '<div class="bc-scheduled-row">'
+        + '<span style="flex:1 1 auto; min-width:0; cursor:pointer;" data-load-draft="' + escapeHtml(d.draftId) + '"><strong>' + escapeHtml(d.subject || '(no subject)') + '</strong><br>Saved ' + updated + '</span>'
+        + '<button type="button" class="bc-scheduled-cancel" data-delete-draft="' + escapeHtml(d.draftId) + '">DELETE</button>'
+        + '</div>';
+    }).join('');
+    container.querySelectorAll('[data-load-draft]').forEach(span => {
+      span.addEventListener('click', () => {
+        const draft = drafts.find(d => d.draftId === span.dataset.loadDraft);
+        if (draft) loadDraftIntoEditor(draft);
+      });
+    });
+    container.querySelectorAll('[data-delete-draft]').forEach(btn => {
+      btn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        btn.disabled = true;
+        btn.textContent = '...';
+        try{
+          await callBackend({ action: 'deleteDraft', draftId: btn.dataset.deleteDraft });
+          if (bcEditingDraftId === btn.dataset.deleteDraft) bcEditingDraftId = null;
+          await refreshDraftsList();
+        }catch(err){
+          showStatus('broadcastStatus','error','Could not delete draft: ' + err.message);
+        }
+      });
+    });
+  }catch(err){
+    container.innerHTML = '<div style="font-size:13px; color:#9CA3AF;">Could not load drafts.</div>';
+  }
+}
+
+function loadDraftIntoEditor(draft){
+  bcEditingDraftId = draft.draftId;
+  const payload = draft.payload || {};
+  el('broadcastSubject').value = payload.subject || '';
+  el('broadcastEditor').innerHTML = payload.htmlBody || '';
+  bcAttachments = payload.attachments || [];
+  renderBcAttachmentList();
+  bcUseTemplate = !!payload.useTemplate;
+  el('bcTemplateToggle').querySelector('.theme-switch-track').classList.toggle('is-on', bcUseTemplate);
+  bcSelectedEmails = new Set((payload.rows || []).map(r => r.email));
+  bcAllClients = deduplicateClientsByEmail((payload.rows || []).map(r => ({ email: r.email, clientName: r.clientName })));
+  const n = bcSelectedEmails.size;
+  el('bcRecipientSummaryText').textContent = n === 0
+    ? 'No recipients selected yet'
+    : n + ' recipient' + (n === 1 ? '' : 's') + ' selected (from the saved draft)';
+  el('bcSendNowBtn').click();
+  el('bcSendBtn').textContent = 'SEND BROADCAST';
+  showStatus('broadcastStatus','info','Draft loaded \u2014 continue editing, then send, schedule, or save again.');
+  el('broadcastCard').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  // Without this, the size indicator keeps showing whatever it displayed
+  // before this draft was loaded, which could be a stale, falsely-small
+  // reading that lets an oversized saved draft pass the pre-send size check.
+  updateSizeIndicator();
+}
+
+/* ============================================================
+   HEADER/FOOTER TEMPLATE — reuses the exact header and footer
+   photos already saved in Branding Studio (same Drive files
+   used by dues reminders and birthday greetings), so a
+   broadcast can look like a normal branded email instead of a
+   plain message. Purely a send-time wrapper \u2014 doesn't touch
+   the editor content itself.
+   ============================================================ */
+let bcUseTemplate = false;
+
+el('bcTemplateToggle').addEventListener('click', async () => {
+  bcUseTemplate = !bcUseTemplate;
+  invalidateResumableSend();
+  const track = el('bcTemplateToggle').querySelector('.theme-switch-track');
+  track.classList.toggle('is-on', bcUseTemplate);
+
+  if (!bcUseTemplate){
+    el('bcTemplateStatusText').textContent = 'Wraps your message with the same header/footer photos from your Branding Studio.';
+    await updateSizeIndicator();
+    return;
+  }
+  el('bcTemplateStatusText').textContent = 'Checking your saved header/footer photos\u2026';
+  const [headerImg, footerImg] = await Promise.all([ensurePreviewImage('header'), ensurePreviewImage('footer')]);
+  if (!headerImg || !footerImg){
+    bcUseTemplate = false;
+    track.classList.remove('is-on');
+    el('bcTemplateStatusText').textContent = 'No header/footer photos saved yet \u2014 add them in Settings \u2192 Branding Studio first.';
+    await updateSizeIndicator();
+    return;
+  }
+  el('bcTemplateStatusText').textContent = 'On \u2014 your saved header and footer will wrap this message.';
+  // Calculated only after bcUseTemplate is fully settled and the images
+  // are already fetched/cached above \u2014 avoids the race condition where
+  // a separate fixed-delay listener could read a stale bcUseTemplate
+  // value or an empty image cache if the fetch above took longer than
+  // the delay, which is exactly what let a template-wrapped broadcast
+  // show a falsely small size and pass the pre-send check.
+  await updateSizeIndicator();
+});
+
+// Wraps the (already-stripped) message HTML with the advisor's actual
+// header/footer images when the template toggle is on. Images are
+// embedded as data URLs here for preview; the real send still goes
+// through Code.gs which uses cid: + inlineImages the same way dues
+// reminders and birthday greetings already do, for full email-client
+// compatibility (data URLs render fine in-browser but are unreliable
+// in real inboxes, so the two paths intentionally differ).
+async function wrapBodyForPreview(bodyHtml){
+  if (!bcUseTemplate) return bodyHtml;
+  const [headerImg, footerImg] = await Promise.all([ensurePreviewImage('header'), ensurePreviewImage('footer')]);
+  if (!headerImg || !footerImg) return bodyHtml;
+  return ''
+    + '<div style="font-family:Arial,sans-serif;max-width:480px;margin:0 auto;border:1px solid #E7DFCF;border-radius:10px;overflow:hidden;">'
+    + '<img src="' + headerImg + '" alt="Header" style="width:100%;display:block;">'
+    + '<div style="padding:24px;background:#FDF8F0;color:#1C2A38;">' + bodyHtml + '</div>'
+    + '<img src="' + footerImg + '" alt="Footer" style="width:100%;display:block;">'
+    + '</div>';
+}
+
+el('bcPreviewBtn').addEventListener('click', async () => {
+  const subject = el('broadcastSubject').value.trim();
+  const rawBody = stripEditorControls(el('broadcastEditor').innerHTML.trim());
+  if (!rawBody){
+    showStatus('broadcastStatus','error','Write a message first.');
+    return;
+  }
+  const body = await wrapBodyForPreview(rawBody);
+  // Matches the actual sent email exactly \u2014 bold black, same as
+  // Code.gs applies at send time \u2014 so the preview isn't misleading.
+  // Case-insensitive: {FirstName}, {firstName}, {FIRSTNAME} all work.
+  const styledFirstName = '<span style="font-weight:700;color:#000000;">Juan Miguel</span>';
+  const previewBody = body.replace(/\{firstname\}/gi, styledFirstName);
+  el('bcPreviewBody').innerHTML =
+    (subject ? '<div style="font-size:12px;color:#9CA3AF;margin-bottom:10px;">Subject: <strong style="color:var(--ink,#13202B);">' + escapeHtml(subject) + '</strong></div>' : '') +
+    previewBody;
+  el('bcPreviewContainer').style.display = 'block';
+  el('bcPreviewContainer').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+});
+
+// Estimates the total email size (body + inline images + attachments +
+// header/footer template if on), all base64-encoded like Gmail actually
+// sends it. Reused by both the live on-screen indicator and the
+// pre-send blocking check, so they always agree with each other.
+//
+// Returns { mb, uncertain }. uncertain=true means the header/footer
+// fetch failed or returned nothing while the template toggle is on \u2014
+// in that case mb is NOT a safe number to trust, because treating a
+// failed fetch as "0 extra bytes" is exactly what let an oversized
+// template slip past this check silently before (the actual root
+// cause behind repeated "Email is too large" failures at send time
+// despite the indicator showing a small, deceptively safe size).
+async function calculateBroadcastSizeMB(){
+  const body = stripEditorControls(el('broadcastEditor').innerHTML.trim());
+  const bodyBytes = new Blob([body]).size;
+  const attachmentBytes = bcAttachments.reduce((sum, a) => sum + Math.ceil((a.base64 || '').length * 0.75), 0);
+  let templateBytes = 0;
+  let uncertain = false;
+  if (bcUseTemplate){
+    const [headerImg, footerImg] = await Promise.all([ensurePreviewImage('header'), ensurePreviewImage('footer')]);
+    if (!headerImg || !footerImg){
+      uncertain = true;
+    } else {
+      templateBytes += Math.ceil(headerImg.split(',')[1].length * 0.75);
+      templateBytes += Math.ceil(footerImg.split(',')[1].length * 0.75);
+    }
+  }
+  // Every one of these pieces gets MIME/base64-encoded before Gmail
+  // actually transmits it, inflating the real wire size by roughly 33%
+  // over these raw byte counts — matching the same factor applied in
+  // Code.gs's sendBroadcastEmailBatch size check, so the number shown
+  // here never understates what will actually be sent. Without this,
+  // a message could show as comfortably under the limit right up until
+  // send time, then fail anyway because the real encoded size was
+  // meaningfully higher than this raw count alone suggested.
+  const MIME_ENCODING_OVERHEAD = 1.37;
+  return { mb: ((bodyBytes + attachmentBytes + templateBytes) / (1024 * 1024)) * MIME_ENCODING_OVERHEAD, uncertain: uncertain };
+}
+
+// Gmail's ACTUAL body/header quota (separate from and apparently far
+// stricter than its 25MB attachment limit) turned out to be much lower
+// than previously assumed — a real broadcast measuring ~0.88MB under
+// the OLD calculation was rejected by Gmail for every single recipient.
+// 2MB is a conservative threshold set well below that real observed
+// failure point, matching the backend's own check in Code.gs
+// (sendBroadcastEmailBatch) — kept in sync manually since Apps Script
+// and the browser don't share constants.
+const BC_MAX_SIZE_MB = 2;
+
+async function updateSizeIndicator(){
+  const result = await calculateBroadcastSizeMB();
+  const el2 = el('bcSizeIndicator');
+  if (result.uncertain){
+    el2.textContent = '\u26a0 Could not verify your header/footer photo size \u2014 check your connection, or re-open Settings once to reload them.';
+    el2.style.color = '#EB5757';
+    el2.style.fontWeight = '700';
+    return;
+  }
+  const mb = result.mb;
+  const over = mb > BC_MAX_SIZE_MB;
+  el2.textContent = 'Message size: ~' + mb.toFixed(2) + 'MB of ' + BC_MAX_SIZE_MB + 'MB limit' + (over ? ' \u2014 too large!' : '');
+  el2.style.color = over ? '#EB5757' : mb > BC_MAX_SIZE_MB * 0.7 ? '#B45309' : '#9CA3AF';
+  el2.style.fontWeight = over ? '700' : '400';
+}
+
+// Recalculate whenever the editor content changes. The template
+// toggle's own click handler already calls updateSizeIndicator()
+// directly after its async header/footer check settles, so no
+// separate listener is needed here for it (a prior version used a
+// fixed-delay setTimeout for that, which raced against the actual
+// fetch time and could report a stale, falsely-small size).
+el('broadcastEditor').addEventListener('input', () => { updateSizeIndicator(); invalidateResumableSend(); });
+el('broadcastSubject').addEventListener('input', invalidateResumableSend);
+
+// Images inserted via the toolbar's Image button always go through
+// resizeImageForUpload() and come out compressed — but a person can
+// also paste an image directly into the editor (copied from another
+// app, a screenshot, another part of this same page, etc.), and
+// browsers insert pasted images as raw, uncompressed base64 data with
+// no compression at all. That gap is exactly what let a broadcast with
+// a normal-looking "Message size: ~0.3MB" indicator still fail to send
+// as "too large" — the pasted image's real size was never counted
+// because it never passed through any of this app's own image-handling
+// code. Intercepting the paste event and routing any pasted image
+// through the same compression pipeline closes that gap at the source.
+el('broadcastEditor').addEventListener('paste', async (e) => {
+  const items = (e.clipboardData || window.clipboardData)?.items;
+  if (!items) return;
+  let imageFile = null;
+  for (const item of items){
+    if (item.type && item.type.startsWith('image/')){
+      imageFile = item.getAsFile();
+      break;
+    }
+  }
+  if (!imageFile) return; // no image in the paste — let the browser handle text normally
+  e.preventDefault(); // stop the browser's own raw, uncompressed insertion
+  try{
+    const resized = await resizeImageForUpload(imageFile, 1200, 0.88, 800 * 1024);
+    insertResizableImage('data:' + resized.mimeType + ';base64,' + resized.base64);
+    updateSizeIndicator();
+  }catch(err){
+    showStatus('broadcastStatus','error','Could not paste image: ' + err.message);
+  }
+});
+
+// Same gap as paste, via a different browser mechanism: dragging an
+// image file (from the desktop, another app, or another tab) directly
+// onto the editor also inserts it raw and uncompressed by default.
+el('broadcastEditor').addEventListener('dragover', (e) => { e.preventDefault(); });
+el('broadcastEditor').addEventListener('drop', async (e) => {
+  const files = e.dataTransfer?.files;
+  if (!files || files.length === 0) return;
+  const imageFile = Array.from(files).find(f => f.type && f.type.startsWith('image/'));
+  if (!imageFile) return;
+  e.preventDefault();
+  // A drop doesn't automatically focus the editor or place a cursor the
+  // way typing or pasting does, but insertResizableImage() relies on
+  // execCommand('insertHTML', ...) which needs an active selection
+  // inside a focused editable element — without this, the image would
+  // silently fail to insert at all. Focusing and moving the cursor to
+  // the end guarantees a valid insertion point regardless of exactly
+  // where in the editor the file was dropped.
+  const editor = el('broadcastEditor');
+  editor.focus();
+  const range = document.createRange();
+  range.selectNodeContents(editor);
+  range.collapse(false);
+  const sel = window.getSelection();
+  sel.removeAllRanges();
+  sel.addRange(range);
+  try{
+    const resized = await resizeImageForUpload(imageFile, 1200, 0.88, 800 * 1024);
+    insertResizableImage('data:' + resized.mimeType + ';base64,' + resized.base64);
+    updateSizeIndicator();
+  }catch(err){
+    showStatus('broadcastStatus','error','Could not add dropped image: ' + err.message);
+  }
+});
+
+el('bcSendBtn').addEventListener('click', async () => {
+  const subject = el('broadcastSubject').value.trim();
+  const body = stripEditorControls(el('broadcastEditor').innerHTML.trim());
+  if (!subject){
+    showStatus('broadcastStatus','error','Please add a subject line.');
+    return;
+  }
+  if (!body){
+    showStatus('broadcastStatus','error','Write a message first.');
+    return;
+  }
+  if (bcSelectedEmails.size === 0){
+    showStatus('broadcastStatus','error','Tap "CHOOSE RECIPIENTS" and select at least one client first.');
+    return;
+  }
+
+  // Gmail rejects sends once the total message size (body + inline
+  // images + attachments, all base64-encoded) passes its limit. Warn
+  // before sending rather than letting every recipient fail silently.
+  const sizeResult = await calculateBroadcastSizeMB();
+  await updateSizeIndicator();
+  if (sizeResult.uncertain){
+    showStatus('broadcastStatus','error',
+      'Could not verify your header/footer photo size before sending \u2014 this usually means the Setup URL can\u2019t be reached right now. ' +
+      'Check your connection and try again, or turn off "Use header & footer template" to send without it.'
+    );
+    return;
+  }
+  const estimatedTotalMB = sizeResult.mb;
+  if (estimatedTotalMB > BC_MAX_SIZE_MB){
+    showStatus('broadcastStatus','error',
+      'This message is too large (~' + estimatedTotalMB.toFixed(1) + 'MB, limit is ' + BC_MAX_SIZE_MB + 'MB) and will likely fail to send. ' +
+      (bcUseTemplate ? 'Try turning off the header/footer template, or ' : 'Try ') +
+      'removing an inline image or attachment, or use fewer/smaller photos.'
+    );
+    return;
+  }
+
+  const recipients = bcAllClients.filter(c => bcSelectedEmails.has(c.email));
+
+  if (bcSendMode === 'later'){
+    const scheduledDate = resolveScheduledDate();
+    if (!scheduledDate){
+      showStatus('broadcastStatus','error','Please pick a valid date.');
+      return;
+    }
+    if (scheduledDate.getTime() <= Date.now()){
+      showStatus('broadcastStatus','error','That time has already passed \u2014 please pick a later slot.');
+      return;
+    }
+    const formatted = scheduledDate.toLocaleString('en-PH', { weekday: 'long', month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true });
+    el('bcConfirmCount').textContent =
+      'This will send to ' + recipients.length + ' selected client' + (recipients.length === 1 ? '' : 's') +
+      ' on ' + formatted + ', personalized with each client\u2019s first name' +
+      (bcAttachments.length ? ', with ' + bcAttachments.length + ' attachment' + (bcAttachments.length === 1 ? '' : 's') + '.' : '.');
+    el('bcConfirmOverlay').style.display = 'flex';
+    el('bcConfirmCancel').onclick = () => { el('bcConfirmOverlay').style.display = 'none'; };
+    el('bcConfirmSend').onclick = async () => {
+      el('bcConfirmOverlay').style.display = 'none';
+      await runScheduleBroadcast(recipients, subject, body, bcUseTemplate, scheduledDate);
+    };
+    return;
+  }
+
+  // Only checked for immediate sends — a scheduled broadcast's quota
+  // situation could look completely different by the time it actually
+  // fires (today's send might reset the count, or other emails sent in
+  // the meantime might reduce it further), so checking now wouldn't
+  // reliably reflect reality at the moment it matters.
+  const remainingQuota = await fetchRemainingEmailQuota();
+  const quotaWarning = (remainingQuota !== null && recipients.length > remainingQuota)
+    ? '\n\n\u26a0\ufe0f This Gmail account has only ' + remainingQuota + ' email' + (remainingQuota === 1 ? '' : 's') + ' left in today\u2019s sending quota \u2014 the remaining ' + (recipients.length - remainingQuota) + ' recipient' + (recipients.length - remainingQuota === 1 ? '' : 's') + ' won\u2019t receive this until the quota resets (personal Gmail accounts get 100/day; Google Workspace accounts get up to 1,500/day).'
+    : '';
+  // Mobile browsers throttle or fully suspend background JavaScript
+  // (including any in-flight network request) once the tab loses focus
+  // — switching to another app, locking the screen, or even swiping to
+  // another browser tab can interrupt a send that's still in progress.
+  // This is a platform limitation, not something the app can work
+  // around from JavaScript, so the only real fix is telling the person
+  // up front to stay on this screen until it finishes.
+  const stayInAppReminder = '\n\n\ud83d\udcf1 Stay on this screen until sending finishes \u2014 switching apps or locking your phone can interrupt it partway through.';
+
+  el('bcConfirmCount').textContent =
+    'This will send to ' + recipients.length + ' selected client' + (recipients.length === 1 ? '' : 's') +
+    ', personalized with each client\u2019s first name' +
+    (bcAttachments.length ? ', with ' + bcAttachments.length + ' attachment' + (bcAttachments.length === 1 ? '' : 's') + '.' : '.') +
+    quotaWarning + stayInAppReminder;
+  el('bcConfirmOverlay').style.display = 'flex';
+
+  el('bcConfirmCancel').onclick = () => { el('bcConfirmOverlay').style.display = 'none'; };
+  el('bcConfirmSend').onclick = async () => {
+    el('bcConfirmOverlay').style.display = 'none';
+    await runBroadcastSend(recipients, subject, body, bcUseTemplate);
+  };
+});
+
+// Queues the broadcast for later instead of sending immediately \u2014
+// packages the same payload shape sendBroadcastEmailBatch expects, so
+// the trigger handler on the backend can replay it exactly at the
+// scheduled time.
+async function runScheduleBroadcast(recipients, subject, body, useTemplate, scheduledDate){
+  el('bcSendBtn').disabled = true;
+  el('bcPreviewBtn').disabled = true;
+  try{
+    const rows = recipients.map(c => ({ email: c.email, clientName: c.clientName }));
+    const payload = {
+      rows: rows,
+      subject: subject,
+      htmlBody: body,
+      attachments: bcAttachments,
+      useTemplate: !!useTemplate
+    };
+    const formatted = scheduledDate.toLocaleString('en-PH', { weekday: 'long', month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true });
+
+    const result = await callBackend({
+      action: 'scheduleBroadcast',
+      scheduledFor: scheduledDate.toISOString(),
+      payload: payload
+    });
+    if (!result.success){
+      throw new Error(result.error || 'Unknown error from server');
+    }
+    showStatus('broadcastStatus','success', 'Scheduled \u2014 will send to ' + recipients.length + ' client' + (recipients.length === 1 ? '' : 's') + ' on ' + formatted + '.');
+    await refreshScheduledBroadcastsList();
+  }catch(err){
+    // "Load failed" (and similar raw browser fetch errors like "Failed
+    // to fetch" or "NetworkError") almost always means the request
+    // itself couldn't complete — most commonly because the payload
+    // (message + images + attachments) was too large to send over the
+    // network, before it ever reached the size checks on the server.
+    // A bare browser error string here would be confusing, so this
+    // translates the common case into the same actionable guidance the
+    // size checks elsewhere already give.
+    const isLikelyNetworkFailure = /load failed|failed to fetch|network ?error/i.test(err.message || '');
+    const message = isLikelyNetworkFailure
+      ? 'This message could not be sent to the server \u2014 it\u2019s likely too large. Try removing an inline image or attachment, or turn off "Use header & footer template", then try again.'
+      : 'Could not schedule: ' + err.message;
+    showStatus('broadcastStatus','error', message);
+  }finally{
+    el('bcSendBtn').disabled = false;
+    el('bcPreviewBtn').disabled = false;
+  }
+}
+
+// Remembers the exact state of the most recent broadcast send attempt,
+// so a mid-send failure (network drop, app backgrounded, etc.) can be
+// resumed from exactly where it left off instead of resending to
+// everyone, including recipients who already received it. Cleared once
+// a send completes fully (success or with all recipients accounted
+// for) or once a person starts composing a genuinely new broadcast.
+let bcResumableSend = null; // { subject, body, useTemplate, remainingRows, alreadySentEmails, alreadyFailedReasons }
+
+// A pending "Continue Sending" only makes sense if the message and
+// recipients haven't changed since the failed attempt — resuming with
+// a since-edited subject, body, template setting, or recipient list
+// would send something different from what the earlier partial send
+// actually delivered, defeating the entire point of tracking who
+// already got it. Any meaningful edit clears this out and hides the
+// button, requiring a fresh SEND BROADCAST instead.
+function invalidateResumableSend(){
+  if (bcResumableSend){
+    bcResumableSend = null;
+    updateResumeSendButton();
+  }
+}
+
+async function runBroadcastSend(recipients, subject, body, useTemplate, resumeFrom){
+  el('bcSendBtn').disabled = true;
+  el('bcPreviewBtn').disabled = true;
+  // When resuming, only the rows that were never successfully confirmed
+  // are re-attempted — everyone already sent to in a completed batch is
+  // skipped entirely, which is exactly what makes a retry safe rather
+  // than duplicating delivery to most of the list.
+  const rows = resumeFrom ? resumeFrom.remainingRows : recipients.map(c => ({ email: c.email, clientName: c.clientName }));
+  const alreadySentCount = resumeFrom ? resumeFrom.alreadySentEmails.length : 0;
+  const alreadyFailedReasons = resumeFrom ? resumeFrom.alreadyFailedReasons.slice() : [];
+  const totalOriginalCount = alreadySentCount + alreadyFailedReasons.length + rows.length;
+
+  // Smaller batch size than pushDues/pushBirthdays — each row here
+  // triggers a real GmailApp.sendEmail() call (much slower than a sheet
+  // write), so batches are kept small to stay well under the 30-second
+  // Web App execution limit.
+  const batchSize = 25;
+  const batches = chunkArray(rows, batchSize);
+  let totalSent = alreadySentCount, totalFailed = alreadyFailedReasons.length;
+  const allFailureReasons = alreadyFailedReasons;
+  const sentEmailsThisRun = []; // built up as each batch actually completes, for resumability if this run itself fails partway
+  const completedRowEmails = new Set(); // every email whose batch actually finished (sent OR failed) — anything NOT in here still needs to be attempted on resume
+
+  try{
+    for (let i = 0; i < batches.length; i++){
+      showStatus('broadcastStatus','info',
+        'Sending batch ' + (i + 1) + ' of ' + batches.length + ' (' + (totalSent + totalFailed) + ' of ' + totalOriginalCount + ' done)\u2026'
+      );
+      const result = await callBackend({
+        action: 'sendBroadcastBatch',
+        rows: batches[i],
+        subject: subject,
+        htmlBody: body,
+        attachments: bcAttachments,
+        useTemplate: !!useTemplate
+      });
+      if (!result.success){
+        throw new Error(result.error || 'Unknown error from server');
+      }
+      // This entire batch is now confirmed handled by the server — every
+      // row in it either sent successfully or has a recorded failure
+      // reason, so none of these rows need to be retried even if a
+      // later batch in this same run fails.
+      const failedEmailsInBatch = new Set((result.failedEmails || []));
+      batches[i].forEach(row => {
+        completedRowEmails.add(row.email);
+        if (!failedEmailsInBatch.has(row.email)) sentEmailsThisRun.push(row.email);
+      });
+      totalSent += result.sent || 0;
+      totalFailed += result.failed || 0;
+      if (result.failureReasons) allFailureReasons.push(...result.failureReasons);
+    }
+    let msg = 'Done \u2014 sent to ' + totalSent + ' of ' + totalOriginalCount + ' clients';
+    if (totalFailed > 0){
+      // Show up to 3 concrete reasons instead of a generic "check their
+      // email addresses" — the real cause (bad address, attachment too
+      // large, blocked recipient, etc.) is now visible immediately.
+      const sample = allFailureReasons.slice(0, 3)
+        .map(f => '\u2022 ' + f.email + ': ' + f.reason)
+        .join('  ');
+      msg += ' (' + totalFailed + ' failed). ' + sample;
+      if (allFailureReasons.length > 3) msg += '  \u2026and ' + (allFailureReasons.length - 3) + ' more.';
+    } else {
+      msg += '.';
+    }
+    showStatus('broadcastStatus', totalFailed > 0 ? 'error' : 'success', msg);
+    bcResumableSend = null; // fully accounted for — nothing left to resume
+  }catch(err){
+    const isLikelyNetworkFailure = /load failed|failed to fetch|network ?error/i.test(err.message || '');
+    // Any row not in completedRowEmails was never part of a batch that
+    // actually finished in this run — it genuinely still needs to be
+    // attempted, regardless of whether it succeeded or failed before.
+    const remainingRows = rows.filter(r => !completedRowEmails.has(r.email));
+    if (remainingRows.length > 0){
+      bcResumableSend = {
+        subject: subject,
+        body: body,
+        useTemplate: useTemplate,
+        remainingRows: remainingRows,
+        alreadySentEmails: (resumeFrom ? resumeFrom.alreadySentEmails : []).concat(sentEmailsThisRun),
+        alreadyFailedReasons: allFailureReasons.slice()
+      };
+    } else {
+      bcResumableSend = null;
+    }
+    const reason = isLikelyNetworkFailure
+      ? 'the connection was interrupted \u2014 this usually happens if you switched apps, locked your phone, or lost signal while it was sending. Stay on this screen next time until it finishes. (If it keeps happening even while staying in the app, try removing an inline image or attachment, or turn off "Use header & footer template".)'
+      : 'Error: ' + err.message;
+    const resumeHint = bcResumableSend
+      ? ' Tap "CONTINUE SENDING" below to send only to the ' + bcResumableSend.remainingRows.length + ' who haven\u2019t received it yet \u2014 no one will get a duplicate.'
+      : '';
+    showStatus('broadcastStatus','error',
+      'Stopped after ' + totalSent + ' of ' + totalOriginalCount + ' sent. ' + reason + resumeHint
+    );
+    updateResumeSendButton();
+  }finally{
+    el('bcSendBtn').disabled = false;
+    el('bcPreviewBtn').disabled = false;
+  }
+}
+
+// Shows or hides the "CONTINUE SENDING" button based on whether a
+// resumable partial send is currently pending.
+function updateResumeSendButton(){
+  const btn = el('bcResumeSendBtn');
+  if (!btn) return;
+  if (bcResumableSend){
+    btn.style.display = 'block';
+    btn.textContent = 'CONTINUE SENDING (' + bcResumableSend.remainingRows.length + ' remaining)';
+  } else {
+    btn.style.display = 'none';
+  }
+}
+
+el('bcResumeSendBtn').addEventListener('click', () => {
+  if (!bcResumableSend) return;
+  const remaining = bcResumableSend.remainingRows.length;
+  el('bcConfirmCount').textContent =
+    'This will continue sending to the ' + remaining + ' recipient' + (remaining === 1 ? '' : 's') + ' who haven\u2019t received this broadcast yet' +
+    ' \u2014 everyone already sent to will NOT receive a duplicate.' +
+    '\n\n\ud83d\udcf1 Stay on this screen until sending finishes \u2014 switching apps or locking your phone can interrupt it partway through.';
+  el('bcConfirmOverlay').style.display = 'flex';
+  el('bcConfirmCancel').onclick = () => { el('bcConfirmOverlay').style.display = 'none'; };
+  el('bcConfirmSend').onclick = async () => {
+    el('bcConfirmOverlay').style.display = 'none';
+    const resumeState = bcResumableSend;
+    await runBroadcastSend(null, resumeState.subject, resumeState.body, resumeState.useTemplate, resumeState);
+    updateResumeSendButton();
+  };
+});
+
+
 el('saveBranding').addEventListener('click', async () => {
   const config = {
     senderName: el('brandSenderName').value.trim(),
@@ -2876,32 +4935,67 @@ el('sendHourSelect').addEventListener('change', async () => {
 // photos are often 3-10MB, which can fail to upload reliably (especially
 // on mobile data) — shrinking to a sensible email width fixes this and
 // also makes the resulting emails load faster for clients.
-function resizeImageForUpload(file, maxWidth, quality){
+//
+// maxBytes enforces a real, guaranteed ceiling instead of hoping one
+// fixed width/quality pass happens to be small enough: some photos
+// (busy backgrounds, high detail) stay large even at 80% JPEG quality,
+// which is exactly what caused broadcasts to keep exceeding Gmail's
+// body size limit even after a first compression pass. This retries
+// with lower quality, and if quality alone isn't enough, also shrinks
+// the dimensions, until the actual output is under the target — or
+// until further shrinking stops helping, whichever comes first.
+function resizeImageForUpload(file, maxWidth, quality, maxBytes){
   maxWidth = maxWidth || 1600;
   quality = quality || 0.90;
+  maxBytes = maxBytes || Infinity; // no hard cap unless the caller asks for one
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = (e) => {
       const img = new Image();
       img.onload = () => {
-        let width = img.width, height = img.height;
-        if (width > maxWidth){
-          height = Math.round(height * (maxWidth / width));
-          width = maxWidth;
+        function renderAt(width, q){
+          const height = Math.round(img.height * (width / img.width));
+          const canvas = document.createElement('canvas');
+          canvas.width = width;
+          canvas.height = height;
+          canvas.getContext('2d').drawImage(img, 0, 0, width, height);
+          return new Promise((res, rej) => {
+            canvas.toBlob((blob) => {
+              if (!blob){ rej(new Error('Could not process that image.')); return; }
+              res(blob);
+            }, 'image/jpeg', q);
+          });
         }
-        const canvas = document.createElement('canvas');
-        canvas.width = width;
-        canvas.height = height;
-        canvas.getContext('2d').drawImage(img, 0, 0, width, height);
-        canvas.toBlob((blob) => {
-          if (!blob){ reject(new Error('Could not process that image.')); return; }
-          const outReader = new FileReader();
-          outReader.onload = () => {
-            resolve({ base64: outReader.result.split(',')[1], mimeType: blob.type || 'image/jpeg' });
-          };
-          outReader.onerror = () => reject(new Error('Could not read processed image.'));
-          outReader.readAsDataURL(blob);
-        }, 'image/jpeg', quality);
+
+        (async () => {
+          try{
+            let width = Math.min(img.width, maxWidth);
+            let q = quality;
+            let blob = await renderAt(width, q);
+
+            // Quality passes first (cheap, preserves more detail than
+            // shrinking dimensions) — down to a sensible floor.
+            while (blob.size > maxBytes && q > 0.4){
+              q -= 0.15;
+              blob = await renderAt(width, q);
+            }
+            // If quality alone isn't enough, start shrinking dimensions
+            // too, down to a floor that's still usable as an email banner.
+            while (blob.size > maxBytes && width > 400){
+              width = Math.round(width * 0.8);
+              blob = await renderAt(width, Math.max(q, 0.6));
+            }
+
+            const outReader = new FileReader();
+            outReader.onload = () => {
+              resolve({ base64: outReader.result.split(',')[1], mimeType: blob.type || 'image/jpeg' });
+            };
+            outReader.onerror = () => reject(new Error('Could not read processed image.'));
+            outReader.readAsDataURL(blob);
+          }catch(err){
+            reject(err);
+          }
+        })();
       };
       img.onerror = () => reject(new Error('Could not open that file as an image.'));
       img.src = e.target.result;
@@ -2921,7 +5015,13 @@ async function handlePhotoUpload(target, file){
   const statusId = target === 'header' ? 'headerImgStatus' : 'footerImgStatus';
   el(statusId).textContent = 'Processing photo\u2026';
   try{
-    const { base64, mimeType } = await resizeImageForUpload(file);
+    // Resized to a sensible email width and compressed enough to upload
+    // reliably, while staying sharp when displayed in the email template.
+    // (A much more aggressive 800px/80%/250KB cap was tried earlier while
+    // chasing a "Broadcast Email too large" bug, but that turned out to
+    // be an unrelated backend requirement bug, not image size — so this
+    // is back to the original, better-looking quality.)
+    const { base64, mimeType } = await resizeImageForUpload(file, 1600, 0.90);
     el(statusId).textContent = 'Uploading\u2026';
     previewImageCache[target] = 'data:' + mimeType + ';base64,' + base64;
     await callBackend({ action:'uploadImage', target: target, base64: base64, mimeType: mimeType });
@@ -2962,17 +5062,24 @@ el('brandFooterImg').addEventListener('change', (e) => {
   if (file) handlePhotoUpload('footer', file);
 });
 
-// Mirrors formatClientName() in the Apps Script backend exactly, so the
-// in-app preview matches what actually gets sent.
+// Mirrors firstNameOnly() in the Apps Script backend exactly, so the
+// in-app preview matches what actually gets sent. Kept this function's
+// name (formatClientNameJS) even though it's now first-name-only, to
+// avoid colliding with the separate firstNameOnly() below that parses
+// the advisor's own name, not the client's.
+const MARIA_STYLE_PREFIXES_JS = ['ma', 'maria'];
 function formatClientNameJS(rawName){
   const name = String(rawName || '').trim();
   if (!name) return '';
   const commaIdx = name.indexOf(',');
-  if (commaIdx === -1) return name;
-  const lastName = name.slice(0, commaIdx).trim();
-  const rest = name.slice(commaIdx + 1).trim();
-  const firstName = rest.split(/\s+/)[0] || '';
-  return (firstName + ' ' + lastName).trim();
+  const rest = commaIdx !== -1 ? name.slice(commaIdx + 1).trim() : name;
+  const words = rest.split(/\s+/).filter(Boolean);
+  if (words.length === 0) return '';
+  const firstWordNormalized = words[0].toLowerCase().replace(/\.$/, '');
+  if (MARIA_STYLE_PREFIXES_JS.includes(firstWordNormalized) && words.length > 1){
+    return words[1];
+  }
+  return words[0];
 }
 
 // Mirrors buildReminderEmailHtml() in the Apps Script backend, using
@@ -3074,7 +5181,7 @@ el('parseBtn').addEventListener('click', async () => {
     const { rows, skippedStatus } = parseDuesFromWorkbook(workbook);
 
     if (rows.length === 0){
-      showStatus('mainStatus','error','No "Premium paying" policies were found in this file.');
+      showStatus('mainStatus','error','No importable policies were found in this file — everything was either Surrendered, Expired, Cancelled, Terminated, or Matured.');
       el('parseBtn').disabled = false;
       return;
     }
@@ -3084,7 +5191,16 @@ el('parseBtn').addEventListener('click', async () => {
       showStatus('mainStatus','info','Pushing ' + done + ' of ' + total + ' policies to your Dues Tracker…');
     });
 
-    showStatus('mainStatus','success','Done. Your Dues Tracker is up to date.');
+    const lapsedCount = rows.filter(r => r.isLapsed).length;
+    const paidUpCount = rows.filter(r => r.isPaidUp).length;
+    let doneMsg = 'Done. Your Dues Tracker is up to date.';
+    if (lapsedCount > 0 || paidUpCount > 0){
+      const parts = [];
+      if (paidUpCount > 0) parts.push(paidUpCount + ' Paid-Up');
+      if (lapsedCount > 0) parts.push(lapsedCount + ' Lapsed');
+      doneMsg += ' (including ' + parts.join(' and ') + ' — see the Clients page.)';
+    }
+    showStatus('mainStatus','success', doneMsg);
     el('summary').style.display = 'grid';
     el('sumAdded').textContent = result.added ?? '–';
     el('sumUpdated').textContent = result.updated ?? '–';
@@ -3110,6 +5226,26 @@ async function fetchDueToday(){
   const res = await fetch(url + '?action=getDueToday');
   const data = await res.json();
   return data.rows || [];
+}
+
+// Personal Gmail accounts cap out at 100 email recipients per rolling
+// 24-hour period (Google Workspace accounts get up to 1,500) — this
+// checks how much of that is left right now, so a large broadcast can
+// warn the advisor before sending rather than running out of quota
+// partway through with no context for how many recipients actually
+// have a realistic chance of receiving it today. Returns null if the
+// check itself fails (e.g. Setup URL unreachable), which callers treat
+// as "unknown" rather than blocking the send outright on that alone.
+async function fetchRemainingEmailQuota(){
+  try{
+    const url = getScriptUrl();
+    if (!url) return null;
+    const res = await fetch(url + '?action=getRemainingEmailQuota');
+    const data = await res.json();
+    return typeof data.remaining === 'number' ? data.remaining : null;
+  }catch(e){
+    return null;
+  }
 }
 
 function escapeHtml(str){
@@ -3530,14 +5666,16 @@ function parseBirthdaysFromWorkbook(workbook){
     if (!email) continue;
 
     const dobRaw = r[idxDob];
-    const dob = dobRaw instanceof Date ? dobRaw : new Date(String(dobRaw));
+    // Birth dates must be in the past, and bounded to a plausible human
+    // lifespan so a misread cell can't become a garbage year.
+    const dobParsed = parseSafeDate(dobRaw, { allowFuture: false, maxSpanYears: 120 });
 
     out.push({
       fullName: fullName,
       email: email,
       contactNumber: idxContact !== -1 ? String(r[idxContact]||'').trim() : '',
       location: idxLocation !== -1 ? String(r[idxLocation]||'').trim() : '',
-      dateOfBirth: isNaN(dob.getTime()) ? null : dob.toISOString()
+      dateOfBirth: dobParsed ? dobParsed.toISOString() : null
     });
   }
 
@@ -3881,18 +6019,6 @@ el('sendBirthdayTestBtn').addEventListener('click', async () => {
   }
 });
 
-/* ============================================================
-   SETUP BUTTON — scrolls the Settings cards into view once
-   they're shown (the original toggle logic only handled
-   show/hide, never scrolled there). Added as a second listener
-   on the same button rather than editing the original one.
-   ============================================================ */
-document.getElementById('toggleConfig').addEventListener('click', () => {
-  const justOpened = document.getElementById('configCard').style.display !== 'none';
-  if (justOpened){
-    document.getElementById('settingsSection').scrollIntoView({ behavior:'smooth', block:'start' });
-  }
-});
 
 /* ============================================================
    REFRESH BUTTON FEEDBACK — blink + "REFRESH" → "REFRESHED" on
@@ -3973,60 +6099,9 @@ function isValidEmail(email) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 }
 
-// "Remember me" here is deliberately aligned with CLIENT_PULSE_V5.html's
-// simpler model, since this is the client-facing app: the login session
-// itself is NEVER persisted beyond this tab (sessionStorage only, gone
-// the moment the app is fully closed) — every reopen requires an actual
-// login tap, there's no silent auto-login. What "remember" saves is
-// just the email/password, so that tap is one click instead of a
-// retype. Storing a password in localStorage is normally avoided for
-// security reasons; doing it here is a deliberate convenience
-// trade-off, still opt-in via the checkbox.
-function persistSession(email, token, remember, password){
-  sessionStorage.setItem('clientPulseAuth', email);
-  sessionStorage.setItem('clientPulseSessionToken', token);
-  try{
-    if (remember){
-      localStorage.setItem('cpRememberedEmail', email);
-      localStorage.setItem('cpRememberedPassword', password || '');
-    } else {
-      localStorage.removeItem('cpRememberedEmail');
-      localStorage.removeItem('cpRememberedPassword');
-    }
-  }catch(e){
-    // localStorage unavailable (e.g. Safari private browsing, some
-    // embedded/PWA webviews) — sessionStorage above still succeeded, so
-    // login itself isn't affected, remembering the fields just won't work.
-  }
-}
-
-// Fills the email/password fields on the login screen from whatever is
-// remembered on this device, so a returning visitor sees them already
-// populated instead of blank, and just needs to tap ACCESS DASHBOARD.
-function prefillRememberedCredentials(){
-  try{
-    const email = localStorage.getItem('cpRememberedEmail');
-    const password = localStorage.getItem('cpRememberedPassword');
-    if (email) document.getElementById('gateEmail').value = email;
-    if (password) document.getElementById('gatePassword').value = password;
-    if (email && password){
-      const cb = document.getElementById('rememberMeCheckbox');
-      if (cb) cb.checked = true;
-    }
-  }catch(e){ /* localStorage unavailable — leave fields blank as before */ }
-}
-
-function isRememberMeChecked(){
-  const cb = document.getElementById('rememberMeCheckbox');
-  return !cb || cb.checked; // default to remembering if the box is somehow missing
-}
-
 // Check if user is already logged in (sessionStorage) AND that session
 // is still the current one on the server — handles the case where the
 // account was logged into elsewhere while this tab/device was closed.
-// Deliberately session-only (no localStorage fallback): closing the app
-// fully always requires a fresh login tap, by design, for this
-// client-facing app.
 function checkAuth() {
   const storedEmail = sessionStorage.getItem('clientPulseAuth');
   const storedToken = sessionStorage.getItem('clientPulseSessionToken');
@@ -4142,7 +6217,22 @@ async function accessGate() {
     if (status === 'PAID' && data.token) {
       currentEmail = email.toLowerCase();
       currentSessionToken = data.token;
-      persistSession(currentEmail, currentSessionToken, isRememberMeChecked(), password);
+      sessionStorage.setItem('clientPulseAuth', currentEmail);
+      sessionStorage.setItem('clientPulseSessionToken', currentSessionToken);
+
+      // "Remember me" is opt-in and only saves after a successful login
+      // (never on a failed attempt) — plain localStorage has no real
+      // encryption, so this is a convenience trade-off the person
+      // explicitly consents to via the checkbox, not a default behavior.
+      const remember = document.getElementById('gateRememberMe').checked;
+      if (remember){
+        localStorage.setItem('cpRememberedEmail', email);
+        localStorage.setItem('cpRememberedPassword', password);
+      } else {
+        localStorage.removeItem('cpRememberedEmail');
+        localStorage.removeItem('cpRememberedPassword');
+      }
+
       hideGate();
       startSessionWatch();
     } else if (status === 'NEEDS_SETUP') {
@@ -4189,7 +6279,8 @@ async function submitSetupPassword() {
     if (data && data.status === 'PAID' && data.token) {
       currentEmail = pendingFlowEmail.toLowerCase();
       currentSessionToken = data.token;
-      persistSession(currentEmail, currentSessionToken, isRememberMeChecked(), pw);
+      sessionStorage.setItem('clientPulseAuth', currentEmail);
+      sessionStorage.setItem('clientPulseSessionToken', currentSessionToken);
       hideGate();
       startSessionWatch();
     } else if (data && data.status === 'ALREADY_SET') {
@@ -4276,7 +6367,8 @@ async function submitResetPassword() {
     if (data && data.status === 'ok' && data.token) {
       currentEmail = pendingFlowEmail.toLowerCase();
       currentSessionToken = data.token;
-      persistSession(currentEmail, currentSessionToken, isRememberMeChecked(), pw);
+      sessionStorage.setItem('clientPulseAuth', currentEmail);
+      sessionStorage.setItem('clientPulseSessionToken', currentSessionToken);
       hideGate();
       startSessionWatch();
     } else if (data && data.status === 'EXPIRED_CODE') {
@@ -4343,16 +6435,12 @@ function logoutUser(message) {
 
   // Respect "Remember me": if the person opted in, keep the fields
   // filled after logout so logging back in is one tap, not a retype.
-  let rememberedEmail = null, rememberedPassword = null;
-  try{
-    rememberedEmail = localStorage.getItem('cpRememberedEmail');
-    rememberedPassword = localStorage.getItem('cpRememberedPassword');
-  }catch(e){ /* ignore if unavailable */ }
+  const rememberedEmail = localStorage.getItem('cpRememberedEmail');
+  const rememberedPassword = localStorage.getItem('cpRememberedPassword');
   if (rememberedEmail && rememberedPassword){
     document.getElementById('gateEmail').value = rememberedEmail;
     document.getElementById('gatePassword').value = rememberedPassword;
-    const cb = document.getElementById('rememberMeCheckbox');
-    if (cb) cb.checked = true;
+    document.getElementById('gateRememberMe').checked = true;
   } else {
     document.getElementById('gateEmail').value = '';
     document.getElementById('gatePassword').value = '';
@@ -4375,10 +6463,53 @@ document.getElementById('gateEmail').addEventListener('keydown', (e) => {
 
 // Store full client lists for filtering
 let allDuesClients = [];
+let allLapsedClients = [];
 let allBirthdayClients = [];
 let duesPageOffset = 0;
+let lapsedPageOffset = 0;
+// Tracks the currently selected sort mode so renderDuesClientsList can
+// decide what to show on the right side of each row: Due Amount when
+// sorted by Due Date, or Fund Value when sorted by Fund Value — showing
+// whichever value the person is actually sorting by, rather than always
+// showing Due Amount regardless of what they're looking at.
+let currentDuesSortMode = 'dueDate';
 let birthdayPageOffset = 0;
 const CLIENTS_PER_PAGE = 10;
+
+// Same keyword check the upload parser uses to flag Lapsed policies —
+// duplicated here (rather than shared) since the parser runs at upload
+// time while this runs on data already pulled back from the sheet,
+// where the raw Policy Status text is all that's available to check.
+function isLapsedStatus(policyStatus){
+  const s = String(policyStatus || '').toLowerCase();
+  return s.includes('lapsed') || s.includes('lapse');
+}
+
+// Calculates elapsed years between a lapse date and today, used to
+// bucket a lapsed policy into "less than 1/2/3 years" or "more than 3
+// years". Returns null when there's no usable lapse date, so callers
+// can decide how to handle that case (e.g. exclude from a specific
+// year-bucket filter, since there's nothing to bucket).
+function yearsSinceLapse(lapseDateStr){
+  if (!lapseDateStr) return null;
+  const lapseDate = new Date(lapseDateStr);
+  if (isNaN(lapseDate.getTime())) return null;
+  const msPerYear = 365.25 * 24 * 60 * 60 * 1000;
+  const years = (Date.now() - lapseDate.getTime()) / msPerYear;
+  // Guard against garbage/misparsed dates (e.g. a stray number in the
+  // Lapse Date column getting read as a year, landing the "date" far in
+  // the future). A real lapse can't be in the future, and a negative
+  // "years since lapse" would otherwise satisfy every lt1/lt2/lt3 bucket
+  // at once, which is exactly how an old record can wrongly show up
+  // under "Less than 1 year lapsed". Also reject absurdly old parses
+  // (100+ years) as clearly not a real lapse date.
+  if (years < 0 || years > 100) return null;
+  return years;
+}
+
+// Tracks the currently selected Lapsed sort/filter mode, mirroring
+// currentDuesSortMode's role for the Premium Due Reminders list.
+let currentLapsedSortMode = 'recent';
 
 // Whether the "excluded from reminders" summary box is expanded
 let duesExcludedExpanded = false;
@@ -4463,34 +6594,131 @@ function updateBirthdayExcludedSummary(){
 const duesPendingChanges = {};
 const birthdayPendingChanges = {};
 
+// Populates the Plan Name filter dropdown with every distinct product
+// name actually present in the current client list, so the options
+// always match real data instead of a hardcoded, possibly-incomplete
+// list of plan names across different insurers/exports.
+function populateDuesPlanFilter(){
+  const select = document.getElementById('duesPlanFilter');
+  if (!select) return;
+  const previousValue = select.value;
+  const plans = Array.from(new Set(allDuesClients.map(c => (c.product || '').trim()).filter(Boolean))).sort();
+  select.innerHTML = '<option value="">All Plans</option>' + plans.map(p => `<option value="${escapeHtml(p)}">${escapeHtml(p)}</option>`).join('');
+  // Preserve the person's selection across a refresh if that plan still exists in the new list.
+  if (plans.includes(previousValue)) select.value = previousValue;
+}
+
+function sortDuesForDisplay(list, sortMode){
+  const sorted = list.slice();
+  if (sortMode === 'fundValueDesc'){
+    sorted.sort((a, b) => (Number(b.fundValue)||0) - (Number(a.fundValue)||0));
+  } else if (sortMode === 'fundValueAsc'){
+    sorted.sort((a, b) => (Number(a.fundValue)||0) - (Number(b.fundValue)||0));
+  } else if (sortMode === 'nameAsc'){
+    sorted.sort((a, b) => String(a.clientName||'').localeCompare(String(b.clientName||'')));
+  } else if (sortMode === 'nameDesc'){
+    sorted.sort((a, b) => String(b.clientName||'').localeCompare(String(a.clientName||'')));
+  } else {
+    // 'dueDate' (default) — reuse the existing soonest/most-overdue-first logic.
+    return sortDuesByDueDate(sorted);
+  }
+  return sorted;
+}
+
 function filterDuesClients(){
   const input = document.getElementById('duesSearchInput');
+  const planFilter = document.getElementById('duesPlanFilter');
+  const sortSelect = document.getElementById('duesSortSelect');
   const countEl = document.getElementById('duesSearchCount');
   if (!input) return;
 
   const query = input.value.toLowerCase().trim();
+  const planValue = planFilter ? planFilter.value : '';
+  const sortMode = sortSelect ? sortSelect.value : 'dueDate';
+  currentDuesSortMode = sortMode;
 
   if (!allDuesClients || allDuesClients.length === 0){
     if (countEl) countEl.textContent = '';
     return;
   }
 
-  if (!query) {
-    renderDuesClientsList(allDuesClients);
+  let filtered = allDuesClients;
+  if (planValue){
+    filtered = filtered.filter(client => (client.product || '').trim() === planValue);
+  }
+  if (query){
+    filtered = filtered.filter(client => {
+      const nameMatch = (client.clientName || '').toLowerCase().includes(query);
+      const productMatch = (client.product || '').toLowerCase().includes(query);
+      const policyMatch = (String(client.policyNumber || '')).toLowerCase().includes(query);
+      return nameMatch || productMatch || policyMatch;
+    });
+  }
+
+  filtered = sortDuesForDisplay(filtered, sortMode);
+  renderDuesClientsList(filtered);
+
+  if (countEl) {
+    const isFiltered = !!query || !!planValue;
+    countEl.textContent = isFiltered && filtered.length !== allDuesClients.length ? `${filtered.length} of ${allDuesClients.length} match` : '';
+  }
+}
+
+// Sorts/filters lapsed clients by how long ago they lapsed. "recent"
+// keeps the existing most-recently-lapsed-first order; the year-bucket
+// options FILTER down to only policies within that elapsed-time range
+// (e.g. "lt2" shows only policies lapsed less than 2 years ago),
+// since "less than 2 years lapsed" describes a specific group of
+// clients to review, not merely a different sort order over everyone.
+function sortLapsedForDisplay(list, sortMode){
+  if (sortMode === 'lt1'){
+    return list.filter(c => { const y = yearsSinceLapse(c.lapseDate); return y !== null && y < 1; });
+  }
+  if (sortMode === 'lt2'){
+    return list.filter(c => { const y = yearsSinceLapse(c.lapseDate); return y !== null && y < 2; });
+  }
+  if (sortMode === 'lt3'){
+    return list.filter(c => { const y = yearsSinceLapse(c.lapseDate); return y !== null && y < 3; });
+  }
+  if (sortMode === 'gt3'){
+    return list.filter(c => { const y = yearsSinceLapse(c.lapseDate); return y !== null && y >= 3; });
+  }
+  // 'recent' (default) — already sorted most-recent-first by
+  // refreshDuesClientList when allLapsedClients is first built; just
+  // pass the list through unchanged.
+  return list;
+}
+
+function filterLapsedClients(){
+  const input = document.getElementById('lapsedSearchInput');
+  const sortSelect = document.getElementById('lapsedSortSelect');
+  const countEl = document.getElementById('lapsedSearchCount');
+  if (!input) return;
+
+  const query = input.value.toLowerCase().trim();
+  const sortMode = sortSelect ? sortSelect.value : 'recent';
+  currentLapsedSortMode = sortMode;
+
+  if (!allLapsedClients || allLapsedClients.length === 0){
     if (countEl) countEl.textContent = '';
     return;
   }
 
-  const filtered = allDuesClients.filter(client => {
-    const nameMatch = (client.clientName || '').toLowerCase().includes(query);
-    const productMatch = (client.product || '').toLowerCase().includes(query);
-    const policyMatch = (String(client.policyNumber || '')).toLowerCase().includes(query);
-    return nameMatch || productMatch || policyMatch;
-  });
+  let filtered = allLapsedClients;
+  if (query){
+    filtered = filtered.filter(client => {
+      const nameMatch = (client.clientName || '').toLowerCase().includes(query);
+      const productMatch = (client.product || '').toLowerCase().includes(query);
+      return nameMatch || productMatch;
+    });
+  }
 
-  renderDuesClientsList(filtered);
+  filtered = sortLapsedForDisplay(filtered, sortMode);
+  renderLapsedClientsList(filtered);
+
   if (countEl) {
-    countEl.textContent = filtered.length === allDuesClients.length ? '' : `${filtered.length} of ${allDuesClients.length} match`;
+    const isFiltered = !!query || sortMode !== 'recent';
+    countEl.textContent = isFiltered && filtered.length !== allLapsedClients.length ? `${filtered.length} of ${allLapsedClients.length} match` : '';
   }
 }
 
@@ -4581,12 +6809,28 @@ function renderDuesClientsList(clients, append = false){
     const isChecked = duesPendingChanges.hasOwnProperty(policyKey) ? duesPendingChanges[policyKey] : !!client.sendDues;
     const checked = isChecked ? 'checked' : '';
     const dataKey = 'dues-' + policyKey.replace(/[^a-zA-Z0-9-_]/g, '-');
+    const statusLower = String(client.policyStatus || '').toLowerCase();
+    const isPaidUp = statusLower.includes('paid-up') || statusLower.includes('paid up');
+    // The sub-line under the client's name shows whichever metric the
+    // person is actually sorting by — Due Date info (as before) for the
+    // default/Due Date/Name sorts, or Fund Value when sorted by Fund
+    // Value, so the value driving the current order is always visible
+    // right under the name rather than only implied by position.
+    const isSortedByFundValue = currentDuesSortMode === 'fundValueDesc' || currentDuesSortMode === 'fundValueAsc';
+    let subLine;
+    if (isSortedByFundValue){
+      subLine = 'Fund Value: PHP ' + Number(client.fundValue || 0).toLocaleString('en-PH', {minimumFractionDigits: 2});
+    } else if (isPaidUp){
+      subLine = '<span style="display:inline-block;background:var(--good,#27AE60);color:#fff;font-size:9px;font-weight:700;padding:1px 6px;border-radius:100px;letter-spacing:.3px;margin-right:6px;vertical-align:middle;">PAID-UP</span>No further dues';
+    } else {
+      subLine = 'Due: ' + formatDateDisplay(client.dueDate);
+    }
     html += `
       <label style="display:flex;align-items:center;gap:10px;padding:8px 10px;background:#FDF8F0;border-radius:8px;cursor:pointer;transition:background .15s;">
         <input type="checkbox" ${checked} data-key="${dataKey}" data-policy="${escapeHtml(policyKey)}" class="dues-preference-toggle" style="width:18px;height:18px;cursor:pointer;">
         <div style="flex:1;min-width:0;">
           <div style="font-weight:600;color:#0C447C;font-size:13px;">${escapeHtml(client.clientName)}</div>
-          <div style="font-size:11px;color:#6B7280;">${escapeHtml(client.product)} • Due: ${formatDateDisplay(client.dueDate)}</div>
+          <div style="font-size:11px;color:#6B7280;">${escapeHtml(client.product)} • ${subLine}</div>
         </div>
         <div style="font-size:13px;font-weight:600;color:#0C447C;">PHP ${Number(client.premiumAmount || 0).toLocaleString('en-PH', {minimumFractionDigits: 2})}</div>
       </label>
@@ -4640,6 +6884,318 @@ function setupDuesInfiniteScroll(clients){
   
   container.addEventListener('scroll', handleDuesScroll);
 }
+
+// Lapsed Policies — display-only list, no send-reminder toggle, since
+// a lapsed policy was already excluded from sendDailyReminders() by
+// having no valid due date carried forward. This exists purely so the
+// advisor can see which clients have lapsed, for manual follow-up
+// (a call, a reinstatement offer, etc.) rather than losing visibility
+// into them entirely the way the old "skip on upload" behavior did.
+function renderLapsedClientsList(clients, append = false){
+  const container = document.getElementById('lapsedClientsList');
+  if (!container) return;
+
+  if (!clients || clients.length === 0){
+    if (!append) container.innerHTML = '<p style="color:#9CA3AF;font-size:13px;">No lapsed policies found.</p>';
+    return;
+  }
+
+  if (!append) {
+    lapsedPageOffset = 0;
+    container.innerHTML = '';
+  }
+
+  const start = lapsedPageOffset;
+  const end = start + CLIENTS_PER_PAGE;
+  const pageClients = clients.slice(start, end);
+
+  let html = '<div style="display:flex;flex-direction:column;gap:6px;">';
+  pageClients.forEach(client => {
+    html += `
+      <div style="display:flex;align-items:center;gap:10px;padding:8px 10px;background:#FDF1F0;border-radius:8px;border-left:3px solid var(--bad,#EB5757);">
+        <div style="flex:1;min-width:0;">
+          <div style="font-weight:600;color:#0C447C;font-size:13px;">${escapeHtml(client.clientName)}</div>
+          <div style="font-size:11px;color:#6B7280;">${escapeHtml(client.product)} • Lapsed: ${formatDateDisplay(client.lapseDate)}</div>
+        </div>
+        <div style="font-size:13px;font-weight:600;color:#0C447C;">PHP ${Number(client.premiumAmount || 0).toLocaleString('en-PH', {minimumFractionDigits: 2})}</div>
+      </div>
+    `;
+  });
+  html += '</div>';
+
+  if (append) {
+    container.innerHTML += html;
+  } else {
+    container.innerHTML = html;
+  }
+
+  lapsedPageOffset = end;
+
+  if (end < clients.length) {
+    setupLapsedInfiniteScroll(clients);
+  }
+}
+
+function setupLapsedInfiniteScroll(clients){
+  const container = document.getElementById('lapsedClientsList');
+  if (!container) return;
+
+  container.removeEventListener('scroll', handleLapsedScroll);
+
+  function handleLapsedScroll(){
+    const scrollHeight = container.scrollHeight;
+    const scrollTop = container.scrollTop;
+    const clientHeight = container.clientHeight;
+
+    if (scrollTop + clientHeight >= scrollHeight - 100) {
+      if (lapsedPageOffset < clients.length) {
+        renderLapsedClientsList(clients, true);
+      }
+    }
+  }
+
+  container.addEventListener('scroll', handleLapsedScroll);
+}
+
+/* ============================================================
+   CLIENT SUMMARY — Fund Value Distribution (clickable HTML bars
+   with an expandable client breakdown) and Plan Summary (ranked
+   list). Both redraw from allDuesClients any time the dues list
+   refreshes (see refreshDuesClientList).
+   ============================================================ */
+
+
+
+// Fund Value Distribution — buckets every dues client (Premium Paying +
+// Paid-Up; Lapsed policies are excluded here since they're tracked
+// separately and their fund value isn't the focus of this summary)
+// into fixed brackets, matching the requested breakdown: under 100K,
+// then 100K-wide bands up to 500K+.
+//
+// Rendered as HTML/CSS bars (not canvas) specifically so each bar can
+// be tapped to reveal the actual client names inside that bracket —
+// canvas has no natural per-element click target, while a div-per-bar
+// layout gets this for free. The breakdown panel is collapsed by
+// default and only expands for whichever bracket was last tapped, so
+// the chart stays compact until the person actually wants the detail.
+let fundValueExpandedBucket = null; // remembers which bucket (by label) is open across redraws
+
+function renderFundValueChart(){
+  const container = document.getElementById('fundValueChart');
+  if (!container) return;
+
+  const buckets = [
+    { label: '<100K',    min: 0,       max: 100000 },
+    { label: '100-199K', min: 100000,  max: 200000 },
+    { label: '200-299K', min: 200000,  max: 300000 },
+    { label: '300-399K', min: 300000,  max: 400000 },
+    { label: '400-499K', min: 400000,  max: 500000 },
+    { label: '500K+',    min: 500000,  max: Infinity }
+  ];
+  const bucketed = buckets.map(b => ({
+    ...b,
+    clients: allDuesClients.filter(c => {
+      const fv = Number(c.fundValue) || 0;
+      return fv >= b.min && fv < b.max;
+    })
+  }));
+
+  const maxCount = Math.max(...bucketed.map(b => b.clients.length), 1);
+  const barAreaHeight = 130;
+
+  const barsHtml = bucketed.map(b => {
+    const count = b.clients.length;
+    const barHeight = count > 0 ? Math.max((count / maxCount) * barAreaHeight, 4) : 2;
+    const isExpanded = fundValueExpandedBucket === b.label;
+    return `
+      <div class="fv-bar-col" data-bucket="${escapeHtml(b.label)}" style="flex:1; display:flex; flex-direction:column; align-items:center; cursor:pointer;">
+        <div style="font-size:11px; font-weight:700; color:#0C447C; margin-bottom:4px;">${count}</div>
+        <div style="width:100%; max-width:44px; height:${barAreaHeight}px; display:flex; align-items:flex-end;">
+          <div style="width:100%; height:${barHeight}px; background:${isExpanded ? '#A67B2D' : '#C99A3B'}; border-radius:4px 4px 0 0; transition:background .15s;"></div>
+        </div>
+        <div style="font-size:10px; color:#6B7280; margin-top:6px; text-align:center;">${b.label}</div>
+      </div>
+    `;
+  }).join('');
+
+  const expandedBucket = bucketed.find(b => b.label === fundValueExpandedBucket);
+  const breakdownHtml = expandedBucket ? `
+    <div id="fvBreakdownPanel" style="margin-top:14px; padding:10px 12px; background:#FDF8F0; border:1px solid #E4DCC8; border-radius:8px;">
+      <div style="font-size:12px; font-weight:700; color:#0C447C; margin-bottom:8px;">${escapeHtml(expandedBucket.label)} \u2014 ${expandedBucket.clients.length} client${expandedBucket.clients.length === 1 ? '' : 's'}</div>
+      ${expandedBucket.clients.length === 0
+        ? '<div style="font-size:12px; color:#9CA3AF;">No clients in this range.</div>'
+        : '<div style="max-height:220px; overflow-y:auto;">' + expandedBucket.clients
+            .slice().sort((a, b) => (Number(b.fundValue)||0) - (Number(a.fundValue)||0))
+            .map(c => `
+              <div style="display:flex; justify-content:space-between; align-items:baseline; padding:5px 0; border-bottom:1px solid #EFE6D2; font-size:12px; gap:8px;">
+                <span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0;">
+                  <span style="color:#374151;">${escapeHtml(c.clientName || '(no name)')}</span>
+                  ${c.product ? '<span style="color:#9CA3AF; font-size:11px;"> \u2014 ' + escapeHtml(c.product) + '</span>' : ''}
+                </span>
+                <span style="font-weight:600; color:#0C447C; flex-shrink:0;">PHP ${Number(c.fundValue||0).toLocaleString('en-PH', {minimumFractionDigits:2})}</span>
+              </div>
+            `).join('') + '</div>'
+      }
+    </div>
+  ` : '';
+
+  container.innerHTML = `<div style="display:flex; gap:6px; align-items:flex-end;">${barsHtml}</div>${breakdownHtml}`;
+
+  container.querySelectorAll('.fv-bar-col').forEach(col => {
+    col.addEventListener('click', () => {
+      const bucket = col.dataset.bucket;
+      // Tapping the already-open bucket closes it; tapping a different
+      // one switches to it. Nothing is expanded by default.
+      fundValueExpandedBucket = (fundValueExpandedBucket === bucket) ? null : bucket;
+      renderFundValueChart();
+    });
+  });
+}
+
+// Plan Summary — counts how many dues clients (Premium Paying +
+// Plan Summary — counts how many dues clients (Premium Paying +
+// Paid-Up) fall under each distinct product/plan name, sorted by
+// count descending so the most common plan shows first.
+// Plan Summary rendered as a ranked list rather than a bar chart —
+// once there are a dozen or more distinct plan names with wildly
+// uneven counts (e.g. one plan at 495, several others down at 2-3),
+// a bar chart produces bars too thin to read and labels that overlap
+// no matter how they're wrapped. A list scales to any number of
+// categories, stays legible on a phone screen, and the small
+// proportional bar behind each row still gives an at-a-glance sense of
+// scale without needing the space a full chart would require.
+//
+// Shows only the top 10 plans by default (a "Show all" button reveals
+// the rest), and tapping any plan row expands a breakdown of its
+// clients ranked by Issued Date (earliest first) — mirroring the same
+// tap-to-reveal interaction the Fund Value Distribution chart uses.
+const PLAN_SUMMARY_DEFAULT_LIMIT = 10;
+let planSummaryShowAll = false;
+let planSummaryExpandedPlan = null; // remembers which plan's breakdown is open
+
+// A distinct pastel color per plan, so the list is differentiable at a
+// glance instead of every row using the same gold tint. Colors are
+// assigned by each plan's rank (biggest plan first) rather than by
+// name, so the palette stays stable regardless of "Show all" being
+// toggled — a plan's color never changes once assigned. Cycles back to
+// the start if there are ever more plans than colors.
+const PLAN_SUMMARY_PALETTE = [
+  '99,138,199',   // pastel blue
+  '212,142,142',  // pastel red
+  '145,178,140',  // pastel green
+  '201,154,59',   // house gold (kept for the top/most common plan)
+  '163,140,201',  // pastel purple
+  '201,150,110',  // pastel peach
+  '110,164,178',  // pastel teal
+  '201,120,150',  // pastel pink
+  '160,160,110',  // pastel olive
+  '140,150,201'   // pastel periwinkle
+];
+
+function renderPlanSummaryList(){
+  const container = document.getElementById('planSummaryList');
+  const showAllBtn = document.getElementById('planSummaryShowAllBtn');
+  if (!container) return;
+
+  const clientsByPlan = {};
+  allDuesClients.forEach(c => {
+    const plan = (c.product || '').trim() || 'Unspecified';
+    if (!clientsByPlan[plan]) clientsByPlan[plan] = [];
+    clientsByPlan[plan].push(c);
+  });
+  const entries = Object.entries(clientsByPlan).sort((a, b) => b[1].length - a[1].length);
+
+  if (entries.length === 0){
+    container.innerHTML = '<p style="color:#9CA3AF;font-size:13px;">No data yet</p>';
+    if (showAllBtn) showAllBtn.style.display = 'none';
+    return;
+  }
+
+  const visibleEntries = planSummaryShowAll ? entries : entries.slice(0, PLAN_SUMMARY_DEFAULT_LIMIT);
+  const maxCount = entries[0][1].length;
+
+  container.innerHTML = visibleEntries.map(([plan, planClients]) => {
+    const count = planClients.length;
+    const pct = maxCount > 0 ? Math.max((count / maxCount) * 100, 3) : 0; // min 3% so even small counts show a sliver
+    const isExpanded = planSummaryExpandedPlan === plan;
+    const breakdownHtml = isExpanded ? renderPlanBreakdownHtml(plan, planClients) : '';
+    // Rank within the full (not just visible) list, so a plan's color
+    // never shifts when "Show all" is toggled.
+    const rank = entries.findIndex(([p]) => p === plan);
+    const rgb = PLAN_SUMMARY_PALETTE[rank % PLAN_SUMMARY_PALETTE.length];
+    return `
+      <div>
+        <div class="plan-summary-row" data-plan="${escapeHtml(plan)}" style="position:relative; margin-bottom:8px; border-radius:8px; overflow:hidden; background:#FDF8F0; cursor:pointer;">
+          <div style="position:absolute; top:0; left:0; bottom:0; width:${pct}%; background:rgba(${rgb},${isExpanded ? '0.55' : '0.35'});"></div>
+          <div style="position:relative; display:flex; justify-content:space-between; align-items:center; padding:8px 12px; font-size:13px;">
+            <span style="color:#374151; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; padding-right:10px;">${escapeHtml(plan)}</span>
+            <span style="font-weight:700; color:#0C447C; flex-shrink:0;">${count}</span>
+          </div>
+        </div>
+        ${breakdownHtml}
+      </div>
+    `;
+  }).join('');
+
+  container.querySelectorAll('.plan-summary-row').forEach(row => {
+    row.addEventListener('click', () => {
+      const plan = row.dataset.plan;
+      // Tapping the already-open plan closes it; tapping a different
+      // one switches to it — same behavior as the Fund Value chart.
+      planSummaryExpandedPlan = (planSummaryExpandedPlan === plan) ? null : plan;
+      renderPlanSummaryList();
+    });
+  });
+
+  if (showAllBtn){
+    if (entries.length > PLAN_SUMMARY_DEFAULT_LIMIT){
+      showAllBtn.style.display = 'block';
+      showAllBtn.textContent = planSummaryShowAll
+        ? 'Show top ' + PLAN_SUMMARY_DEFAULT_LIMIT + ' only'
+        : 'Show all ' + entries.length + ' plans';
+    } else {
+      showAllBtn.style.display = 'none';
+    }
+  }
+}
+
+// Renders the expandable breakdown panel for one plan — its clients
+// ranked by Issued Date, earliest first. Clients with no issued date
+// (older exports without that column, or a blank cell for that row)
+// sort to the end rather than breaking the ranking.
+function renderPlanBreakdownHtml(plan, planClients){
+  const ranked = planClients.slice().sort((a, b) => {
+    const da = a.issuedDate || '9999-99-99';
+    const db = b.issuedDate || '9999-99-99';
+    return da < db ? -1 : da > db ? 1 : 0;
+  });
+  return `
+    <div style="margin:-2px 0 10px; padding:10px 12px; background:#FDF8F0; border:1px solid #E4DCC8; border-radius:8px;">
+      <div style="font-size:12px; font-weight:700; color:#0C447C; margin-bottom:8px;">${escapeHtml(plan)} \u2014 ${ranked.length} client${ranked.length === 1 ? '' : 's'}, ranked by issue date</div>
+      <div style="max-height:220px; overflow-y:auto;">
+        ${ranked.map(c => `
+          <div style="display:flex; justify-content:space-between; align-items:baseline; padding:5px 0; border-bottom:1px solid #EFE6D2; font-size:12px; gap:8px;">
+            <span style="color:#374151; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0;">${escapeHtml(c.clientName || '(no name)')}</span>
+            <span style="font-weight:600; color:#0C447C; flex-shrink:0;">${c.issuedDate ? formatDateDisplay(c.issuedDate) : 'No issue date'}</span>
+          </div>
+        `).join('')}
+      </div>
+    </div>
+  `;
+}
+
+function redrawClientSummaryCharts(){
+  renderFundValueChart();
+  renderPlanSummaryList();
+}
+
+window.addEventListener('resize', () => {
+  // HTML/CSS bars reflow on their own with the browser's normal layout,
+  // so this isn't strictly required the way canvas redraws were, but
+  // it's kept so an in-progress breakdown panel re-renders cleanly if
+  // the person rotates their device mid-view.
+  if (document.getElementById('fundValueChart')) redrawClientSummaryCharts();
+});
 
 function renderBirthdayClientsList(clients, append = false){
   const container = document.getElementById('birthdayClientsList');
@@ -4727,6 +7283,7 @@ function setupBirthdayInfiniteScroll(clients){
 
 async function refreshDuesClientList(useCache = false){
   const sub = document.getElementById('duesClientsSub');
+  const lapsedSub = document.getElementById('lapsedClientsSub');
 
   // If a cache exists, show it immediately so the screen isn't blank
   // while the real network request is still in flight.
@@ -4734,9 +7291,13 @@ async function refreshDuesClientList(useCache = false){
     try {
       const cached = JSON.parse(localStorage.getItem(DUES_CACHE_KEY) || 'null');
       if (cached && cached.length) {
-        allDuesClients = cached;
-        renderDuesClientsList(allDuesClients);
+        allDuesClients = cached.filter(c => !isLapsedStatus(c.policyStatus));
+        allLapsedClients = cached.filter(c => isLapsedStatus(c.policyStatus));
+        populateDuesPlanFilter();
+        filterDuesClients();
+        filterLapsedClients();
         updateDuesExcludedSummary();
+        redrawClientSummaryCharts();
         sub.textContent = allDuesClients.length + ' client(s) — last saved, updating…';
       }
     } catch(e) { /* corrupted cache, ignore and continue to live fetch */ }
@@ -4744,25 +7305,41 @@ async function refreshDuesClientList(useCache = false){
 
   sub.textContent = (sub.textContent.includes('last saved') ? sub.textContent : '🔄 Refreshing…');
   const clients = await fetchDuesClientList();
+  // Lapsed policies are pulled out into their own list — they never had
+  // a working due date to sort by reminders around in the first place,
+  // and mixing them into the main Premium Paying/Paid-Up list would
+  // make "who actually needs a dues reminder" harder to scan at a glance.
+  const activeClients = clients.filter(c => !isLapsedStatus(c.policyStatus));
+  const lapsedClients = clients.filter(c => isLapsedStatus(c.policyStatus));
   // Sort soonest/most-overdue due date first before storing, so every
   // render (full list, searched, or scrolled) follows this order.
-  allDuesClients = sortDuesByDueDate(clients);
+  allDuesClients = sortDuesByDueDate(activeClients);
+  // Most recently lapsed first (e.g. 2026 before 2016) — policies with
+  // no lapse date at all (export had no Lapse Date column, or it was
+  // blank/unparseable for this row) still sort to the end rather than
+  // breaking the comparison or clustering unpredictably with real dates.
+  allLapsedClients = lapsedClients.sort((a, b) => {
+    const da = a.lapseDate || '0000-00-00';
+    const db = b.lapseDate || '0000-00-00';
+    return da > db ? -1 : da < db ? 1 : 0;
+  });
   // Fresh pull from the sheet — clear any unsaved local toggles so we don't
   // show stale state that no longer matches what's on the server.
   Object.keys(duesPendingChanges).forEach(k => delete duesPendingChanges[k]);
-  renderDuesClientsList(allDuesClients);
+  populateDuesPlanFilter();
+  // Re-applies whatever plan filter/sort the person already had selected,
+  // rather than resetting the view back to the default every refresh.
+  filterDuesClients();
+  filterLapsedClients();
   updateDuesExcludedSummary();
+  redrawClientSummaryCharts();
   sub.textContent = allDuesClients.length + ' client(s) loaded, sorted by closest due date';
+  if (lapsedSub) lapsedSub.textContent = allLapsedClients.length + ' lapsed polic' + (allLapsedClients.length === 1 ? 'y' : 'ies');
 
   // Save the fresh result so next app open can render instantly too.
-  try { localStorage.setItem(DUES_CACHE_KEY, JSON.stringify(allDuesClients)); } catch(e) { /* storage full or unavailable, skip caching */ }
-
-  const searchInput = document.getElementById('duesSearchInput');
-  if (searchInput) {
-    searchInput.value = '';
-    const countEl = document.getElementById('duesSearchCount');
-    if (countEl) countEl.textContent = '';
-  }
+  // Both lists are cached together (as the original unsplit array) so
+  // a single cache key still covers everything, same as before.
+  try { localStorage.setItem(DUES_CACHE_KEY, JSON.stringify(clients)); } catch(e) { /* storage full or unavailable, skip caching */ }
 }
 
 async function refreshBirthdayClientList(useCache = false){
@@ -4999,6 +7576,19 @@ function setupClientsTab(){
     filterDuesClients();
     if (duesSearchInput) duesSearchInput.focus();
   });
+  document.getElementById('duesPlanFilter')?.addEventListener('change', filterDuesClients);
+  document.getElementById('duesSortSelect')?.addEventListener('change', filterDuesClients);
+
+  const lapsedSearchInput = document.getElementById('lapsedSearchInput');
+  if (lapsedSearchInput) {
+    lapsedSearchInput.addEventListener('input', filterLapsedClients);
+  }
+  document.getElementById('lapsedSearchClearBtn')?.addEventListener('click', function(){
+    if (lapsedSearchInput) lapsedSearchInput.value = '';
+    filterLapsedClients();
+    if (lapsedSearchInput) lapsedSearchInput.focus();
+  });
+  document.getElementById('lapsedSortSelect')?.addEventListener('change', filterLapsedClients);
 
   const birthdaySearchInput = document.getElementById('birthdaySearchInput');
   if (birthdaySearchInput) {
@@ -5031,6 +7621,34 @@ function setupClientsTab(){
     const body = document.getElementById('birthdayClientsBody');
     body.classList.toggle('collapsed');
     this.classList.toggle('collapsed');
+  });
+
+  document.getElementById('toggleLapsedClients')?.addEventListener('click', function(){
+    const body = document.getElementById('lapsedClientsBody');
+    body.classList.toggle('collapsed');
+    this.classList.toggle('collapsed');
+  });
+
+  document.getElementById('toggleClientsSummary')?.addEventListener('click', function(){
+    const body = document.getElementById('clientsSummaryBody');
+    const wasCollapsed = body.classList.contains('collapsed');
+    body.classList.toggle('collapsed');
+    this.classList.toggle('collapsed');
+    // A canvas drawn while its container was collapsed (clientWidth=0)
+    // would render at zero size — redraw once it's actually visible
+    // again so the bars appear at the correct width.
+    if (wasCollapsed) redrawClientSummaryCharts();
+  });
+
+  document.getElementById('togglePlanSummary')?.addEventListener('click', function(){
+    const wrap = document.getElementById('planSummaryWrap');
+    wrap.classList.toggle('collapsed');
+    this.classList.toggle('collapsed');
+  });
+
+  document.getElementById('planSummaryShowAllBtn')?.addEventListener('click', function(){
+    planSummaryShowAll = !planSummaryShowAll;
+    renderPlanSummaryList();
   });
 
   // Setup sidebar nav
@@ -5070,7 +7688,15 @@ function setupClientsTab(){
     gate.classList.add('show');
     gate.style.zIndex = '999';
     gate.style.display = 'flex';
-    prefillRememberedCredentials();
+
+    // Pre-fill remembered credentials, if the person opted in last time.
+    const rememberedEmail = localStorage.getItem('cpRememberedEmail');
+    const rememberedPassword = localStorage.getItem('cpRememberedPassword');
+    if (rememberedEmail && rememberedPassword){
+      document.getElementById('gateEmail').value = rememberedEmail;
+      document.getElementById('gatePassword').value = rememberedPassword;
+      document.getElementById('gateRememberMe').checked = true;
+    }
   }
   // App is ready (gate or dashboard, whichever applies) — fade out the loader
   const loader = document.getElementById('appLoader');
