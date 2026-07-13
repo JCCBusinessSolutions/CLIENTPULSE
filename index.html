@@ -2066,11 +2066,23 @@ input:checked + #studioSection .slider-toggle::before{transform:translateX(19px)
          ============================================================ -->
     <div id="settingsSection" data-section="settings" class="mt-2">
 
+      <div class="card" id="todayLoginsCard" style="display:none;">
+        <h2>Today's Logins</h2>
+        <p class="sub">Every advisor who logged in today, most recent first. Visible only to you.</p>
+        <div id="todayLoginsList" style="font-size:13px; color:var(--ink-soft,#4A5A68);">Loading&hellip;</div>
+        <div class="row" style="margin-top:10px;">
+          <button class="btn-ghost" id="refreshTodayLoginsBtn" style="width:100%;">REFRESH</button>
+        </div>
+      </div>
+
       <div class="card" id="configCard" style="display:none;">
         <h2>Connection Setup</h2>
         <p class="sub">One-time: paste your Dues Tracker Apps Script Web App URL.</p>
         <label for="scriptUrl">Apps Script Web App URL</label>
-        <input type="text" id="scriptUrl" placeholder="https://script.google.com/macros/s/.../exec">
+        <div class="gate-pw-wrap">
+          <input type="password" id="scriptUrl" placeholder="https://script.google.com/macros/s/.../exec" autocomplete="off" style="padding-right:44px;">
+          <button type="button" class="gate-pw-toggle" onclick="togglePasswordVisibility('scriptUrl', this)" aria-label="Show URL"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></button>
+        </div>
         <div class="row">
           <button class="btn-ghost" id="saveScriptUrl">SAVE URL</button>
         </div>
@@ -3116,6 +3128,35 @@ async function checkAdvisorActiveStatus(){
     // Transient network issue — don't lock someone out over a blip.
   }
 }
+
+// Admin-only "who's logged in today" panel — hits CLIENT_PULSE_SHEET_API
+// (the same backend that handles login itself), not the Dues/Broadcast
+// Script URL, since login events are recorded there.
+async function loadTodayLogins(){
+  const listEl = document.getElementById('todayLoginsList');
+  if (!listEl) return;
+  listEl.textContent = 'Loading\u2026';
+  try{
+    const res = await fetch(CLIENT_PULSE_SHEET_API + '?action=getTodayLogins');
+    const data = await res.json();
+    const logins = (data && data.logins) || [];
+    if (logins.length === 0){
+      listEl.textContent = 'No logins yet today.';
+      return;
+    }
+    listEl.innerHTML = '<div style="margin-bottom:8px; font-weight:700; color:var(--navy,#0C447C);">' + logins.length + ' login' + (logins.length === 1 ? '' : 's') + ' today</div>'
+      + logins.map(l =>
+          '<div style="display:flex; justify-content:space-between; padding:6px 0; border-bottom:1px solid var(--line,#E4DCC8);">'
+          + '<span>' + escapeHtml(l.email) + '</span>'
+          + '<span style="color:var(--ink-soft,#4A5A68);">' + escapeHtml(l.time) + '</span>'
+          + '</div>'
+        ).join('');
+  }catch(e){
+    listEl.textContent = 'Couldn\u2019t load today\u2019s logins right now.';
+  }
+}
+document.getElementById('refreshTodayLoginsBtn').addEventListener('click', loadTodayLogins);
+
 
 // Mirrors REMINDER_DAYS_BEFORE_LOCK in Code.gs — kept as a separate
 // frontend constant since this file can't import from the Apps Script
@@ -6472,6 +6513,10 @@ function hideGate() {
     fetchSendHour().then(hour => populateSendHour(hour));
     refreshPersonalLink();
     checkAdvisorActiveStatus();
+    if (currentEmail === ADMIN_EMAIL){
+      document.getElementById('todayLoginsCard').style.display = 'block';
+      loadTodayLogins();
+    }
   } catch (e) {
     var emailError = document.getElementById('emailError');
     if (emailError) emailError.textContent = 'Something went wrong unlocking the dashboard: ' + e.message;
