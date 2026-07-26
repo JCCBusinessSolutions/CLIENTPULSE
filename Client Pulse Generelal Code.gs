@@ -1208,18 +1208,25 @@ function getBirthdaysTodayRows(){
   const tz = Session.getScriptTimeZone();
   const today = new Date();
   const todayMonth = today.getMonth(), todayDay = today.getDate();
+  const currentYearStr = String(today.getFullYear());
   const result = [];
   for (let i = 1; i < data.length; i++){
     const row = data[i];
     const dob = row[col('Date of Birth')];
     if (!(dob instanceof Date)) continue;
     if (dob.getMonth() === todayMonth && dob.getDate() === todayDay){
+      const lastGreetingYear = String(row[col('Last Greeting Sent (Year)')] || '');
+      // Only counts as "sent" if it matches THIS year specifically —
+      // a value left over from last year's birthday (or any earlier
+      // one) shouldn't make today's greeting look like it already
+      // went out.
+      const wasSentThisYear = lastGreetingYear === currentYearStr;
       result.push({
         fullName: row[col('Full Name')],
         email: row[col('Email')],
         location: row[col('Location')],
         dobFormatted: Utilities.formatDate(dob, tz, 'MMMM d'),
-        lastGreetingSent: row[col('Last Greeting Sent (Year)')] || ''
+        lastGreetingSent: wasSentThisYear ? lastGreetingYear : ''
       });
     }
   }
