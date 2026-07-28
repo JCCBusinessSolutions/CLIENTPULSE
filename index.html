@@ -4388,7 +4388,16 @@ el('bcPickerSearch').addEventListener('input', () => {
 });
 
 document.querySelectorAll('.bc-quick-btn[data-top]').forEach(btn => {
-  btn.addEventListener('click', () => {
+  btn.addEventListener('click', async () => {
+    // Force a fresh, awaited check right now — don't rely on whatever
+    // bcAlreadySentEmails happened to already contain. The debounced
+    // check from typing the subject (or the one fired when the picker
+    // opened) might genuinely not have finished yet if this gets
+    // clicked quickly afterward, which would otherwise let someone
+    // already-sent slip through a bulk-select undetected.
+    btn.disabled = true;
+    await refreshAlreadySentForCurrentSubject();
+    btn.disabled = false;
     const n = Number(btn.dataset.top);
     const visible = currentFilteredClients();
     // "Top N" means the first N SELECTABLE clients, not the first N
@@ -4402,7 +4411,10 @@ document.querySelectorAll('.bc-quick-btn[data-top]').forEach(btn => {
   });
 });
 
-el('bcSelectAllBtn').addEventListener('click', () => {
+el('bcSelectAllBtn').addEventListener('click', async () => {
+  el('bcSelectAllBtn').disabled = true;
+  await refreshAlreadySentForCurrentSubject();
+  el('bcSelectAllBtn').disabled = false;
   const visible = currentFilteredClients();
   const skippedCount = visible.filter(c => bcAlreadySentEmails.has((c.email || '').toLowerCase())).length;
   visible.forEach(c => {
