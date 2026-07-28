@@ -4063,7 +4063,6 @@ el('bcChooseRecipientsBtn').addEventListener('click', async () => {
       el('bcChooseRecipientsBtn').disabled = false;
       el('bcChooseRecipientsBtn').textContent = 'CHOOSE RECIPIENTS';
       openedFromCache = true;
-      refreshAlreadySentForCurrentSubject();
     }
   }catch(e){ /* corrupted cache, fall through to the live-only path below */ }
 
@@ -4104,7 +4103,6 @@ el('bcChooseRecipientsBtn').addEventListener('click', async () => {
       populatePlanFilterOptions();
       renderPickerList(currentFilteredClients());
       el('bcPickerOverlay').style.display = 'flex';
-      refreshAlreadySentForCurrentSubject();
     }
   }catch(err){
     if (!openedFromCache){
@@ -4116,6 +4114,15 @@ el('bcChooseRecipientsBtn').addEventListener('click', async () => {
   }finally{
     el('bcChooseRecipientsBtn').disabled = false;
     el('bcChooseRecipientsBtn').textContent = 'CHOOSE RECIPIENTS';
+    // Deliberately the LAST thing this handler does, and awaited rather
+    // than fire-and-forget. Both the cache-render above and the live
+    // client-list refresh each do their own renderPickerList() call —
+    // if this check fired earlier and finished BETWEEN those two
+    // renders, the later one would silently overwrite its correct
+    // "already sent" badges with a stale view. Running it last,
+    // guaranteed after both, means its own render is always the final
+    // word on what's actually shown.
+    await refreshAlreadySentForCurrentSubject();
   }
 });
 
