@@ -2103,15 +2103,25 @@ input:checked + #studioSection .slider-toggle::before{transform:translateX(19px)
             <button type="button" class="bc-sort-btn" data-sort="dueDate">Due Date</button>
           </div>
 
-          <div id="bcPlanFilterWrap" style="margin-bottom:10px;">
-            <select id="bcPlanFilter" style="width:100%; padding:9px 12px; border:1px solid var(--line,#E4DCC8); border-radius:10px; background:var(--cream,#FDF8F0); font-size:13px; color:var(--ink,#13202B);">
-              <option value="">All plans</option>
-            </select>
+          <div id="bcPlanFilterWrap" style="margin-bottom:10px; position:relative;">
+            <button type="button" id="bcPlanFilterTrigger" style="width:100%; text-align:left; padding:9px 12px; border:1px solid var(--line,#E4DCC8); border-radius:10px; background:var(--cream,#FDF8F0); font-size:13px; color:var(--ink,#13202B); cursor:pointer; display:flex; justify-content:space-between; align-items:center;">
+              <span id="bcPlanFilterTriggerText">All plans</span>
+              <span style="color:#9CA3AF;">&#9662;</span>
+            </button>
+            <div id="bcPlanFilterPanel" style="display:none; position:absolute; top:calc(100% + 4px); left:0; right:0; z-index:20; background:#fff; border:1px solid var(--line,#E4DCC8); border-radius:10px; box-shadow:0 8px 24px rgba(0,0,0,0.12); max-height:220px; overflow-y:auto; padding:8px;">
+              <div style="display:flex; gap:6px; margin-bottom:6px; padding-bottom:6px; border-bottom:1px solid var(--line,#E4DCC8);">
+                <button type="button" class="bc-quick-btn" id="bcPlanFilterSelectAll" style="flex:1;">Select All</button>
+                <button type="button" class="bc-quick-btn" id="bcPlanFilterClearAll" style="flex:1;">Clear</button>
+              </div>
+              <div id="bcPlanFilterCheckboxList"></div>
+            </div>
           </div>
 
           <div id="bcLapsedFilterWrap" style="margin-bottom:10px;">
             <select id="bcLapsedFilter" style="width:100%; padding:9px 12px; border:1px solid var(--line,#E4DCC8); border-radius:10px; background:var(--cream,#FDF8F0); font-size:13px; color:var(--ink,#13202B);">
-              <option value="">All clients (any lapsed status)</option>
+              <option value="">All clients (active + lapsed)</option>
+              <option value="activeOnly">Active clients only</option>
+              <option value="lapsedOnly">Lapsed clients only (any duration)</option>
               <option value="lt1">Lapsed: Less than 1 year</option>
               <option value="1to2">Lapsed: More than 1 year, less than 2 years</option>
               <option value="2to3">Lapsed: More than 2 years, less than 3 years</option>
@@ -4003,7 +4013,7 @@ el('bcChooseRecipientsBtn').addEventListener('click', async () => {
     if (cached && cached.length){
       bcAllClients = deduplicateClientsByEmail(cached);
       el('bcPickerSearch').value = '';
-      el('bcPlanFilter').value = '';
+      bcSelectedPlans.clear();
       if (el('bcLapsedFilter')) el('bcLapsedFilter').value = '';
       populatePlanFilterOptions();
       renderPickerList(currentFilteredClients());
@@ -4046,7 +4056,7 @@ el('bcChooseRecipientsBtn').addEventListener('click', async () => {
       }
     } else {
       el('bcPickerSearch').value = '';
-      el('bcPlanFilter').value = '';
+      bcSelectedPlans.clear();
       if (el('bcLapsedFilter')) el('bcLapsedFilter').value = '';
       populatePlanFilterOptions();
       renderPickerList(currentFilteredClients());
@@ -4065,14 +4075,70 @@ el('bcChooseRecipientsBtn').addEventListener('click', async () => {
   }
 });
 
+let bcSelectedPlans = new Set(); // empty = "all plans" (unfiltered), same semantics as the old blank option
+
 function populatePlanFilterOptions(){
   const plans = Array.from(new Set(bcAllClients.map(c => (c.product || '').trim()).filter(Boolean))).sort();
-  const select = el('bcPlanFilter');
-  select.innerHTML = '<option value="">All plans</option>' +
-    plans.map(p => `<option value="${escapeHtml(p)}">${escapeHtml(p)}</option>`).join('');
+  // Drop any previously-selected plan that no longer exists in the
+  // current client list (e.g. after a fresh live refresh) rather than
+  // silently keeping a filter active on a plan that's gone.
+  bcSelectedPlans.forEach(p => { if (!plans.includes(p)) bcSelectedPlans.delete(p); });
+
+  const listEl = el('bcPlanFilterCheckboxList');
+  if (plans.length === 0){
+    listEl.innerHTML = '<div style="font-size:12px; color:#9CA3AF; padding:6px;">No plans found.</div>';
+  } else {
+    listEl.innerHTML = plans.map(p => {
+      const checked = bcSelectedPlans.has(p);
+      return '<label style="display:flex; align-items:center; gap:8px; padding:6px 4px; font-size:13px; color:var(--ink,#13202B); cursor:pointer;">'
+        + '<input type="checkbox" class="bc-plan-checkbox" data-plan="' + escapeHtml(p) + '" ' + (checked ? 'checked' : '') + ' style="width:16px; height:16px; flex-shrink:0;">'
+        + escapeHtml(p)
+        + '</label>';
+    }).join('');
+    listEl.querySelectorAll('.bc-plan-checkbox').forEach(cb => {
+      cb.addEventListener('change', () => {
+        if (cb.checked) bcSelectedPlans.add(cb.dataset.plan);
+        else bcSelectedPlans.delete(cb.dataset.plan);
+        updatePlanFilterTriggerText();
+        renderPickerList(currentFilteredClients());
+      });
+    });
+  }
+  updatePlanFilterTriggerText();
   // No point showing a filter with nothing to filter by
   el('bcPlanFilterWrap').style.display = plans.length > 0 ? 'block' : 'none';
 }
+
+function updatePlanFilterTriggerText(){
+  const n = bcSelectedPlans.size;
+  el('bcPlanFilterTriggerText').textContent = n === 0
+    ? 'All plans'
+    : n === 1
+    ? Array.from(bcSelectedPlans)[0]
+    : n + ' plans selected';
+}
+
+el('bcPlanFilterTrigger').addEventListener('click', () => {
+  const panel = el('bcPlanFilterPanel');
+  panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+});
+document.addEventListener('click', (e) => {
+  const wrap = el('bcPlanFilterWrap');
+  if (wrap && !wrap.contains(e.target)){
+    el('bcPlanFilterPanel').style.display = 'none';
+  }
+});
+el('bcPlanFilterSelectAll').addEventListener('click', () => {
+  document.querySelectorAll('.bc-plan-checkbox').forEach(cb => { cb.checked = true; bcSelectedPlans.add(cb.dataset.plan); });
+  updatePlanFilterTriggerText();
+  renderPickerList(currentFilteredClients());
+});
+el('bcPlanFilterClearAll').addEventListener('click', () => {
+  document.querySelectorAll('.bc-plan-checkbox').forEach(cb => { cb.checked = false; });
+  bcSelectedPlans.clear();
+  updatePlanFilterTriggerText();
+  renderPickerList(currentFilteredClients());
+});
 
 function sortClients(clients, field){
   const sorted = clients.slice();
@@ -4116,10 +4182,6 @@ document.querySelectorAll('.bc-sort-btn[data-sort]').forEach(btn => {
     el('bcSortHint').textContent = 'Sorted by ' + BC_SORT_LABELS[bcSortField] + ' \u00b7 tap Top N to select the N clients shown below';
     renderPickerList(currentFilteredClients());
   });
-});
-
-el('bcPlanFilter').addEventListener('change', () => {
-  renderPickerList(currentFilteredClients());
 });
 
 el('bcLapsedFilter')?.addEventListener('change', () => {
@@ -4232,16 +4294,19 @@ el('bcManualEmailInput').addEventListener('keydown', (e) => {
 
 function currentFilteredClients(){
   const query = el('bcPickerSearch').value.trim().toLowerCase();
-  const plan = el('bcPlanFilter').value;
   const lapsedFilter = el('bcLapsedFilter') ? el('bcLapsedFilter').value : '';
   let list = bcAllClients;
   if (query){
     list = list.filter(c => (c.clientName || '').toLowerCase().includes(query));
   }
-  if (plan){
-    list = list.filter(c => (c.product || '') === plan);
+  if (bcSelectedPlans.size > 0){
+    list = list.filter(c => bcSelectedPlans.has((c.product || '').trim()));
   }
-  if (lapsedFilter){
+  if (lapsedFilter === 'activeOnly'){
+    list = list.filter(c => !isLapsedStatus(c.policyStatus));
+  } else if (lapsedFilter === 'lapsedOnly'){
+    list = list.filter(c => isLapsedStatus(c.policyStatus));
+  } else if (lapsedFilter){
     // Requires BOTH conditions to match, not lapseDate alone: the
     // client's actual current Policy Status must say Lapsed (via
     // isLapsedStatus, the same check used everywhere else in the app),
