@@ -1307,9 +1307,8 @@ input:checked + #studioSection .slider-toggle::before{transform:translateX(19px)
   <nav class="flex-1 px-4 flex flex-col gap-1">
     <div class="sidebar-link active" data-nav="dues"><span>📊</span>Premium Due Reminders</div>
     <div class="sidebar-link" data-nav="birthday"><span>🎂</span>Client Birthday Greetings</div>
-    <div class="sidebar-link" data-nav="anniversary"><span>🎉</span>Policy Anniversary Greeter</div>
+    <div class="sidebar-link" data-nav="anniversary"><span>🎉</span>Policy Anniversary Greetings</div>
     <div class="sidebar-link" data-nav="upload"><span>📤</span>Upload &amp; Parse</div>
-    <div class="sidebar-link" data-nav="reports"><span>📈</span>Reports</div>
     <div class="sidebar-link" data-nav="clients"><span>🧑‍🤝‍🧑</span>Clients</div>
     <div class="sidebar-link" data-nav="broadcast"><span>📣</span>Broadcast Email</div>
     <div class="sidebar-link" data-nav="settings" id="sidebarSettingsLink"><span>⚙️</span>Settings<span class="dot" id="sidebarSettingsDot" style="display:none;"></span></div>
@@ -2089,6 +2088,13 @@ input:checked + #studioSection .slider-toggle::before{transform:translateX(19px)
         <div style="padding:12px 16px; flex:0 0 auto; background:#fff; border-bottom:1px solid var(--line,#E4DCC8);">
           <input type="text" id="bcPickerSearch" placeholder="Search by name..." style="width:100%; padding:10px 14px; border:1px solid var(--line,#E4DCC8); border-radius:10px; background:var(--cream,#FDF8F0); font-size:14px; margin-bottom:10px;">
 
+          <div style="font-size:11px; color:#6B7280; margin-bottom:6px;">Not in your client list? Add an email directly:</div>
+          <div style="display:flex; gap:6px; margin-bottom:10px;">
+            <input type="email" id="bcManualEmailInput" placeholder="someone@example.com" style="flex:1 1 auto; min-width:0; padding:10px 14px; border:1px solid var(--line,#E4DCC8); border-radius:10px; background:var(--cream,#FDF8F0); font-size:14px;">
+            <button type="button" id="bcManualEmailAddBtn" style="flex:0 0 auto; width:auto; min-height:auto; padding:10px 16px; border-radius:10px; border:none; background:var(--navy,#0C447C); color:#fff; font-size:13px; font-weight:700; cursor:pointer;">ADD</button>
+          </div>
+          <div id="bcManualEmailStatus" style="font-size:11.5px; margin:-4px 0 10px; min-height:14px;"></div>
+
           <div style="font-size:11px; color:#6B7280; margin-bottom:6px;">Sort by:</div>
           <div style="display:flex; gap:6px; flex-wrap:wrap; align-items:center; margin-bottom:10px;">
             <button type="button" class="bc-sort-btn active" data-sort="fundValue">Fund Value</button>
@@ -2613,7 +2619,7 @@ function showPage(pageName){
   const titles = pageName === 'birthday'
     ? { line1: 'Client Birthday', line2: 'Greetings', full: 'Client Birthday Greetings' }
     : pageName === 'anniversary'
-    ? { line1: 'Policy Anniversary', line2: 'Greeter', full: 'Policy Anniversary Greeter' }
+    ? { line1: 'Policy Anniversary', line2: 'Greetings', full: 'Policy Anniversary Greetings' }
     : pageName === 'clients'
     ? { line1: 'Manage Your', line2: 'Clients', full: 'Manage Your Clients' }
     : pageName === 'broadcast'
@@ -2722,10 +2728,6 @@ document.addEventListener('DOMContentLoaded', function(){
 document.querySelectorAll('.sidebar-link[data-nav]').forEach(link => {
   link.addEventListener('click', () => {
     const nav = link.dataset.nav;
-    if (nav === 'reports'){
-      showToast('Reports are coming soon.');
-      return;
-    }
     if (nav === 'settings'){
       openSettingsPage();
       return;
@@ -3989,22 +3991,74 @@ const BC_SORT_LABELS = {
 
 el('bcChooseRecipientsBtn').addEventListener('click', async () => {
   el('bcChooseRecipientsBtn').disabled = true;
-  el('bcChooseRecipientsBtn').textContent = 'LOADING\u2026';
+
+  // If a cached client list exists, open the picker with it INSTANTLY —
+  // no waiting on a live Apps Script round-trip just to see the list.
+  // The live fetch still happens right after, silently updating the
+  // list in place if anything changed, same "cache first, refresh
+  // quietly" pattern already used for the main Dues/Birthday lists.
+  let openedFromCache = false;
+  try{
+    const cached = JSON.parse(localStorage.getItem(DUES_CACHE_KEY) || 'null');
+    if (cached && cached.length){
+      bcAllClients = deduplicateClientsByEmail(cached);
+      el('bcPickerSearch').value = '';
+      el('bcPlanFilter').value = '';
+      if (el('bcLapsedFilter')) el('bcLapsedFilter').value = '';
+      populatePlanFilterOptions();
+      renderPickerList(currentFilteredClients());
+      el('bcPickerOverlay').style.display = 'flex';
+      el('bcChooseRecipientsBtn').disabled = false;
+      el('bcChooseRecipientsBtn').textContent = 'CHOOSE RECIPIENTS';
+      openedFromCache = true;
+    }
+  }catch(e){ /* corrupted cache, fall through to the live-only path below */ }
+
+  if (!openedFromCache){
+    el('bcChooseRecipientsBtn').textContent = 'LOADING\u2026';
+  }
+
   try{
     const clients = await fetchDuesClientList();
-    bcAllClients = deduplicateClientsByEmail(clients);
-    if (bcAllClients.length === 0){
+    const deduped = deduplicateClientsByEmail(clients);
+    if (deduped.length === 0 && !openedFromCache){
       showStatus('broadcastStatus','error','No clients with an email address found in your Dues Tracker.');
       return;
     }
-    el('bcPickerSearch').value = '';
-    el('bcPlanFilter').value = '';
-    if (el('bcLapsedFilter')) el('bcLapsedFilter').value = '';
-    populatePlanFilterOptions();
-    renderPickerList(currentFilteredClients());
-    el('bcPickerOverlay').style.display = 'flex';
+    if (deduped.length === 0 && openedFromCache){
+      // fetchDuesClientList() swallows its own network errors and
+      // returns [] either way, so an empty result here can't be told
+      // apart from a real failure — safest is to just keep showing
+      // the cached list rather than silently wiping it out.
+      return;
+    }
+    // Preserve anyone manually added (or already checked) while the
+    // live refresh was in flight — a fresh pull shouldn't silently
+    // drop a referral email that isn't in the Dues Tracker at all.
+    const manualEntries = bcAllClients.filter(c => c.manuallyAdded);
+    bcAllClients = deduped.concat(manualEntries);
+    if (openedFromCache){
+      // Update quietly in place — re-render only if the picker is
+      // still open, don't reset the person's current search/filter.
+      if (el('bcPickerOverlay').style.display === 'flex'){
+        populatePlanFilterOptions();
+        renderPickerList(currentFilteredClients());
+      }
+    } else {
+      el('bcPickerSearch').value = '';
+      el('bcPlanFilter').value = '';
+      if (el('bcLapsedFilter')) el('bcLapsedFilter').value = '';
+      populatePlanFilterOptions();
+      renderPickerList(currentFilteredClients());
+      el('bcPickerOverlay').style.display = 'flex';
+    }
   }catch(err){
-    showStatus('broadcastStatus','error','Could not load clients: ' + err.message);
+    if (!openedFromCache){
+      showStatus('broadcastStatus','error','Could not load clients: ' + err.message);
+    }
+    // If opened from cache, a failed background refresh isn't worth
+    // interrupting the person with — they're already looking at a
+    // working (if slightly stale) list.
   }finally{
     el('bcChooseRecipientsBtn').disabled = false;
     el('bcChooseRecipientsBtn').textContent = 'CHOOSE RECIPIENTS';
@@ -4119,6 +4173,62 @@ function updatePickerCount(){
   const n = bcSelectedEmails.size;
   el('bcPickerSelectedCount').textContent = n + ' selected';
 }
+
+// Lets the advisor add someone who isn't in the Dues Tracker at all —
+// a referral, a colleague, anyone. Pushes a lightweight synthetic
+// entry into bcAllClients (same shape the picker list already expects)
+// so every existing filter/sort/selection code just works on it
+// unchanged, rather than needing a separate parallel list.
+function addManualBroadcastEmail(){
+  const input = el('bcManualEmailInput');
+  const status = el('bcManualEmailStatus');
+  const raw = input.value.trim().toLowerCase();
+
+  const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  if (!raw){
+    status.style.color = '#EB5757';
+    status.textContent = 'Type an email address first.';
+    return;
+  }
+  if (!emailPattern.test(raw)){
+    status.style.color = '#EB5757';
+    status.textContent = 'That doesn\u2019t look like a valid email address.';
+    return;
+  }
+
+  const existing = bcAllClients.find(c => c.email === raw);
+  if (existing){
+    // Already on the list (from the Dues Tracker or added earlier) —
+    // just make sure it's selected rather than adding a duplicate row.
+    bcSelectedEmails.add(raw);
+  } else {
+    bcAllClients.push({
+      email: raw,
+      clientName: raw,
+      product: '',
+      fundValue: 0,
+      dueDate: null,
+      policyStatus: '',
+      lapseDate: null,
+      manuallyAdded: true
+    });
+    bcSelectedEmails.add(raw);
+  }
+
+  input.value = '';
+  status.style.color = '#27AE60';
+  status.textContent = '\u2713 Added ' + raw + ' to your recipients.';
+  updatePickerCount();
+  renderPickerList(currentFilteredClients());
+}
+
+el('bcManualEmailAddBtn').addEventListener('click', addManualBroadcastEmail);
+el('bcManualEmailInput').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter'){
+    e.preventDefault();
+    addManualBroadcastEmail();
+  }
+});
 
 function currentFilteredClients(){
   const query = el('bcPickerSearch').value.trim().toLowerCase();
