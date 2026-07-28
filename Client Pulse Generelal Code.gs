@@ -801,6 +801,29 @@ function getImagePreviewData(target){
   }
 }
 
+// Google Sheets often silently auto-converts a date-like string (e.g.
+// "2026-07-13") into a real Date value once it's written to a cell —
+// even though the cell still visibly displays "the date is there".
+// Comparing that against a plain string with === then fails, since
+// String(dateObject) produces something like "Mon Jul 13 2026
+// 00:00:00 GMT+0800..." rather than "2026-07-13". This normalizes
+// either shape (Date object or string) back to a clean yyyy-MM-dd, so
+// "was this already sent today" comparisons work regardless of which
+// form Sheets actually stored.
+function normalizeDateCellToYmd(value, tz){
+  if (!value) return '';
+  if (value instanceof Date) return Utilities.formatDate(value, tz, 'yyyy-MM-dd');
+  const str = String(value).trim();
+  // A stray value that looks like a full date-and-time string (Sheets
+  // occasionally hands back a string in this shape too) still needs
+  // parsing down to just the date part, not a raw string compare.
+  const parsed = new Date(str);
+  if (!isNaN(parsed.getTime()) && /\d{4}/.test(str)) {
+    return Utilities.formatDate(parsed, tz, 'yyyy-MM-dd');
+  }
+  return str;
+}
+
 function getDueTodayRows(){
   const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_NAME);
   if (!sheet) return [];
@@ -814,8 +837,7 @@ function getDueTodayRows(){
   for (let i = 1; i < data.length; i++){
     const row = data[i];
     const dueDate = row[col('Due Date')];
-    const lastReminderSent = row[col('Last Reminder Sent')] || '';
-    const lastSentStr = lastReminderSent ? String(lastReminderSent) : '';
+    const lastSentStr = normalizeDateCellToYmd(row[col('Last Reminder Sent')], tz);
     const wasSentToday = lastSentStr === todayStr;
     const dueDateStr = (dueDate instanceof Date) ? Utilities.formatDate(dueDate, tz, 'yyyy-MM-dd') : '';
     const isDueToday = dueDateStr === todayStr;
@@ -1018,8 +1040,7 @@ function sendDailyReminders(){
     const dueDate = row[col('Due Date')];
     if (!(dueDate instanceof Date)) continue;
     const dueDateStr = Utilities.formatDate(dueDate, tz, 'yyyy-MM-dd');
-    const lastSent = row[col('Last Reminder Sent')];
-    const lastSentStr = lastSent ? String(lastSent) : '';
+    const lastSentStr = normalizeDateCellToYmd(row[col('Last Reminder Sent')], tz);
     if (dueDateStr === todayStr && lastSentStr !== todayStr){
       let sent = false;
       try{ sent = sendReminderEmail(row, col); }
