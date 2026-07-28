@@ -1976,6 +1976,8 @@ input:checked + #studioSection .slider-toggle::before{transform:translateX(19px)
             <option value="24">Huge</option>
           </select>
           <span style="width:1px; background:var(--line,#E4DCC8); margin:2px 4px;"></span>
+          <button type="button" class="bc-tool-btn" data-cmd="undo" title="Undo last change">↶ Undo</button>
+          <span style="width:1px; background:var(--line,#E4DCC8); margin:2px 4px;"></span>
           <button type="button" class="bc-tool-btn" data-cmd="bold" title="Bold" style="font-weight:800;">B</button>
           <button type="button" class="bc-tool-btn" data-cmd="italic" title="Italic" style="font-style:italic;">I</button>
           <button type="button" class="bc-tool-btn" data-cmd="underline" title="Underline" style="text-decoration:underline;">U</button>
@@ -2133,6 +2135,11 @@ input:checked + #studioSection .slider-toggle::before{transform:translateX(19px)
               <option value="2to3">Lapsed: More than 2 years, less than 3 years</option>
             </select>
           </div>
+
+          <button type="button" id="bcShowSelectedOnlyBtn" style="width:100%; text-align:left; margin-bottom:10px; padding:9px 12px; border:1px solid var(--line,#E4DCC8); border-radius:10px; background:var(--cream,#FDF8F0); font-size:13px; color:var(--ink,#13202B); display:flex; align-items:center; gap:8px; cursor:pointer;">
+            <span id="bcShowSelectedOnlyCheck" style="width:16px; height:16px; flex-shrink:0; border:1.5px solid var(--line,#E4DCC8); border-radius:5px; display:flex; align-items:center; justify-content:center; font-size:11px; color:#fff;"></span>
+            <span id="bcShowSelectedOnlyLabel">Show only selected recipients</span>
+          </button>
 
           <div style="display:flex; gap:6px; flex-wrap:wrap; align-items:center;">
             <span style="font-size:11px; color:#6B7280; margin-right:2px;">Quick select:</span>
@@ -4056,6 +4063,8 @@ el('bcChooseRecipientsBtn').addEventListener('click', async () => {
       bcAllClients = deduplicateClientsByEmail(cached);
       el('bcPickerSearch').value = '';
       bcSelectedPlans.clear();
+      bcShowSelectedOnly = false;
+      renderShowSelectedOnlyToggle();
       if (el('bcLapsedFilter')) el('bcLapsedFilter').value = '';
       populatePlanFilterOptions();
       renderPickerList(currentFilteredClients());
@@ -4099,6 +4108,8 @@ el('bcChooseRecipientsBtn').addEventListener('click', async () => {
     } else {
       el('bcPickerSearch').value = '';
       bcSelectedPlans.clear();
+      bcShowSelectedOnly = false;
+      renderShowSelectedOnlyToggle();
       if (el('bcLapsedFilter')) el('bcLapsedFilter').value = '';
       populatePlanFilterOptions();
       renderPickerList(currentFilteredClients());
@@ -4127,6 +4138,24 @@ el('bcChooseRecipientsBtn').addEventListener('click', async () => {
 });
 
 let bcSelectedPlans = new Set(); // empty = "all plans" (unfiltered), same semantics as the old blank option
+let bcShowSelectedOnly = false;
+
+function renderShowSelectedOnlyToggle(){
+  const check = el('bcShowSelectedOnlyCheck');
+  const label = el('bcShowSelectedOnlyLabel');
+  check.style.background = bcShowSelectedOnly ? 'var(--gold,#C99A3B)' : 'transparent';
+  check.style.borderColor = bcShowSelectedOnly ? 'var(--gold,#C99A3B)' : 'var(--line,#E4DCC8)';
+  check.textContent = bcShowSelectedOnly ? '\u2713' : '';
+  label.textContent = bcShowSelectedOnly
+    ? 'Showing only selected (' + bcSelectedEmails.size + ')'
+    : 'Show only selected recipients';
+}
+
+el('bcShowSelectedOnlyBtn').addEventListener('click', () => {
+  bcShowSelectedOnly = !bcShowSelectedOnly;
+  renderShowSelectedOnlyToggle();
+  renderPickerList(currentFilteredClients());
+});
 
 function populatePlanFilterOptions(){
   const plans = Array.from(new Set(bcAllClients.map(c => (c.product || '').trim()).filter(Boolean))).sort();
@@ -4247,7 +4276,7 @@ function renderPickerList(clients){
   }
   container.innerHTML = clients.map(c => {
     const checked = bcSelectedEmails.has(c.email);
-    const alreadySent = bcAlreadySentEmails.has((c.email || '').toLowerCase());
+    const alreadySent = bcAlreadySentEmails.has((c.email || '').trim().toLowerCase());
     const value = formatPickerRowValue(c, bcSortField);
     const isLapsed = isLapsedStatus(c.policyStatus);
     const lapsedBadge = isLapsed
@@ -4356,6 +4385,9 @@ function currentFilteredClients(){
   const query = el('bcPickerSearch').value.trim().toLowerCase();
   const lapsedFilter = el('bcLapsedFilter') ? el('bcLapsedFilter').value : '';
   let list = bcAllClients;
+  if (bcShowSelectedOnly){
+    list = list.filter(c => bcSelectedEmails.has(c.email));
+  }
   if (query){
     list = list.filter(c => (c.clientName || '').toLowerCase().includes(query));
   }
@@ -4411,7 +4443,7 @@ document.querySelectorAll('.bc-quick-btn[data-top]').forEach(btn => {
     // rows regardless of status — otherwise this silently re-includes
     // someone who already received this exact subject, the same bug
     // that individual row clicks were already protected against.
-    const selectable = visible.filter(c => !bcAlreadySentEmails.has((c.email || '').toLowerCase()));
+    const selectable = visible.filter(c => !bcAlreadySentEmails.has((c.email || '').trim().toLowerCase()));
     selectable.slice(0, n).forEach(c => bcSelectedEmails.add(c.email));
     renderPickerList(visible);
     updatePickerCount();
@@ -4423,9 +4455,9 @@ el('bcSelectAllBtn').addEventListener('click', async () => {
   await refreshAlreadySentForCurrentSubject();
   el('bcSelectAllBtn').disabled = false;
   const visible = currentFilteredClients();
-  const skippedCount = visible.filter(c => bcAlreadySentEmails.has((c.email || '').toLowerCase())).length;
+  const skippedCount = visible.filter(c => bcAlreadySentEmails.has((c.email || '').trim().toLowerCase())).length;
   visible.forEach(c => {
-    if (bcAlreadySentEmails.has((c.email || '').toLowerCase())) return; // already sent this subject — never auto-included
+    if (bcAlreadySentEmails.has((c.email || '').trim().toLowerCase())) return; // already sent this subject — never auto-included
     bcSelectedEmails.add(c.email);
   });
   renderPickerList(visible);
@@ -4823,8 +4855,8 @@ async function loadDraftIntoEditor(draft){
   // duplicates already selected.
   await refreshAlreadySentForCurrentSubject();
   const rows = payload.rows || [];
-  const alreadySentRows = rows.filter(r => bcAlreadySentEmails.has((r.email || '').toLowerCase()));
-  const eligibleRows = rows.filter(r => !bcAlreadySentEmails.has((r.email || '').toLowerCase()));
+  const alreadySentRows = rows.filter(r => bcAlreadySentEmails.has((r.email || '').trim().toLowerCase()));
+  const eligibleRows = rows.filter(r => !bcAlreadySentEmails.has((r.email || '').trim().toLowerCase()));
 
   // bcAllClients keeps EVERY saved row (including already-sent ones) so
   // opening the picker still shows them, greyed out with the same
