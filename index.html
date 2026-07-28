@@ -4391,7 +4391,12 @@ document.querySelectorAll('.bc-quick-btn[data-top]').forEach(btn => {
   btn.addEventListener('click', () => {
     const n = Number(btn.dataset.top);
     const visible = currentFilteredClients();
-    visible.slice(0, n).forEach(c => bcSelectedEmails.add(c.email));
+    // "Top N" means the first N SELECTABLE clients, not the first N
+    // rows regardless of status — otherwise this silently re-includes
+    // someone who already received this exact subject, the same bug
+    // that individual row clicks were already protected against.
+    const selectable = visible.filter(c => !bcAlreadySentEmails.has((c.email || '').toLowerCase()));
+    selectable.slice(0, n).forEach(c => bcSelectedEmails.add(c.email));
     renderPickerList(visible);
     updatePickerCount();
   });
@@ -4399,9 +4404,16 @@ document.querySelectorAll('.bc-quick-btn[data-top]').forEach(btn => {
 
 el('bcSelectAllBtn').addEventListener('click', () => {
   const visible = currentFilteredClients();
-  visible.forEach(c => bcSelectedEmails.add(c.email));
+  const skippedCount = visible.filter(c => bcAlreadySentEmails.has((c.email || '').toLowerCase())).length;
+  visible.forEach(c => {
+    if (bcAlreadySentEmails.has((c.email || '').toLowerCase())) return; // already sent this subject — never auto-included
+    bcSelectedEmails.add(c.email);
+  });
   renderPickerList(visible);
   updatePickerCount();
+  if (skippedCount > 0){
+    showToast(skippedCount + ' client' + (skippedCount === 1 ? '' : 's') + ' already received this exact subject and ' + (skippedCount === 1 ? 'was' : 'were') + ' skipped.');
+  }
 });
 
 el('bcClearSelectionBtn').addEventListener('click', () => {
