@@ -1307,6 +1307,7 @@ input:checked + #studioSection .slider-toggle::before{transform:translateX(19px)
   <nav class="flex-1 px-4 flex flex-col gap-1">
     <div class="sidebar-link active" data-nav="dues"><span>📊</span>Premium Due Reminders</div>
     <div class="sidebar-link" data-nav="birthday"><span>🎂</span>Client Birthday Greetings</div>
+    <div class="sidebar-link" data-nav="anniversary"><span>🎉</span>Policy Anniversary Greeter</div>
     <div class="sidebar-link" data-nav="upload"><span>📤</span>Upload &amp; Parse</div>
     <div class="sidebar-link" data-nav="reports"><span>📈</span>Reports</div>
     <div class="sidebar-link" data-nav="clients"><span>🧑‍🤝‍🧑</span>Clients</div>
@@ -1744,6 +1745,77 @@ input:checked + #studioSection .slider-toggle::before{transform:translateX(19px)
     </div>
 
     <!-- ============================================================
+         POLICY ANNIVERSARY GREETER — reuses the Dues Tracker's own
+         Issued Date column, no separate upload needed.
+         ============================================================ -->
+    <div id="page-anniversary" style="display:none;">
+
+      <div class="flex items-center justify-between gap-3 bg-bgcream border border-bordertan rounded-2xl px-4 py-3 mb-4" id="anniversaryAutoSendBox">
+        <div>
+          <div class="text-sm font-semibold text-navy">Automatic Sending</div>
+          <div class="text-[11.5px] text-muted" id="anniversaryAutoSendStatusText">Checking…</div>
+        </div>
+        <button class="theme-switch" id="anniversaryAutoSendToggle">
+          <span class="theme-switch-track"><span class="theme-switch-thumb"></span></span>
+        </button>
+      </div>
+
+      <div class="card" id="anniversariesTodayCard">
+        <div class="card-header-row" id="anniversariesTodayHeader">
+          <h2 style="margin:0;">Policy Anniversaries Today</h2>
+          <button class="collapse-toggle" id="toggleAnniversariesToday" aria-label="Collapse">&#8943;</button>
+        </div>
+        <div id="anniversariesTodayBody">
+          <p class="sub" id="anniversariesTodaySub">Checking your Dues Tracker for Issued Dates matching today…</p>
+          <div id="anniversariesTodayList"></div>
+          <div class="row">
+            <button class="btn-primary" id="refreshAnniversariesToday" style="display:flex;align-items:center;justify-content:center;gap:7px;">🔄 REFRESH</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="card" id="anniversaryStatsCard">
+        <h2>Today's Activity</h2>
+        <p class="sub" style="margin-top:-2px;">Live counts from your Dues Tracker and anniversary greeting log.</p>
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-2">
+          <div class="kpi-card flex items-center gap-4">
+            <div class="kpi-icon !mb-0 flex-shrink-0" style="background:#E8F6ED;">✉️</div>
+            <div class="flex-1">
+              <div class="text-2xl font-heading font-bold" id="annivStatSent" style="color:#27AE60;">–</div>
+              <div class="text-[11.5px] font-semibold text-muted tracking-wide">Greetings Sent Today</div>
+            </div>
+          </div>
+          <div class="kpi-card flex items-center gap-4">
+            <div class="kpi-icon !mb-0 flex-shrink-0" style="background:#FDECEC;">✉️</div>
+            <div class="flex-1">
+              <div class="text-2xl font-heading font-bold" id="annivStatFailed" style="color:#EB5757;">–</div>
+              <div class="text-[11.5px] font-semibold text-muted tracking-wide">Greetings Failed Today</div>
+            </div>
+          </div>
+          <div class="kpi-card flex items-center gap-4">
+            <div class="kpi-icon !mb-0 flex-shrink-0" style="background:#EAF1FB;">🎉</div>
+            <div class="flex-1">
+              <div class="text-2xl font-heading font-bold text-navy" id="annivStatToday">–</div>
+              <div class="text-[11.5px] font-semibold text-muted tracking-wide">Anniversaries Today</div>
+            </div>
+          </div>
+          <div class="kpi-card flex items-center gap-4">
+            <div class="kpi-icon !mb-0 flex-shrink-0" style="background:#EAF1FB;">📅</div>
+            <div class="flex-1">
+              <div class="text-2xl font-heading font-bold text-info" id="annivStatTomorrow">–</div>
+              <div class="text-[11.5px] font-semibold text-muted tracking-wide">Anniversaries Tomorrow</div>
+            </div>
+          </div>
+        </div>
+        <div class="row" style="margin-top:14px;">
+          <button class="btn-primary" id="refreshAnniversaryStats" style="display:flex;align-items:center;justify-content:center;gap:7px;">🔄 REFRESH ACTIVITY</button>
+        </div>
+        <div class="text-[11px] text-muted text-center mt-2" id="anniversaryStatsUpdatedAt"></div>
+      </div>
+
+    </div>
+
+    <!-- ============================================================
          CLIENT MANAGEMENT — Manage dues & birthday reminders per client
          ============================================================ -->
     <div id="page-clients" style="display:none;">
@@ -2153,6 +2225,9 @@ input:checked + #studioSection .slider-toggle::before{transform:translateX(19px)
         <label for="brandPayLink" style="margin-top:12px;">"Pay Online Now" link</label>
         <input type="text" id="brandPayLink" placeholder="https://yourpaymentlink.com/...">
 
+        <label for="brandReviewLink" style="margin-top:12px;">"Schedule a 15-min Policy Review" link (Calendly, etc.)</label>
+        <input type="text" id="brandReviewLink" placeholder="https://calendly.com/...">
+
         <div class="row">
           <button class="btn-ghost" id="saveBranding">SAVE BRANDING</button>
         </div>
@@ -2207,6 +2282,26 @@ input:checked + #studioSection .slider-toggle::before{transform:translateX(19px)
         </div>
       </div>
 
+      <div class="card" id="anniversaryPreviewCard" style="display:none;">
+        <h2>Preview Anniversary Email</h2>
+        <p class="sub">See exactly what clients receive, using your real header/footer photos, Review link, and Connect link.</p>
+        <div class="row">
+          <button class="btn-gold" id="previewAnniversaryEmailBtn">PREVIEW ANNIVERSARY EMAIL</button>
+        </div>
+        <div id="anniversaryEmailPreviewContainer" style="display:none; margin-top:16px;">
+          <div class="preview-meta" id="anniversaryPreviewMeta"></div>
+          <div id="anniversaryPreviewEmailBody"></div>
+        </div>
+      </div>
+
+      <div class="card" id="anniversaryTestEmailCard" style="display:none;">
+        <h2>Test Anniversary Email</h2>
+        <p class="sub">Sends a real policy anniversary email — using your saved branding, header/footer photos, and links — to your own configured contact email so you can check it lands correctly.</p>
+        <div class="row">
+          <button class="btn-primary" id="sendAnniversaryTestEmailBtn">POLICY ANNIVERSARY EMAIL TEST</button>
+        </div>
+      </div>
+
       <div class="card" id="sendHourCard" style="display:none;">
         <h2>Send Time</h2>
         <p class="sub">Choose the hour window when daily dues reminders and birthday greetings go out. Changing this immediately reschedules both — no need to touch Apps Script.</p>
@@ -2249,6 +2344,7 @@ input:checked + #studioSection .slider-toggle::before{transform:translateX(19px)
 <nav class="mobile-bottom-nav lg:hidden" id="mobileBottomNav">
   <div class="mobile-nav-item active" data-nav="dues" onclick="scrollToSection('dues')"><span class="ico">📊</span>Premium Due Reminders</div>
   <div class="mobile-nav-item" data-nav="birthday" onclick="scrollToSection('birthday')"><span class="ico">🎂</span>Birthdays</div>
+  <div class="mobile-nav-item" data-nav="anniversary" onclick="scrollToSection('anniversary')"><span class="ico">🎉</span>Anniversaries</div>
   <div class="mobile-nav-item" data-nav="upload" onclick="scrollToSection('upload')"><span class="ico">📤</span>Upload</div>
   <div class="mobile-nav-item" data-nav="clients" onclick="scrollToSection('clients')"><span class="ico">👥</span>Clients</div>
   <div class="mobile-nav-item" data-nav="broadcast" onclick="scrollToSection('broadcast')"><span class="ico">📣</span>Broadcast</div>
@@ -2490,10 +2586,11 @@ input:checked + #studioSection .slider-toggle::before{transform:translateX(19px)
 let currentPage = 'dues';
 
 function showPage(pageName){
-  if (pageName !== 'dues' && pageName !== 'birthday' && pageName !== 'clients' && pageName !== 'broadcast') return;
+  if (pageName !== 'dues' && pageName !== 'birthday' && pageName !== 'anniversary' && pageName !== 'clients' && pageName !== 'broadcast') return;
   currentPage = pageName;
   document.getElementById('page-dues').style.display = (pageName === 'dues') ? '' : 'none';
   document.getElementById('page-birthday').style.display = (pageName === 'birthday') ? '' : 'none';
+  document.getElementById('page-anniversary').style.display = (pageName === 'anniversary') ? '' : 'none';
   document.getElementById('page-clients').style.display = (pageName === 'clients') ? '' : 'none';
   document.getElementById('page-broadcast').style.display = (pageName === 'broadcast') ? '' : 'none';
   // Settings isn't one of the switchable pages, but it must never sit
@@ -2515,6 +2612,8 @@ function showPage(pageName){
 
   const titles = pageName === 'birthday'
     ? { line1: 'Client Birthday', line2: 'Greetings', full: 'Client Birthday Greetings' }
+    : pageName === 'anniversary'
+    ? { line1: 'Policy Anniversary', line2: 'Greeter', full: 'Policy Anniversary Greeter' }
     : pageName === 'clients'
     ? { line1: 'Manage Your', line2: 'Clients', full: 'Manage Your Clients' }
     : pageName === 'broadcast'
@@ -2546,6 +2645,7 @@ function showPage(pageName){
 function openSettingsPage(){
   document.getElementById('page-dues').style.display = 'none';
   document.getElementById('page-birthday').style.display = 'none';
+  document.getElementById('page-anniversary').style.display = 'none';
   document.getElementById('page-clients').style.display = 'none';
   document.getElementById('page-broadcast').style.display = 'none';
   document.getElementById('settingsSection').style.display = '';
@@ -2565,7 +2665,7 @@ function openSettingsPage(){
 
 function scrollToSection(name){
   // Full page switches
-  if (name === 'dues' || name === 'birthday' || name === 'clients' || name === 'broadcast'){
+  if (name === 'dues' || name === 'birthday' || name === 'anniversary' || name === 'clients' || name === 'broadcast'){
     showPage(name);
     window.scrollTo({ top:0, behavior:'smooth' });
     document.querySelectorAll('.sidebar-link, .mobile-nav-item').forEach(el => el.classList.remove('active'));
@@ -3306,6 +3406,7 @@ function populateBrandingFields(config){
   el('brandContactEmail').value = config.contactEmail || '';
   el('brandConnectLink').value = config.connectLink || '';
   el('brandPayLink').value = config.payLink || '';
+  el('brandReviewLink').value = config.reviewLink || '';
   el('headerImgStatus').textContent = config.headerImageFileId ? '\u2713 Photo uploaded' : '';
   el('footerImgStatus').textContent = config.footerImageFileId ? '\u2713 Photo uploaded' : '';
   if (config.headerImageFileId) el('headerImgDrop').classList.add('has-file');
@@ -3333,7 +3434,8 @@ function hideStatus(id){ el(id).className = 'status'; }
 // nothing. This is now explicit and always shows, no guessing.
 function showSettingsCards(){
   ['configCard','brandingCard','sendHourCard','headerFooterStudioCard','duesPreviewCard',
-   'duesTestEmailCard','birthdayPreviewCard','birthdayTestEmailCard','personalLinkCard'
+   'duesTestEmailCard','birthdayPreviewCard','birthdayTestEmailCard',
+   'anniversaryPreviewCard','anniversaryTestEmailCard','personalLinkCard'
   ].forEach(id => {
     const node = el(id);
     if (node) node.style.display = 'block';
@@ -5042,7 +5144,8 @@ el('saveBranding').addEventListener('click', async () => {
     senderName: el('brandSenderName').value.trim(),
     contactEmail: el('brandContactEmail').value.trim(),
     connectLink: el('brandConnectLink').value.trim(),
-    payLink: el('brandPayLink').value.trim()
+    payLink: el('brandPayLink').value.trim(),
+    reviewLink: el('brandReviewLink').value.trim()
   };
   try{
     await callBackend({ action:'saveConfig', config });
@@ -6049,6 +6152,177 @@ loadBirthdaysToday();
 loadBirthdayStats();
 
 /* ============================================================
+   POLICY ANNIVERSARY GREETER — mirrors the birthday block above
+   exactly in shape, but reads from the Dues Tracker (Issued Date)
+   instead of a separate sheet.
+   ============================================================ */
+async function fetchAnniversariesToday(){
+  const url = getScriptUrl();
+  if (!url) return null;
+  const res = await fetch(url + '?action=getAnniversariesToday');
+  const data = await res.json();
+  return data.rows || [];
+}
+
+async function loadAnniversariesToday(){
+  const sub = el('anniversariesTodaySub');
+  const list = el('anniversariesTodayList');
+  sub.textContent = 'Checking your Dues Tracker for Issued Dates matching today\u2026';
+  list.innerHTML = '';
+  try{
+    const rows = await fetchAnniversariesToday();
+    if (rows === null){
+      sub.textContent = 'No Apps Script URL configured yet.';
+      return;
+    }
+    if (rows.length === 0){
+      sub.textContent = 'No policy anniversaries today.';
+      list.innerHTML = '<div class="due-empty">All clear — check back tomorrow.</div>';
+      return;
+    }
+    sub.textContent = rows.length + ' anniversary' + (rows.length===1?'':'s') + ' today:';
+    list.innerHTML = rows.map(r => {
+      const sentBadge = r.lastAnniversarySent ? '<div class="sent-badge">GREETING SENT</div>' : '';
+      return '<div class="due-item">'
+        + '<div class="due-field"><span class="label">NAME</span><span class="value">' + escapeHtml(r.clientName) + '</span></div>'
+        + '<div class="due-field"><span class="label">EMAIL</span><span class="value">' + escapeHtml(r.email) + '</span></div>'
+        + '<div class="due-field"><span class="label">PRODUCT</span><span class="value">' + escapeHtml(r.product || '\u2013') + '</span></div>'
+        + '<div class="due-field"><span class="label">ISSUED</span><span class="value">' + escapeHtml(r.issuedDateFormatted) + '</span></div>'
+        + '<div class="due-field"><span class="label">MILESTONE</span><span class="value">' + escapeHtml(r.yearsLabel) + '</span></div>'
+        + sentBadge
+        + '</div>';
+    }).join('');
+  }catch(e){
+    sub.textContent = 'Could not load (check Setup URL).';
+  }
+}
+
+el('refreshAnniversariesToday').addEventListener('click', loadAnniversariesToday);
+
+el('toggleAnniversariesToday').addEventListener('click', () => {
+  const body = el('anniversariesTodayBody');
+  const btn = el('toggleAnniversariesToday');
+  const collapsed = body.classList.toggle('collapsed');
+  btn.classList.toggle('collapsed', collapsed);
+});
+
+async function loadAnniversaryStats(){
+  const url = getScriptUrl();
+  if (!url){
+    el('annivStatSent').textContent = '\u2013';
+    el('annivStatFailed').textContent = '\u2013';
+    el('annivStatToday').textContent = '\u2013';
+    el('annivStatTomorrow').textContent = '\u2013';
+    return;
+  }
+  try{
+    const res = await fetch(url + '?action=getAnniversaryDailyStats');
+    const data = await res.json();
+    el('annivStatSent').textContent = data.sent ?? 0;
+    el('annivStatFailed').textContent = data.failed ?? 0;
+    el('annivStatToday').textContent = data.anniversariesToday ?? 0;
+    el('annivStatTomorrow').textContent = data.anniversariesTomorrow ?? 0;
+  }catch(e){
+    el('annivStatSent').textContent = '\u2013';
+    el('annivStatFailed').textContent = '\u2013';
+    el('annivStatToday').textContent = '\u2013';
+    el('annivStatTomorrow').textContent = '\u2013';
+  }
+}
+
+el('refreshAnniversaryStats').addEventListener('click', loadAnniversaryStats);
+
+(function attachAnniversaryLastUpdatedTracking(){
+  let lastUpdatedAt = null;
+  const originalLoadAnniversaryStats = loadAnniversaryStats;
+  loadAnniversaryStats = async function(){
+    await originalLoadAnniversaryStats();
+    lastUpdatedAt = Date.now();
+    render();
+  };
+  document.getElementById('refreshAnniversaryStats').addEventListener('click', loadAnniversaryStats);
+
+  function render(){
+    if (lastUpdatedAt === null) return;
+    const secs = Math.round((Date.now() - lastUpdatedAt) / 1000);
+    let text;
+    if (secs < 5) text = 'Last updated: just now';
+    else if (secs < 60) text = 'Last updated: ' + secs + 's ago';
+    else text = 'Last updated: ' + Math.round(secs/60) + ' min' + (Math.round(secs/60)===1?'':'s') + ' ago';
+    const a = document.getElementById('anniversaryStatsUpdatedAt');
+    if (a) a.textContent = text;
+  }
+  setInterval(render, 5000);
+  lastUpdatedAt = Date.now();
+  render();
+})();
+
+(function attachAnniversaryAutoSendSwitch(){
+  const track = document.querySelector('#anniversaryAutoSendToggle .theme-switch-track');
+  const statusText = document.getElementById('anniversaryAutoSendStatusText');
+
+  function render(enabled){
+    track.classList.toggle('is-on', enabled);
+    statusText.textContent = enabled
+      ? 'Greetings are sending automatically.'
+      : 'Paused — no greetings will be sent.';
+  }
+
+  async function loadStatus(){
+    const url = getScriptUrl();
+    if (!url){ statusText.textContent = 'No Apps Script URL configured yet.'; return; }
+    try{
+      const res = await fetch(url + '?action=getAnniversaryAutoSendStatus');
+      const data = await res.json();
+      render(data.enabled !== false);
+    }catch(e){
+      statusText.textContent = 'Could not check status.';
+    }
+  }
+
+  document.getElementById('anniversaryAutoSendToggle').addEventListener('click', async () => {
+    const currentlyOn = track.classList.contains('is-on');
+    if (currentlyOn){
+      const confirmed = confirm('Turn OFF automatic policy anniversary greetings? No emails will be sent to clients until you turn this back on.');
+      if (!confirmed) return;
+    }
+    const newState = !currentlyOn;
+    try{
+      await callBackend({ action:'setAnniversaryAutoSendStatus', enabled: newState });
+      render(newState);
+      showToast(newState ? 'Automatic anniversary greetings resumed.' : 'Automatic anniversary greetings paused.');
+    }catch(e){
+      showToast('Could not update: ' + e.message);
+    }
+  });
+
+  document.getElementById('saveScriptUrl').addEventListener('click', loadStatus);
+  loadStatus();
+})();
+
+el('sendAnniversaryTestEmailBtn').addEventListener('click', async () => {
+  const btn = el('sendAnniversaryTestEmailBtn');
+  btn.disabled = true;
+  btn.textContent = 'SENDING\u2026';
+  try{
+    const result = await callBackend({ action: 'sendAnniversaryTestEmail' });
+    if (result && result.success){
+      showToast('Test anniversary email sent to ' + (result.sentTo || 'your inbox') + '!');
+    } else {
+      showToast(result && result.error ? result.error : 'Could not send test email.');
+    }
+  }catch(err){
+    showToast('Could not send test email. Check your connection and try again.');
+  }finally{
+    btn.disabled = false;
+    btn.textContent = 'SEND TEST EMAIL';
+  }
+});
+
+loadAnniversariesToday();
+loadAnniversaryStats();
+
+/* ============================================================
    PREVIEW BIRTHDAY EMAIL — separate from the dues preview
    (which only ever built the dues template). Reuses
    ensurePreviewImage() from the original script to pull the
@@ -6101,6 +6375,69 @@ el('previewBirthdayEmailBtn').addEventListener('click', async () => {
   }finally{
     el('previewBirthdayEmailBtn').disabled = false;
     el('previewBirthdayEmailBtn').textContent = 'PREVIEW BIRTHDAY EMAIL';
+  }
+});
+
+// Deliberately no "Pay Online" block here, matching the real send-side
+// template — an anniversary invites a review conversation, not a
+// payment. Both CTAs are shown only if their link is actually set,
+// same convention as the Connect block elsewhere.
+function buildAnniversaryPreviewEmailHtml(headerSrc, footerSrc){
+  const reviewLink = el('brandReviewLink').value.trim();
+  const connectLink = el('brandConnectLink').value.trim();
+  const greetingName = 'Aaron';
+  const years = 5;
+  const yearsLabel = years + 'th'; // sample preview always uses the 5th-anniversary wording
+
+  const headerHtml = headerSrc
+    ? '<img src="' + headerSrc + '" alt="Header" style="width:100%;display:block;">'
+    : '<div class="preview-img-slot">No header photo uploaded yet</div>';
+  const footerHtml = footerSrc
+    ? '<img src="' + footerSrc + '" alt="Footer" style="width:100%;display:block;">'
+    : '<div class="preview-img-slot">No footer photo uploaded yet</div>';
+  const reviewBlock = reviewLink
+    ? ('    <div style="text-align:center;margin:18px 0 6px;">'
+      + '      <a href="' + reviewLink + '" style="display:inline-block;background:#0C447C;color:#FFFFFF;text-decoration:none;padding:14px 30px;border-radius:8px;font-weight:700;font-size:14px;letter-spacing:.5px;">SCHEDULE A 15-MIN POLICY REVIEW</a>'
+      + '    </div>')
+    : '';
+  const connectBlock = connectLink
+    ? ('    <div style="text-align:center;margin:10px 0 6px;">'
+      + '      <a href="' + connectLink + '" style="display:inline-block;background:#C99A3B;color:#FFFFFF;text-decoration:none;padding:14px 30px;border-radius:8px;font-weight:700;font-size:14px;letter-spacing:.5px;">CONNECT WITH ME</a>'
+      + '    </div>')
+    : '';
+
+  return ''
+    + '<div class="preview-wrap">'
+    + headerHtml
+    + '  <div style="padding:24px;background:#FDF8F0;color:#1C2A38;text-align:center;">'
+    + '    <p style="font-size:18px;font-weight:700;color:#0C447C;margin:0 0 10px;">Happy ' + yearsLabel + ' Policy Anniversary, ' + greetingName + '! \uD83C\uDF89</p>'
+    + '    <p style="font-size:14px;">' + years + ' years ago, you took a step toward protecting what matters most. I\u2019ve been honored to walk that journey with you since, and I\u2019m grateful for your continued trust.</p>'
+    + '    <p style="font-size:14px;">A policy anniversary is also a great moment to check that your coverage still fits your life today. If you\u2019d like, let\u2019s take 15 minutes to go over it together.</p>'
+    + reviewBlock
+    + connectBlock
+    + '    <p style="margin-top:20px;text-align:left;">Warm regards,</p>'
+    + '  </div>'
+    + footerHtml
+    + '</div>';
+}
+
+el('previewAnniversaryEmailBtn').addEventListener('click', async () => {
+  el('previewAnniversaryEmailBtn').disabled = true;
+  el('previewAnniversaryEmailBtn').textContent = 'LOADING\u2026';
+  try{
+    const [headerSrc, footerSrc] = await Promise.all([
+      ensurePreviewImage('header'),
+      ensurePreviewImage('footer')
+    ]);
+    const senderName = el('brandSenderName').value.trim() || '(sender name not set)';
+    el('anniversaryPreviewMeta').innerHTML =
+      'From: ' + senderName + '<br>' +
+      'Subject: HAPPY POLICY ANNIVERSARY!';
+    el('anniversaryPreviewEmailBody').innerHTML = buildAnniversaryPreviewEmailHtml(headerSrc, footerSrc);
+    el('anniversaryEmailPreviewContainer').style.display = 'block';
+  }finally{
+    el('previewAnniversaryEmailBtn').disabled = false;
+    el('previewAnniversaryEmailBtn').textContent = 'PREVIEW ANNIVERSARY EMAIL';
   }
 });
 
