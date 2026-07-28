@@ -1129,6 +1129,12 @@ input:checked + #studioSection .slider-toggle::before{transform:translateX(19px)
     cursor: pointer;
   }
   .bc-picker-row:active{ background: rgba(201,154,59,.08); }
+  .bc-picker-row-disabled{
+    cursor: default;
+    opacity: 0.5;
+    background: #F3F4F6;
+  }
+  .bc-picker-row-disabled:active{ background: #F3F4F6; }
   .bc-picker-checkbox{
     width: 20px; height: 20px; flex: 0 0 auto;
     border: 1.5px solid var(--line, #E4DCC8);
@@ -3990,6 +3996,42 @@ function deduplicateClientsByEmail(clients){
   return result;
 }
 let bcSelectedEmails = new Set(); // currently selected recipient emails
+let bcAlreadySentEmails = new Set(); // emails that already received the CURRENT subject — refreshed whenever the subject field changes
+
+// Checks who has already received a broadcast with the exact current
+// subject line, so the picker can grey those rows out instead of
+// risking an accidental duplicate send to them. Re-renders the picker
+// in place if it's already open when this resolves.
+async function refreshAlreadySentForCurrentSubject(){
+  const url = getScriptUrl();
+  const subject = el('broadcastSubject').value.trim();
+  if (!url || !subject){
+    bcAlreadySentEmails = new Set();
+    if (el('bcPickerOverlay').style.display === 'flex') renderPickerList(currentFilteredClients());
+    return;
+  }
+  try{
+    const res = await fetch(url + '?action=getSentEmailsForSubject&subject=' + encodeURIComponent(subject));
+    const data = await res.json();
+    bcAlreadySentEmails = new Set((data.emails || []).map(e => e.toLowerCase()));
+  }catch(e){
+    // A failed check shouldn't block sending — just means the
+    // "already sent" greying-out won't be available for this attempt.
+    bcAlreadySentEmails = new Set();
+  }
+  if (el('bcPickerOverlay').style.display === 'flex'){
+    renderPickerList(currentFilteredClients());
+  }
+}
+
+// Debounced so this isn't firing a network request on every keystroke
+// while someone's still typing the subject line.
+let bcSubjectCheckTimer = null;
+el('broadcastSubject').addEventListener('input', () => {
+  clearTimeout(bcSubjectCheckTimer);
+  bcSubjectCheckTimer = setTimeout(refreshAlreadySentForCurrentSubject, 500);
+});
+
 let bcSortField = 'fundValue';    // 'fundValue' | 'product' | 'clientName' | 'dueDate'
 
 const BC_SORT_LABELS = {
@@ -4021,6 +4063,7 @@ el('bcChooseRecipientsBtn').addEventListener('click', async () => {
       el('bcChooseRecipientsBtn').disabled = false;
       el('bcChooseRecipientsBtn').textContent = 'CHOOSE RECIPIENTS';
       openedFromCache = true;
+      refreshAlreadySentForCurrentSubject();
     }
   }catch(e){ /* corrupted cache, fall through to the live-only path below */ }
 
@@ -4061,6 +4104,7 @@ el('bcChooseRecipientsBtn').addEventListener('click', async () => {
       populatePlanFilterOptions();
       renderPickerList(currentFilteredClients());
       el('bcPickerOverlay').style.display = 'flex';
+      refreshAlreadySentForCurrentSubject();
     }
   }catch(err){
     if (!openedFromCache){
@@ -4196,6 +4240,7 @@ function renderPickerList(clients){
   }
   container.innerHTML = clients.map(c => {
     const checked = bcSelectedEmails.has(c.email);
+    const alreadySent = bcAlreadySentEmails.has((c.email || '').toLowerCase());
     const value = formatPickerRowValue(c, bcSortField);
     const isLapsed = isLapsedStatus(c.policyStatus);
     const lapsedBadge = isLapsed
@@ -4207,12 +4252,19 @@ function renderPickerList(clients){
     const lapsedDateNote = (isLapsed && c.lapseDate)
       ? '<span style="color:#9CA3AF; font-size:10.5px; margin-right:6px;">Lapsed ' + formatDateDisplay(c.lapseDate) + '</span>'
       : '';
+    // Already received THIS exact subject before (see bcAlreadySentEmails,
+    // refreshed whenever the subject field changes) — still shown, so it's
+    // obvious who's excluded and why, but greyed out and not clickable so
+    // re-running a campaign can't accidentally double-send to them.
+    const alreadySentBadge = alreadySent
+      ? '<span style="display:inline-block;background:#9CA3AF;color:#fff;font-size:9px;font-weight:700;padding:1px 6px;border-radius:100px;letter-spacing:.3px;margin-right:6px;vertical-align:middle;">ALREADY SENT</span>'
+      : '';
     return `
-      <div class="bc-picker-row${checked ? ' checked' : ''}" data-email="${escapeHtml(c.email)}">
+      <div class="bc-picker-row${checked ? ' checked' : ''}${alreadySent ? ' bc-picker-row-disabled' : ''}" data-email="${escapeHtml(c.email)}" ${alreadySent ? 'title="Already received this exact subject \u2014 change the subject to include them again."' : ''}>
         <div class="bc-picker-checkbox">${checked ? '\u2713' : ''}</div>
         <div class="bc-picker-info">
           <div class="bc-picker-name">${escapeHtml(c.clientName || c.email)}</div>
-          <div class="bc-picker-meta">${lapsedBadge}${lapsedDateNote}${escapeHtml(c.email)}${bcSortField !== 'product' && c.product ? ' \u00b7 ' + escapeHtml(c.product) : ''}</div>
+          <div class="bc-picker-meta">${alreadySentBadge}${lapsedBadge}${lapsedDateNote}${escapeHtml(c.email)}${bcSortField !== 'product' && c.product ? ' \u00b7 ' + escapeHtml(c.product) : ''}</div>
         </div>
         <div class="bc-picker-amount">${value}</div>
       </div>
@@ -4220,6 +4272,7 @@ function renderPickerList(clients){
   }).join('');
 
   container.querySelectorAll('.bc-picker-row').forEach(row => {
+    if (row.classList.contains('bc-picker-row-disabled')) return; // already sent this subject — not selectable
     row.addEventListener('click', () => {
       const email = row.dataset.email;
       if (bcSelectedEmails.has(email)) bcSelectedEmails.delete(email);
@@ -5233,6 +5286,19 @@ async function runBroadcastSend(recipients, subject, body, useTemplate, resumeFr
       updateResumeSendButton();
     } else {
       let msg = 'Done \u2014 sent to ' + totalSent + ' of ' + totalOriginalCount + ' clients';
+      // A daily-quota failure is fundamentally different from a bad
+      // email address or an oversized attachment — it's not that this
+      // particular recipient can't receive the email, it's that Gmail
+      // won't let ANY more go out today. That makes it retryable
+      // tomorrow, not a permanent failure, so it needs to feed into
+      // bcResumableSend the same way a stopped/interrupted send does —
+      // otherwise "CONTINUE SENDING" never appears, and the only way
+      // to actually finish the job is to manually reselect everyone
+      // and remember which ones already succeeded.
+      const isQuotaFailure = (reason) => /daily sending (limit|quota)/i.test(reason || '');
+      const quotaFailedEmails = new Set(
+        allFailureReasons.filter(f => isQuotaFailure(f.reason)).map(f => f.email)
+      );
       if (totalFailed > 0){
         // Show up to 3 concrete reasons instead of a generic "check their
         // email addresses" — the real cause (bad address, attachment too
@@ -5245,8 +5311,28 @@ async function runBroadcastSend(recipients, subject, body, useTemplate, resumeFr
       } else {
         msg += '.';
       }
-      showStatus('broadcastStatus', totalFailed > 0 ? 'error' : 'success', msg);
-      bcResumableSend = null; // fully accounted for — nothing left to resume
+      if (quotaFailedEmails.size > 0){
+        const remainingRows = rows.filter(r => quotaFailedEmails.has(r.email));
+        // Only the quota-blocked rows go back into the retry queue —
+        // anyone who failed for a real, permanent reason (bad address,
+        // attachment too large) is left out on purpose, since resending
+        // to them again tomorrow would just fail the same way.
+        const permanentFailures = allFailureReasons.filter(f => !isQuotaFailure(f.reason));
+        bcResumableSend = {
+          subject: subject,
+          body: body,
+          useTemplate: useTemplate,
+          remainingRows: remainingRows,
+          alreadySentEmails: (resumeFrom ? resumeFrom.alreadySentEmails : []).concat(sentEmailsThisRun),
+          alreadyFailedReasons: permanentFailures
+        };
+        msg += ' Gmail\u2019s daily sending limit was reached \u2014 tap "CONTINUE SENDING" below once it resets (usually the next day) to finish the remaining ' + remainingRows.length + '. No one who already received it will get a duplicate.';
+        showStatus('broadcastStatus', 'error', msg);
+        updateResumeSendButton();
+      } else {
+        showStatus('broadcastStatus', totalFailed > 0 ? 'error' : 'success', msg);
+        bcResumableSend = null; // fully accounted for — nothing left to resume
+      }
     }
   }catch(err){
     const isLikelyNetworkFailure = /load failed|failed to fetch|network ?error/i.test(err.message || '');
