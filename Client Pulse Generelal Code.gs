@@ -6,7 +6,7 @@
  */
 
 const SHEET_NAME = 'Dues Tracker';
-const HEADERS = ['Policy Number','Client Name','Email','Product','Premium Mode','Premium Amount','Fund Value','Due Date','Policy Status','Last Reminder Sent','Send Dues?','Lapse Date','Issued Date'];
+const HEADERS = ['Policy Number','Client Name','Email','Product','Premium Mode','Premium Amount','Fund Value','Due Date','Policy Status','Last Reminder Sent','Send Dues?','Lapse Date','Issued Date','Last Anniversary Sent (Year)','Send Anniversary?'];
 
 const BIRTHDAY_SHEET_NAME = 'Birthday Tracker';
 const BIRTHDAY_HEADERS = ['Full Name','Email','Contact Number','Location','Date of Birth','Last Greeting Sent (Year)','Send Birthday?'];
@@ -33,7 +33,8 @@ const CONFIG_DEFAULTS = {
   headerImageFileId: '',
   footerImageFileId: '',
   connectLink: '',
-  payLink: ''
+  payLink: '',
+  reviewLink: ''
 };
 const CONFIG_KEYS = Object.keys(CONFIG_DEFAULTS);
 
@@ -498,6 +499,20 @@ function setupSheet(){
       const lastCol = sheet.getLastColumn() + 1;
       sheet.getRange(1, lastCol).setValue('Issued Date');
     }
+    const headersAfterIssuedDate = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+    if (!headersAfterIssuedDate.includes('Last Anniversary Sent (Year)')){
+      const lastCol = sheet.getLastColumn() + 1;
+      sheet.getRange(1, lastCol).setValue('Last Anniversary Sent (Year)');
+    }
+    const headersAfterAnniversarySent = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+    if (!headersAfterAnniversarySent.includes('Send Anniversary?')){
+      const lastCol = sheet.getLastColumn() + 1;
+      sheet.getRange(1, lastCol).setValue('Send Anniversary?');
+      // Default existing rows to included, same convention as Send Dues?
+      for (let i = 2; i <= sheet.getLastRow(); i++){
+        sheet.getRange(i, lastCol).setValue(true);
+      }
+    }
   }
   const policyColIndex = HEADERS.indexOf('Policy Number') + 1;
   sheet.getRange(1, policyColIndex, sheet.getMaxRows(), 1).setNumberFormat('@');
@@ -591,6 +606,7 @@ function setSendHour(hour){
   PropertiesService.getScriptProperties().setProperty('SEND_HOUR', String(hour));
   createDailyTrigger(hour);
   createBirthdayDailyTrigger(hour);
+  createAnniversaryDailyTrigger(hour);
   createInactivityPurgeTrigger();
   return { hour: hour };
 }
@@ -782,6 +798,9 @@ function doGet(e){
   if (action === 'getBirthdaysToday')         return jsonResponse({ rows: getBirthdaysTodayRows() });
   if (action === 'getBirthdayDailyStats')     return jsonResponse(getBirthdayDailyStats());
   if (action === 'getBirthdayAutoSendStatus') return jsonResponse(getBirthdayAutoSendStatus());
+  if (action === 'getAnniversariesToday')     return jsonResponse({ rows: getPolicyAnniversariesTodayRows() });
+  if (action === 'getAnniversaryDailyStats')  return jsonResponse(getAnniversaryDailyStats());
+  if (action === 'getAnniversaryAutoSendStatus') return jsonResponse(getAnniversaryAutoSendStatus());
   if (action === 'getSendHour')               return jsonResponse(getSendHour());
   if (action === 'diagnoseTemplateSize')      return jsonResponse(diagnoseTemplateSize());
   if (action === 'getScheduledBroadcasts')    return jsonResponse({ schedules: getScheduledBroadcasts() });
@@ -866,6 +885,7 @@ function doPost(e){
 
   if (body.action === 'setDuesPreference')      return jsonResponse(setDuesPreference(body.policyNumber, body.enabled));
   if (body.action === 'setBirthdayPreference')  return jsonResponse(setBirthdayPreference(body.email, body.enabled));
+  if (body.action === 'setAnniversaryPreference') return jsonResponse(setAnniversaryPreference(body.policyNumber, body.enabled));
   if (body.action === 'saveConfig')             { saveBrandConfig(body.config || {}); return jsonResponse({ success: true }); }
   if (body.action === 'uploadImage')            { const fileId = uploadBrandImage(body.target, body.base64, body.mimeType); return jsonResponse({ success: true, fileId: fileId }); }
   if (body.action === 'saveAdvisorName')        { saveAdvisorName(body.name || ''); return jsonResponse({ success: true }); }
@@ -874,9 +894,11 @@ function doPost(e){
   if (body.action === 'pushDues')               { const result = pushDuesRows(body.rows || []); return jsonResponse(Object.assign({ success: true }, result)); }
   if (body.action === 'pushBirthdays')          { const result = pushBirthdayRows(body.rows || []); return jsonResponse(Object.assign({ success: true }, result)); }
   if (body.action === 'setBirthdayAutoSendStatus') { setBirthdayAutoSendStatus(!!body.enabled); return jsonResponse({ success: true }); }
+  if (body.action === 'setAnniversaryAutoSendStatus') { setAnniversaryAutoSendStatus(!!body.enabled); return jsonResponse({ success: true }); }
   if (body.action === 'setSendHour')            { const result = setSendHour(body.hour); return jsonResponse(Object.assign({ success: true }, result)); }
   if (body.action === 'sendDuesTestEmail')      { try{ return jsonResponse(sendDuesTestEmailToSelf()); }catch(err){ return jsonResponse({ success: false, error: toEnglishErrorMessage(err.message) }); } }
   if (body.action === 'sendBirthdayTestEmail')  { try{ return jsonResponse(sendBirthdayTestEmailToSelf()); }catch(err){ return jsonResponse({ success: false, error: toEnglishErrorMessage(err.message) }); } }
+  if (body.action === 'sendAnniversaryTestEmail') { try{ return jsonResponse(sendAnniversaryTestEmailToSelf()); }catch(err){ return jsonResponse({ success: false, error: toEnglishErrorMessage(err.message) }); } }
   if (body.action === 'sendBroadcastBatch')     { try{ return jsonResponse(Object.assign({ success: true }, sendBroadcastEmailBatch(body.rows || [], body.subject || '', body.htmlBody || '', body.attachments || [], body.useTemplate))); }catch(err){ return jsonResponse({ success: false, error: toEnglishErrorMessage(err.message) }); } }
   if (body.action === 'scheduleBroadcast')      { try{ return jsonResponse(scheduleBroadcast(body.scheduledFor, body.payload)); }catch(err){ return jsonResponse({ success: false, error: toEnglishErrorMessage(err.message) }); } }
   if (body.action === 'cancelScheduledBroadcast') { try{ return jsonResponse(cancelScheduledBroadcast(body.scheduleId)); }catch(err){ return jsonResponse({ success: false, error: toEnglishErrorMessage(err.message) }); } }
@@ -1332,6 +1354,262 @@ function sendBirthdayEmail(row, col){
   }
   sendWithOptionalFromAlias(email, subject, options, config.contactEmail);
   return true;
+}
+
+/* ============================================================
+   POLICY ANNIVERSARY GREETER
+   ------------------------------------------------------------
+   Reuses the existing Dues Tracker sheet (Issued Date is already
+   a column there) rather than a separate tracker — a policy
+   anniversary is just "today's month/day matches Issued Date",
+   the same shape as a birthday but keyed off the policy instead
+   of the person. "Send Anniversary?" is its own independent
+   toggle per row (like "Send Dues?"), so an advisor can turn
+   anniversary greetings off for a client without touching their
+   due reminders.
+   ============================================================ */
+
+function assertConfiguredForAnniversary(config){
+  const required = ['senderName','headerImageFileId','footerImageFileId'];
+  const missing = required.filter(key => !config[key]);
+  if (missing.length > 0){
+    throw new Error(
+      'Branding not set up yet. Open the app, tap "Setup", fill in ' +
+      '"Your branding" (missing: ' + missing.join(', ') + '), and tap ' +
+      'SAVE BRANDING before anniversary greetings can be sent.'
+    );
+  }
+}
+
+// e.g. 1 -> "1st", 2 -> "2nd", 3 -> "3rd", 4 -> "4th", 11-13 -> "th"
+function ordinalSuffix(n){
+  const rem100 = n % 100;
+  if (rem100 >= 11 && rem100 <= 13) return 'th';
+  switch (n % 10){
+    case 1: return 'st';
+    case 2: return 'nd';
+    case 3: return 'rd';
+    default: return 'th';
+  }
+}
+
+function getPolicyAnniversariesTodayRows(){
+  setupSheet();
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_NAME);
+  if (!sheet) return [];
+  const data = sheet.getDataRange().getValues();
+  const headers = data[0];
+  const col = name => headers.indexOf(name);
+  const tz = Session.getScriptTimeZone();
+  const today = new Date();
+  const todayMonth = today.getMonth(), todayDay = today.getDate();
+  const currentYear = today.getFullYear();
+  const currentYearStr = String(currentYear);
+  const result = [];
+  for (let i = 1; i < data.length; i++){
+    const row = data[i];
+    const issuedDate = row[col('Issued Date')];
+    if (!(issuedDate instanceof Date)) continue;
+    if (issuedDate.getMonth() !== todayMonth || issuedDate.getDate() !== todayDay) continue;
+    const yearsCount = currentYear - issuedDate.getFullYear();
+    if (yearsCount <= 0) continue; // issued today this same year — not an anniversary yet
+    const lastSentYear = String(row[col('Last Anniversary Sent (Year)')] || '');
+    const wasSentThisYear = lastSentYear === currentYearStr;
+    result.push({
+      policyNumber: row[col('Policy Number')],
+      clientName: row[col('Client Name')],
+      email: row[col('Email')],
+      product: row[col('Product')],
+      issuedDateFormatted: Utilities.formatDate(issuedDate, tz, 'MMMM d, yyyy'),
+      years: yearsCount,
+      yearsLabel: yearsCount + ordinalSuffix(yearsCount) + ' Anniversary',
+      lastAnniversarySent: wasSentThisYear ? lastSentYear : ''
+    });
+  }
+  return result;
+}
+
+function countAnniversariesOnOffset(offsetDays){
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_NAME);
+  if (!sheet) return 0;
+  const data = sheet.getDataRange().getValues();
+  const headers = data[0];
+  const col = name => headers.indexOf(name);
+  const target = new Date();
+  target.setDate(target.getDate() + offsetDays);
+  const targetMonth = target.getMonth(), targetDay = target.getDate();
+  const targetYear = target.getFullYear();
+  let count = 0;
+  for (let i = 1; i < data.length; i++){
+    const issuedDate = data[i][col('Issued Date')];
+    if (!(issuedDate instanceof Date)) continue;
+    if (issuedDate.getMonth() === targetMonth && issuedDate.getDate() === targetDay && issuedDate.getFullYear() < targetYear) count++;
+  }
+  return count;
+}
+
+function getAnniversaryDailyStats(){
+  return {
+    sent: getDailyStat('ANNIV_STAT_SENT'),
+    failed: getDailyStat('ANNIV_STAT_FAILED'),
+    anniversariesToday: countAnniversariesOnOffset(0),
+    anniversariesTomorrow: countAnniversariesOnOffset(1)
+  };
+}
+
+function sendDailyAnniversaryGreetings(){
+  if (!getAnniversaryAutoSendStatus().enabled) return;
+  if (!isAdvisorActive()) return; // hard stop: past the inactivity deadline
+  setupSheet();
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_NAME);
+  if (!sheet) return;
+  const data = sheet.getDataRange().getValues();
+  const headers = data[0];
+  const col = name => headers.indexOf(name);
+  const today = new Date();
+  const todayMonth = today.getMonth(), todayDay = today.getDate();
+  const currentYear = today.getFullYear();
+  const currentYearStr = String(currentYear);
+  for (let i = 1; i < data.length; i++){
+    const row = data[i];
+    const sendAnniv = row[col('Send Anniversary?')];
+    if (sendAnniv === false || sendAnniv === 'FALSE' || sendAnniv === 0 || sendAnniv === '0') continue;
+    const issuedDate = row[col('Issued Date')];
+    if (!(issuedDate instanceof Date)) continue;
+    if (issuedDate.getMonth() !== todayMonth || issuedDate.getDate() !== todayDay) continue;
+    const yearsCount = currentYear - issuedDate.getFullYear();
+    if (yearsCount <= 0) continue;
+    const lastSentYear = String(row[col('Last Anniversary Sent (Year)')] || '');
+    if (lastSentYear === currentYearStr) continue;
+    let sent = false;
+    try{ sent = sendAnniversaryEmail(row, col, yearsCount); }
+    catch(err){ bumpDailyStat('ANNIV_STAT_FAILED'); continue; }
+    if (sent){
+      bumpDailyStat('ANNIV_STAT_SENT');
+      sheet.getRange(i + 1, col('Last Anniversary Sent (Year)') + 1).setValue(currentYearStr);
+    }
+  }
+}
+
+function sendAnniversaryEmail(row, col, years){
+  const email = row[col('Email')];
+  if (!email) return false;
+  const config = getBrandConfig();
+  assertConfiguredForAnniversary(config);
+  const clientName = row[col('Client Name')];
+  const subject = 'HAPPY POLICY ANNIVERSARY!';
+  const htmlBody = buildAnniversaryEmailHtml(clientName, years, config);
+
+  const options = {
+    htmlBody: htmlBody,
+    name: config.senderName,
+    inlineImages: getEmailImages(config)
+  };
+  if (config.contactEmail){
+    options.cc = config.contactEmail;
+    options.replyTo = config.contactEmail;
+  }
+  sendWithOptionalFromAlias(email, subject, options, config.contactEmail);
+  return true;
+}
+
+// Deliberately no "Pay Online" button here — an anniversary is a
+// relationship touchpoint, not a billing moment. The two CTAs instead
+// invite a review conversation (reviewLink) and general contact
+// (connectLink), each shown only if that link is actually configured.
+function buildAnniversaryEmailHtml(clientName, years, config){
+  const greetingName = firstNameOnly(clientName);
+  const yearsLabel = years + ordinalSuffix(years);
+
+  const reviewBlock = config.reviewLink
+    ? ('    <div style="text-align:center;margin:18px 0 6px;">'
+      + '      <a href="' + config.reviewLink + '" style="display:inline-block;background:#0C447C;color:#FFFFFF;text-decoration:none;padding:14px 30px;border-radius:8px;font-weight:700;font-size:14px;letter-spacing:.5px;">SCHEDULE A 15-MIN POLICY REVIEW</a>'
+      + '    </div>')
+    : '';
+  const connectBlock = config.connectLink
+    ? ('    <div style="text-align:center;margin:10px 0 6px;">'
+      + '      <a href="' + config.connectLink + '" style="display:inline-block;background:#C99A3B;color:#FFFFFF;text-decoration:none;padding:14px 30px;border-radius:8px;font-weight:700;font-size:14px;letter-spacing:.5px;">CONNECT WITH ME</a>'
+      + '    </div>')
+    : '';
+
+  return ''
+    + '<div style="font-family:Arial,sans-serif;max-width:480px;margin:0 auto;border:1px solid #E7DFCF;border-radius:10px;overflow:hidden;">'
+    + '  <img src="cid:headerImg" alt="Header" style="width:100%;display:block;">'
+    + '  <div style="padding:24px;background:#FDF8F0;color:#1C2A38;text-align:center;">'
+    + '    <p style="font-size:18px;font-weight:700;color:#0C447C;margin:0 0 10px;">Happy ' + yearsLabel + ' Policy Anniversary, ' + greetingName + '! &#127881;</p>'
+    + '    <p style="font-size:14px;">' + years + ' year' + (years === 1 ? '' : 's') + ' ago, you took a step toward protecting what matters most. I\u2019ve been honored to walk that journey with you since, and I\u2019m grateful for your continued trust.</p>'
+    + '    <p style="font-size:14px;">A policy anniversary is also a great moment to check that your coverage still fits your life today. If you\u2019d like, let\u2019s take 15 minutes to go over it together.</p>'
+    + reviewBlock
+    + connectBlock
+    + '    <p style="margin-top:20px;text-align:left;">Warm regards,</p>'
+    + '  </div>'
+    + '  <img src="cid:footerImg" alt="Footer" style="width:100%;display:block;">'
+    + '</div>';
+}
+
+function previewAnniversaryEmail(){
+  const myEmail = Session.getActiveUser().getEmail();
+  const config = getBrandConfig();
+  assertConfiguredForAnniversary(config);
+  const htmlBody = buildAnniversaryEmailHtml('Dela Cruz, Juan Miguel', 5, config);
+  GmailApp.sendEmail(myEmail, 'PREVIEW \u2013 HAPPY POLICY ANNIVERSARY', '', {
+    htmlBody: htmlBody,
+    name: config.senderName,
+    inlineImages: getEmailImages(config)
+  });
+}
+
+// Test email: sends to contactEmail if set, otherwise falls back to
+// the active user's email (works in the Apps Script editor context).
+function sendAnniversaryTestEmailToSelf(){
+  const config = getBrandConfig();
+  assertConfiguredForAnniversary(config);
+  const recipient = config.contactEmail;
+  if (!recipient) throw new Error('Please set a Contact Email in Your Branding first, then try the test email again.');
+  const htmlBody = buildAnniversaryEmailHtml('Dela Cruz, Juan Miguel', 5, config);
+  sendWithOptionalFromAlias(recipient, 'TEST \u2013 HAPPY POLICY ANNIVERSARY', {
+    htmlBody: htmlBody,
+    name: config.senderName,
+    inlineImages: getEmailImages(config)
+  }, config.contactEmail);
+  return { success: true, sentTo: recipient };
+}
+
+function getAnniversaryAutoSendStatus(){
+  const val = PropertiesService.getScriptProperties().getProperty('ANNIV_AUTO_SEND_ENABLED');
+  return { enabled: val === null ? true : val === '1' };
+}
+
+function setAnniversaryAutoSendStatus(enabled){
+  PropertiesService.getScriptProperties().setProperty('ANNIV_AUTO_SEND_ENABLED', enabled ? '1' : '0');
+}
+
+function createAnniversaryDailyTrigger(hour){
+  hour = hour !== undefined ? hour : getSendHour().hour;
+  ScriptApp.getProjectTriggers().forEach(t => {
+    if (t.getHandlerFunction() === 'sendDailyAnniversaryGreetings') ScriptApp.deleteTrigger(t);
+  });
+  ScriptApp.newTrigger('sendDailyAnniversaryGreetings')
+    .timeBased()
+    .everyDays(1)
+    .atHour(hour)
+    .create();
+}
+
+function setAnniversaryPreference(policyNumber, enabled){
+  setupSheet();
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_NAME);
+  const data = sheet.getDataRange().getValues();
+  const headers = data[0];
+  const policyCol = headers.indexOf('Policy Number');
+  const sendCol = headers.indexOf('Send Anniversary?');
+  for (let i = 1; i < data.length; i++){
+    if (String(data[i][policyCol]) === String(policyNumber)){
+      sheet.getRange(i + 1, sendCol + 1).setValue(enabled);
+      return { success: true };
+    }
+  }
+  return { success: false, error: 'Policy not found' };
 }
 
 /* ============================================================
