@@ -804,6 +804,7 @@ function doGet(e){
   if (action === 'getSendHour')               return jsonResponse(getSendHour());
   if (action === 'diagnoseTemplateSize')      return jsonResponse(diagnoseTemplateSize());
   if (action === 'getScheduledBroadcasts')    return jsonResponse({ schedules: getScheduledBroadcasts() });
+  if (action === 'getSentEmailsForSubject')   return getSentEmailsForSubject(e.parameter.subject || '');
   if (action === 'getDrafts')                 return jsonResponse({ drafts: getDrafts() });
   return jsonResponse({ error: 'Unknown action' });
 }
@@ -1369,6 +1370,17 @@ function sendBirthdayEmail(row, col){
    due reminders.
    ============================================================ */
 
+// Mirrors isLapsedStatus() in the frontend exactly — that one only ever
+// existed client-side, but the Policy Anniversary Greeter needs the
+// same check server-side to skip lapsed policies when sending. Kept
+// identical on purpose (same substring match, same case-folding) so
+// "lapsed" means the same thing everywhere in this app, not two
+// slightly different rules that could disagree on an edge case.
+function isLapsedStatus(policyStatus){
+  const s = String(policyStatus || '').toLowerCase();
+  return s.includes('lapsed') || s.includes('lapse');
+}
+
 function assertConfiguredForAnniversary(config){
   const required = ['senderName','headerImageFileId','footerImageFileId'];
   const missing = required.filter(key => !config[key]);
@@ -1411,6 +1423,14 @@ function getPolicyAnniversariesTodayRows(){
     const issuedDate = row[col('Issued Date')];
     if (!(issuedDate instanceof Date)) continue;
     if (issuedDate.getMonth() !== todayMonth || issuedDate.getDate() !== todayDay) continue;
+    // A lapsed policy isn't really something to celebrate — skip it
+    // entirely rather than greeting someone for a policy that's no
+    // longer active. Uses the same isLapsedStatus() check the rest of
+    // the app already relies on as the source of truth for "lapsed",
+    // not the Lapse Date column alone (a policy can carry an old Lapse
+    // Date value while its current Policy Status says otherwise, e.g.
+    // reinstated).
+    if (isLapsedStatus(row[col('Policy Status')])) continue;
     const yearsCount = currentYear - issuedDate.getFullYear();
     if (yearsCount <= 0) continue; // issued today this same year — not an anniversary yet
     const lastSentYear = String(row[col('Last Anniversary Sent (Year)')] || '');
@@ -1440,9 +1460,11 @@ function countAnniversariesOnOffset(offsetDays){
   const targetMonth = target.getMonth(), targetDay = target.getDate();
   const targetYear = target.getFullYear();
   let count = 0;
+  const statusCol = col('Policy Status');
   for (let i = 1; i < data.length; i++){
     const issuedDate = data[i][col('Issued Date')];
     if (!(issuedDate instanceof Date)) continue;
+    if (isLapsedStatus(data[i][statusCol])) continue; // keep this count consistent with the actual list/send logic
     if (issuedDate.getMonth() === targetMonth && issuedDate.getDate() === targetDay && issuedDate.getFullYear() < targetYear) count++;
   }
   return count;
@@ -1477,6 +1499,7 @@ function sendDailyAnniversaryGreetings(){
     const issuedDate = row[col('Issued Date')];
     if (!(issuedDate instanceof Date)) continue;
     if (issuedDate.getMonth() !== todayMonth || issuedDate.getDate() !== todayDay) continue;
+    if (isLapsedStatus(row[col('Policy Status')])) continue; // same rule as the display list — no greeting for a lapsed policy
     const yearsCount = currentYear - issuedDate.getFullYear();
     if (yearsCount <= 0) continue;
     const lastSentYear = String(row[col('Last Anniversary Sent (Year)')] || '');
@@ -1766,6 +1789,7 @@ function sendBroadcastEmailBatch(rows, subject, htmlBody, attachments, useTempla
 
   let sent = 0, failed = 0;
   const failedEmails = [];
+  const sentEmails = []; // used to log this send for the "already sent this subject" exclusion check
   const failureReasons = []; // { email, reason } — surfaced to the frontend so
                               // "1 failed" isn't a dead end with no explanation
   let quotaExhausted = false; // once true, every remaining row in this batch is marked failed without attempting to send
@@ -1818,6 +1842,7 @@ function sendBroadcastEmailBatch(rows, subject, htmlBody, attachments, useTempla
       }
       sendWithOptionalFromAlias(r.email, subject, options, config.contactEmail);
       sent++;
+      sentEmails.push(r.email);
     }catch(err){
       failed++;
       failedEmails.push(r.email);
@@ -1844,7 +1869,88 @@ function sendBroadcastEmailBatch(rows, subject, htmlBody, attachments, useTempla
     }
   });
 
+  if (sentEmails.length > 0){
+    try{ recordBroadcastSentTo(subject, sentEmails); }
+    catch(e){ /* logging failure should never block the actual send result from being returned */ }
+  }
+
   return { sent: sent, failed: failed, failedEmails: failedEmails, failureReasons: failureReasons, total: rows.length, quotaExhausted: quotaExhausted };
+}
+
+/* ============================================================
+   BROADCAST LOG — "already sent this subject" exclusion
+   ------------------------------------------------------------
+   Separate "Broadcast Log" tab, auto-created on first successful
+   send. Columns: Timestamp | Subject | Email — one row per
+   recipient per successful send (both immediate and scheduled
+   broadcasts funnel through sendBroadcastEmailBatch, so both are
+   covered by this same log automatically). Used by the recipient
+   picker to grey out anyone who already received THIS exact
+   subject, so re-running a campaign can't accidentally double-send
+   to someone who already got it — they still show in the list
+   (so it's obvious who's excluded and why), just can't be
+   selected.
+
+   Matching is by exact subject text after trimming and
+   case-folding — "Q3 Newsletter" and "q3 newsletter " are treated
+   as the same campaign, but a genuinely different subject is
+   never treated as a duplicate, even for the same recipients.
+   ============================================================ */
+const BROADCAST_LOG_TAB_NAME = 'Broadcast Log';
+const BROADCAST_LOG_HEADERS = ['Timestamp', 'Subject', 'Email'];
+
+function getBroadcastLogTab(){
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let sheet = ss.getSheetByName(BROADCAST_LOG_TAB_NAME);
+  if (!sheet){
+    sheet = ss.insertSheet(BROADCAST_LOG_TAB_NAME);
+    sheet.appendRow(BROADCAST_LOG_HEADERS);
+    sheet.setFrozenRows(1);
+  }
+  return sheet;
+}
+
+function normalizeSubjectForMatch(subject){
+  return String(subject || '').trim().toLowerCase();
+}
+
+function recordBroadcastSentTo(subject, emails){
+  if (!emails || emails.length === 0) return;
+  const sheet = getBroadcastLogTab();
+  const now = new Date();
+  // One writeup of all rows at once (setValues) rather than an
+  // appendRow() per recipient — for a broadcast to hundreds of
+  // people, hundreds of individual writes would be needlessly slow
+  // and risks pushing this past the Web App's execution time limit.
+  const startRow = sheet.getLastRow() + 1;
+  const rows = emails.map(email => [now, subject, email]);
+  sheet.getRange(startRow, 1, rows.length, 3).setValues(rows);
+}
+
+/**
+ * Returns every distinct email that has already received a broadcast
+ * with this exact subject (trimmed, case-insensitive match) — used by
+ * the recipient picker to grey those rows out. Scans the whole log
+ * rather than filtering as it's read since Sheets doesn't support a
+ * server-side query here; for the realistic size of this log (one row
+ * per recipient per send) this stays fast well beyond normal usage.
+ */
+function getSentEmailsForSubject(subject){
+  const target = normalizeSubjectForMatch(subject);
+  if (!target) return jsonResponse({ emails: [] });
+
+  const sheet = getBroadcastLogTab();
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) return jsonResponse({ emails: [] });
+
+  const data = sheet.getRange(2, 1, lastRow - 1, 3).getValues();
+  const matched = new Set();
+  for (let i = 0; i < data.length; i++){
+    if (normalizeSubjectForMatch(data[i][1]) === target){
+      matched.add(String(data[i][2]).trim().toLowerCase());
+    }
+  }
+  return jsonResponse({ emails: Array.from(matched) });
 }
 
 /* ============================================================
