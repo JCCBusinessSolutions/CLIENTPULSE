@@ -4774,7 +4774,7 @@ async function refreshDraftsList(){
   }
 }
 
-function loadDraftIntoEditor(draft){
+async function loadDraftIntoEditor(draft){
   bcEditingDraftId = draft.draftId;
   const payload = draft.payload || {};
   el('broadcastSubject').value = payload.subject || '';
@@ -4783,15 +4783,39 @@ function loadDraftIntoEditor(draft){
   renderBcAttachmentList();
   bcUseTemplate = !!payload.useTemplate;
   el('bcTemplateToggle').querySelector('.theme-switch-track').classList.toggle('is-on', bcUseTemplate);
-  bcSelectedEmails = new Set((payload.rows || []).map(r => r.email));
-  bcAllClients = deduplicateClientsByEmail((payload.rows || []).map(r => ({ email: r.email, clientName: r.clientName })));
+
+  // A saved draft's recipient list can go stale — if this exact subject
+  // has since actually been sent (to some or all of them, via another
+  // draft, a resend, whatever), blindly restoring the full saved list
+  // would silently re-include people who already got it. Check BEFORE
+  // finalizing the selection, not after, so the draft never opens with
+  // duplicates already selected.
+  await refreshAlreadySentForCurrentSubject();
+  const rows = payload.rows || [];
+  const alreadySentRows = rows.filter(r => bcAlreadySentEmails.has((r.email || '').toLowerCase()));
+  const eligibleRows = rows.filter(r => !bcAlreadySentEmails.has((r.email || '').toLowerCase()));
+
+  // bcAllClients keeps EVERY saved row (including already-sent ones) so
+  // opening the picker still shows them, greyed out with the same
+  // "ALREADY SENT" badge as anywhere else — visible and explained,
+  // not silently dropped. bcSelectedEmails only ever gets the eligible
+  // ones, which is what actually determines who the send goes to.
+  bcAllClients = deduplicateClientsByEmail(rows.map(r => ({ email: r.email, clientName: r.clientName })));
+  bcSelectedEmails = new Set(eligibleRows.map(r => r.email));
+
   const n = bcSelectedEmails.size;
+  const excludedNote = alreadySentRows.length > 0
+    ? ' (' + alreadySentRows.length + ' already received this subject and ' + (alreadySentRows.length === 1 ? 'was' : 'were') + ' excluded)'
+    : '';
   el('bcRecipientSummaryText').textContent = n === 0
-    ? 'No recipients selected yet'
-    : n + ' recipient' + (n === 1 ? '' : 's') + ' selected (from the saved draft)';
+    ? 'No recipients selected yet' + excludedNote
+    : n + ' recipient' + (n === 1 ? '' : 's') + ' selected (from the saved draft)' + excludedNote;
   el('bcSendNowBtn').click();
   el('bcSendBtn').textContent = 'SEND BROADCAST';
-  showStatus('broadcastStatus','info','Draft loaded \u2014 continue editing, then send, schedule, or save again.');
+  showStatus('broadcastStatus', alreadySentRows.length > 0 ? 'error' : 'info',
+    'Draft loaded' + (alreadySentRows.length > 0
+      ? ' \u2014 ' + alreadySentRows.length + ' recipient' + (alreadySentRows.length === 1 ? '' : 's') + ' already received this exact subject and ' + (alreadySentRows.length === 1 ? 'was' : 'were') + ' automatically excluded. Open "Choose Recipients" to see who.'
+      : ' \u2014 continue editing, then send, schedule, or save again.'));
   el('broadcastCard').scrollIntoView({ behavior: 'smooth', block: 'start' });
   // Without this, the size indicator keeps showing whatever it displayed
   // before this draft was loaded, which could be a stale, falsely-small
