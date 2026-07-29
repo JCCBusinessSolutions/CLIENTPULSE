@@ -5948,8 +5948,6 @@ async function loadDailyStats(){
   }
 }
 
-el('refreshStats').addEventListener('click', loadDailyStats);
-
 el('toggleDueToday').addEventListener('click', () => {
   const body = el('dueTodayBody');
   const btn = el('toggleDueToday');
@@ -6424,8 +6422,6 @@ async function loadBirthdayStats(){
   }
 }
 
-el('refreshBirthdayStats').addEventListener('click', loadBirthdayStats);
-
 (function attachBirthdayLastUpdatedTracking(){
   let lastUpdatedAt = null;
   const originalLoadBirthdayStats = loadBirthdayStats;
@@ -6577,8 +6573,6 @@ async function loadAnniversaryStats(){
     el('annivStatTomorrow').textContent = '\u2013';
   }
 }
-
-el('refreshAnniversaryStats').addEventListener('click', loadAnniversaryStats);
 
 (function attachAnniversaryLastUpdatedTracking(){
   let lastUpdatedAt = null;
