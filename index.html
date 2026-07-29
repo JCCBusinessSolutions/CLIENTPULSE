@@ -3203,17 +3203,23 @@ function parseDuesFromWorkbook(workbook){
 async function callBackendGet(action, data){
   const url = getScriptUrl() || localStorage.getItem(SCRIPT_URL_STORAGE_KEY) || '';
   if (!url) throw new Error('NO_SCRIPT_URL');
-  // Strip rows down to only the fields the backend actually needs,
-  // cutting payload size by ~60% before base64 encoding.
-  const slim = Array.isArray(data) ? data.map(r => ({
-    pn: r.policyNumber, cn: r.clientName, em: r.email, pr: r.product,
-    pm: r.premiumMode, pa: r.premiumAmount, fv: r.fundValue,
-    dd: r.dueDate, ps: r.policyStatus, ld: r.lapseDate, id: r.issuedDate,
-    // Birthday tracker fields
-    fn: r.fullName, dob: r.dateOfBirth, ct: r.contactNumber, lo: r.location
-  })) : data;
-  const base64Data = encodeURIComponent(btoa(unescape(encodeURIComponent(JSON.stringify(slim)))));
-  const fullUrl = url + '?action=' + action + '&data=' + base64Data;
+  // Convert objects to arrays (no key names = ~40% smaller payload),
+  // then encodeURIComponent directly — skipping base64 saves another
+  // ~33% vs the previous approach, letting us fit 30 rows per request
+  // instead of 15, cutting total round trips in half.
+  // Field order: [policyNumber, clientName, email, product, premiumMode,
+  //               premiumAmount, fundValue, dueDate, policyStatus,
+  //               lapseDate, issuedDate]
+  // OR for birthdays: [fullName, email, dateOfBirth, contactNumber, location]
+  const arrays = Array.isArray(data) ? data.map(r =>
+    r.policyNumber !== undefined
+      ? [r.policyNumber||'', r.clientName||'', r.email||'', r.product||'',
+         r.premiumMode||'', r.premiumAmount||0, r.fundValue||0,
+         r.dueDate||'', r.policyStatus||'', r.lapseDate||'', r.issuedDate||'']
+      : [r.fullName||'', r.email||'', r.dateOfBirth||'', r.contactNumber||'', r.location||'']
+  ) : data;
+  const encoded = encodeURIComponent(JSON.stringify(arrays));
+  const fullUrl = url + '?action=' + action + '&data=' + encoded;
   try{
     const res = await fetch(fullUrl);
     if (!res.ok) throw new Error('HTTP_' + res.status);
@@ -3389,7 +3395,7 @@ function chunkArray(arr, size){
 // `action` is 'pushDues' or 'pushBirthdays'. `onProgress(doneCount, totalCount, batchIndex, batchCount)`
 // is called after each batch so the UI can show live progress.
 async function pushRowsInBatches(action, rows, onProgress, batchSize){
-  batchSize = batchSize || 15;
+  batchSize = batchSize || 30;
   const batches = chunkArray(rows, batchSize);
   let added = 0, updated = 0, done = 0;
 
