@@ -3383,7 +3383,10 @@ function chunkArray(arr, size){
 // `action` is 'pushDues' or 'pushBirthdays'. `onProgress(doneCount, totalCount, batchIndex, batchCount)`
 // is called after each batch so the UI can show live progress.
 async function pushRowsInBatches(action, rows, onProgress, batchSize){
-  batchSize = batchSize || 300;
+  // GET requests with base64 data have URL length limits (~8KB safe limit).
+  // 25 rows of policy data encodes to ~3-4KB base64, safely under the limit.
+  // POST would allow 300+ rows per batch but is blocked by CORS on custom domains.
+  batchSize = batchSize || 25;
   const batches = chunkArray(rows, batchSize);
   let added = 0, updated = 0, done = 0;
 
