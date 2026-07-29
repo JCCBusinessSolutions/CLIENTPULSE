@@ -456,6 +456,7 @@ function getProfileImagePreviewData(){
 
 function setupSheet(){
   createInactivityPurgeTrigger(); // self-installs once; cheap no-op after that
+  ensureAnniversaryDailyTriggerExists(); // same reasoning — advisors from before this feature existed need this too
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   let sheet = ss.getSheetByName(SHEET_NAME);
   if (!sheet){
@@ -1617,6 +1618,21 @@ function createAnniversaryDailyTrigger(hour){
     .everyDays(1)
     .atHour(hour)
     .create();
+}
+
+// Cheap, idempotent self-install for advisors who were already using
+// the app before the Policy Anniversary Greeter existed and haven't
+// touched their Send Hour setting since — createAnniversaryDailyTrigger()
+// above always deletes-and-recreates, which is fine for the rare
+// "advisor changed their send hour" case it's built for, but far too
+// expensive to call on every single upload. This only creates the
+// trigger if one doesn't already exist at all, same pattern as
+// createInactivityPurgeTrigger.
+function ensureAnniversaryDailyTriggerExists(){
+  const alreadyInstalled = ScriptApp.getProjectTriggers()
+    .some(t => t.getHandlerFunction() === 'sendDailyAnniversaryGreetings');
+  if (alreadyInstalled) return;
+  createAnniversaryDailyTrigger();
 }
 
 function setAnniversaryPreference(policyNumber, enabled){
