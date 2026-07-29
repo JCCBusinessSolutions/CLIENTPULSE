@@ -3396,15 +3396,17 @@ function chunkArray(arr, size){
 // `action` is 'pushDues' or 'pushBirthdays'. `onProgress(doneCount, totalCount, batchIndex, batchCount)`
 // is called after each batch so the UI can show live progress.
 async function pushRowsInBatches(action, rows, onProgress, batchSize){
-  batchSize = batchSize || 300;
+  batchSize = batchSize || 20;
+  const CONCURRENCY = 5;
   const batches = chunkArray(rows, batchSize);
   let added = 0, updated = 0, done = 0;
 
-  for (let i = 0; i < batches.length; i++){
-    const batch = batches[i];
-    let result;
+  for (let i = 0; i < batches.length; i += CONCURRENCY){
+    const round = batches.slice(i, i + CONCURRENCY);
+    const getAction = action === 'pushDues' ? 'pushDuesGet' : 'pushBirthdaysGet';
+    let results;
     try{
-      result = await callBackend({ action: action, rows: batch });
+      results = await Promise.all(round.map(batch => callBackendGet(getAction, batch)));
     }catch(err){
       const progressErr = new Error(
         'Stopped after ' + done + ' of ' + rows.length + ' rows ' +
@@ -3414,10 +3416,12 @@ async function pushRowsInBatches(action, rows, onProgress, batchSize){
       progressErr.partial = { added, updated, done, total: rows.length };
       throw progressErr;
     }
-    added += result.added || 0;
-    updated += result.updated || 0;
-    done += batch.length;
-    if (onProgress) onProgress(done, rows.length, i + 1, batches.length);
+    results.forEach((result, j) => {
+      added += result.added || 0;
+      updated += result.updated || 0;
+      done += round[j].length;
+    });
+    if (onProgress) onProgress(done, rows.length, Math.floor(i/CONCURRENCY)+1, Math.ceil(batches.length/CONCURRENCY));
   }
 
   return { added: added, updated: updated, total: rows.length };
