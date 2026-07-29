@@ -3389,7 +3389,7 @@ function chunkArray(arr, size){
 // `action` is 'pushDues' or 'pushBirthdays'. `onProgress(doneCount, totalCount, batchIndex, batchCount)`
 // is called after each batch so the UI can show live progress.
 async function pushRowsInBatches(action, rows, onProgress, batchSize){
-  batchSize = batchSize || 300;
+  batchSize = batchSize || 15;
   const batches = chunkArray(rows, batchSize);
   let added = 0, updated = 0, done = 0;
 
@@ -3397,7 +3397,8 @@ async function pushRowsInBatches(action, rows, onProgress, batchSize){
     const batch = batches[i];
     let result;
     try{
-      result = await callBackend({ action: action, rows: batch });
+      const getAction = action === 'pushDues' ? 'pushDuesGet' : 'pushBirthdaysGet';
+      result = await callBackendGet(getAction, batch);
     }catch(err){
       const progressErr = new Error(
         'Stopped after ' + done + ' of ' + rows.length + ' rows ' +
