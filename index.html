@@ -3211,12 +3211,13 @@ async function callBackendGet(action, data){
   //               premiumAmount, fundValue, dueDate, policyStatus,
   //               lapseDate, issuedDate]
   // OR for birthdays: [fullName, email, dateOfBirth, contactNumber, location]
+  const d = v => v ? String(v).slice(0, 10) : ''; // truncate ISO date to YYYY-MM-DD
   const arrays = Array.isArray(data) ? data.map(r =>
     r.policyNumber !== undefined
       ? [r.policyNumber||'', r.clientName||'', r.email||'', r.product||'',
          r.premiumMode||'', r.premiumAmount||0, r.fundValue||0,
-         r.dueDate||'', r.policyStatus||'', r.lapseDate||'', r.issuedDate||'']
-      : [r.fullName||'', r.email||'', r.dateOfBirth||'', r.contactNumber||'', r.location||'']
+         d(r.dueDate), r.policyStatus||'', d(r.lapseDate), d(r.issuedDate)]
+      : [r.fullName||'', r.email||'', d(r.dateOfBirth)||'', r.contactNumber||'', r.location||'']
   ) : data;
   const encoded = encodeURIComponent(JSON.stringify(arrays));
   const fullUrl = url + '?action=' + action + '&data=' + encoded;
@@ -3395,16 +3396,22 @@ function chunkArray(arr, size){
 // `action` is 'pushDues' or 'pushBirthdays'. `onProgress(doneCount, totalCount, batchIndex, batchCount)`
 // is called after each batch so the UI can show live progress.
 async function pushRowsInBatches(action, rows, onProgress, batchSize){
-  batchSize = batchSize || 30;
+  batchSize = batchSize || 20;
+  const CONCURRENCY = 5; // fire 5 GET requests simultaneously per round
   const batches = chunkArray(rows, batchSize);
   let added = 0, updated = 0, done = 0;
 
-  for (let i = 0; i < batches.length; i++){
-    const batch = batches[i];
-    let result;
+  // Process in rounds of CONCURRENCY batches at a time.
+  // Each GET request stays well under URL length limits (30 rows = ~7KB).
+  // Firing 5 simultaneously gives ~5x throughput vs sequential sends
+  // without risking Apps Script rate limits.
+  for (let i = 0; i < batches.length; i += CONCURRENCY){
+    const round = batches.slice(i, i + CONCURRENCY);
+    const getAction = action === 'pushDues' ? 'pushDuesGet' : 'pushBirthdaysGet';
+
+    let results;
     try{
-      const getAction = action === 'pushDues' ? 'pushDuesGet' : 'pushBirthdaysGet';
-      result = await callBackendGet(getAction, batch);
+      results = await Promise.all(round.map(batch => callBackendGet(getAction, batch)));
     }catch(err){
       const progressErr = new Error(
         'Stopped after ' + done + ' of ' + rows.length + ' rows ' +
@@ -3414,10 +3421,13 @@ async function pushRowsInBatches(action, rows, onProgress, batchSize){
       progressErr.partial = { added, updated, done, total: rows.length };
       throw progressErr;
     }
-    added += result.added || 0;
-    updated += result.updated || 0;
-    done += batch.length;
-    if (onProgress) onProgress(done, rows.length, i + 1, batches.length);
+
+    results.forEach((result, j) => {
+      added += result.added || 0;
+      updated += result.updated || 0;
+      done += round[j].length;
+    });
+    if (onProgress) onProgress(done, rows.length, Math.floor(i/CONCURRENCY)+1, Math.ceil(batches.length/CONCURRENCY));
   }
 
   return { added: added, updated: updated, total: rows.length };
