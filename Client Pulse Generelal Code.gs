@@ -5,6 +5,29 @@
  * ============================================================
  */
 
+// The Sheet ID is stored in Script Properties so this same script
+// works for any buyer — each one runs setSpreadsheetId() once with
+// their own Sheet ID, and the script remembers it from then on.
+// To set it: open Apps Script editor, run setSpreadsheetId('YOUR_SHEET_ID')
+// or call it from the browser: ?action=setSpreadsheetId&id=YOUR_SHEET_ID
+function getSpreadsheet(){
+  // Works in both contexts:
+  // 1. Bound to a sheet (Extensions → Apps Script) → getActiveSpreadsheet() works
+  // 2. Standalone script with Sheet ID set → openById() works
+  try{
+    const active = SpreadsheetApp.getActiveSpreadsheet();
+    if (active) return active;
+  }catch(e){}
+  const id = PropertiesService.getScriptProperties().getProperty('SPREADSHEET_ID');
+  if (!id) throw new Error('Sheet ID not set. Run ?action=setSpreadsheetId&id=YOUR_SHEET_ID first.');
+  return SpreadsheetApp.openById(id);
+}
+
+function setSpreadsheetId(id){
+  PropertiesService.getScriptProperties().setProperty('SPREADSHEET_ID', id);
+  return 'Connected to sheet: ' + id;
+}
+
 const SHEET_NAME = 'Dues Tracker';
 const HEADERS = ['Policy Number','Client Name','Email','Product','Premium Mode','Premium Amount','Fund Value','Due Date','Policy Status','Last Reminder Sent','Send Dues?','Lapse Date','Issued Date','Last Anniversary Sent (Year)','Send Anniversary?'];
 
@@ -63,7 +86,7 @@ const INACTIVITY_GRACE_DAYS = 30;
 // the status/branding reads are included so the app can render a clear
 // "you're locked out, upload to continue" screen instead of a raw error.
 const ACTIONS_EXEMPT_FROM_HARD_STOP = [
-  'pushDues', 'pushBirthdays', 'getAdvisorActiveStatus', 'getConfig', 'getAdvisorProfile', 'getProfileImagePreview'
+  'pushDues', 'pushBirthdays', 'getAdvisorActiveStatus', 'getConfig', 'getAdvisorProfile', 'getProfileImagePreview', 'setSpreadsheetId'
 ];
 
 function recordUploadActivity(){
@@ -135,7 +158,7 @@ function purgeInactiveClientData(){
     return; // already purged for this inactivity stretch
   }
 
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const ss = getSpreadsheet();
   const summary = { duesCleared: 0, birthdaysCleared: 0, scheduledCleared: 0, draftsCleared: 0, backupFileUrl: null };
 
   try{
@@ -457,7 +480,7 @@ function getProfileImagePreviewData(){
 function setupSheet(){
   createInactivityPurgeTrigger(); // self-installs once; cheap no-op after that
   ensureAnniversaryDailyTriggerExists(); // same reasoning — advisors from before this feature existed need this too
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const ss = getSpreadsheet();
   let sheet = ss.getSheetByName(SHEET_NAME);
   if (!sheet){
     sheet = ss.insertSheet(SHEET_NAME);
@@ -520,7 +543,7 @@ function setupSheet(){
 }
 
 function setupBirthdaySheet(){
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const ss = getSpreadsheet();
   let sheet = ss.getSheetByName(BIRTHDAY_SHEET_NAME);
   if (!sheet){
     sheet = ss.insertSheet(BIRTHDAY_SHEET_NAME);
@@ -541,7 +564,7 @@ function setupBirthdaySheet(){
 }
 
 function setupScheduleSheet(){
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const ss = getSpreadsheet();
   let sheet = ss.getSheetByName(SCHEDULE_SHEET_NAME);
   if (!sheet){
     sheet = ss.insertSheet(SCHEDULE_SHEET_NAME);
@@ -564,7 +587,7 @@ function setupScheduleSheet(){
 }
 
 function setupDraftSheet(){
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const ss = getSpreadsheet();
   let sheet = ss.getSheetByName(DRAFT_SHEET_NAME);
   if (!sheet){
     sheet = ss.insertSheet(DRAFT_SHEET_NAME);
@@ -667,7 +690,7 @@ function createInactivityPurgeTrigger(){
 
 function getDuesClientList(){
   setupSheet();
-  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_NAME);
+  const sheet = getSpreadsheet().getSheetByName(SHEET_NAME);
   if (!sheet) return [];
   const data = sheet.getDataRange().getValues();
   const headers = data[0];
@@ -721,7 +744,7 @@ function getDuesClientList(){
 
 function getBirthdayClientList(){
   setupBirthdaySheet();
-  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(BIRTHDAY_SHEET_NAME);
+  const sheet = getSpreadsheet().getSheetByName(BIRTHDAY_SHEET_NAME);
   if (!sheet) return [];
   const data = sheet.getDataRange().getValues();
   const headers = data[0];
@@ -747,7 +770,7 @@ function getBirthdayClientList(){
 
 function setDuesPreference(policyNumber, enabled){
   setupSheet();
-  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_NAME);
+  const sheet = getSpreadsheet().getSheetByName(SHEET_NAME);
   const data = sheet.getDataRange().getValues();
   const headers = data[0];
   const policyCol = headers.indexOf('Policy Number');
@@ -763,7 +786,7 @@ function setDuesPreference(policyNumber, enabled){
 
 function setBirthdayPreference(email, enabled){
   setupBirthdaySheet();
-  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(BIRTHDAY_SHEET_NAME);
+  const sheet = getSpreadsheet().getSheetByName(BIRTHDAY_SHEET_NAME);
   const data = sheet.getDataRange().getValues();
   const headers = data[0];
   const emailCol = headers.indexOf('Email');
@@ -783,6 +806,11 @@ function setBirthdayPreference(email, enabled){
 function doGet(e){
   const action = e.parameter.action;
   if (action === 'getAdvisorActiveStatus')    return jsonResponse(getAdvisorActiveStatus());
+  if (action === 'setSpreadsheetId')          { const id = e.parameter.id || ''; if (!id) return jsonResponse({ error: 'Missing id parameter' }); PropertiesService.getScriptProperties().setProperty('SPREADSHEET_ID', id); return jsonResponse({ success: true, message: 'Connected to sheet: ' + id }); }
+  // All other actions need the sheet to be configured first
+  if (!PropertiesService.getScriptProperties().getProperty('SPREADSHEET_ID')){
+    return jsonResponse({ error: 'SHEET_NOT_CONFIGURED', message: 'Run ?action=setSpreadsheetId&id=YOUR_SHEET_ID first.' });
+  }
   if (!ACTIONS_EXEMPT_FROM_HARD_STOP.includes(action) && !isAdvisorActive()){
     return jsonResponse(Object.assign({ error: 'ADVISOR_INACTIVE' }, getAdvisorActiveStatus()));
   }
@@ -792,6 +820,48 @@ function doGet(e){
   if (action === 'getDueToday')               return jsonResponse({ rows: getDueTodayRows() });
   if (action === 'getConfig')                 return jsonResponse({ config: getBrandConfig() });
   if (action === 'getImagePreview')           return jsonResponse(getImagePreviewData(e.parameter.target));
+  // GET-based push handlers — POST from custom domains is blocked by
+  // Google's CORS redirect flow. Sending data as base64-encoded JSON
+  // in a GET parameter bypasses this entirely since GET requests are
+  // never redirected by Apps Script's authorization layer.
+  if (action === 'pushDuesGet'){
+    try{
+      const arrays = JSON.parse(decodeURIComponent(e.parameter.data || '[]'));
+      // Expand positional arrays back to named objects that pushDuesRows expects.
+      // Field order matches what callBackendGet sends:
+      // [policyNumber, clientName, email, product, premiumMode, premiumAmount,
+      //  fundValue, dueDate, policyStatus, lapseDate, issuedDate]
+      const rows = arrays.map(function(a){
+        if (Array.isArray(a)) {
+          return { policyNumber:a[0], clientName:a[1], email:a[2], product:a[3],
+            premiumMode:a[4], premiumAmount:a[5], fundValue:a[6],
+            dueDate:a[7], policyStatus:a[8], lapseDate:a[9], issuedDate:a[10] };
+        }
+        // Fallback: handle both slim {pn,cn...} and full {policyNumber,...} objects
+        return { policyNumber:a.pn||a.policyNumber, clientName:a.cn||a.clientName,
+          email:a.em||a.email, product:a.pr||a.product, premiumMode:a.pm||a.premiumMode,
+          premiumAmount:a.pa||a.premiumAmount, fundValue:a.fv||a.fundValue,
+          dueDate:a.dd||a.dueDate, policyStatus:a.ps||a.policyStatus,
+          lapseDate:a.ld||a.lapseDate, issuedDate:a.id||a.issuedDate };
+      });
+      return jsonResponse(Object.assign({ success: true }, pushDuesRows(rows)));
+    }catch(err){ return jsonResponse({ success: false, error: toEnglishErrorMessage(err.message) }); }
+  }
+  if (action === 'pushBirthdaysGet'){
+    try{
+      const arrays = JSON.parse(decodeURIComponent(e.parameter.data || '[]'));
+      // Field order: [fullName, email, dateOfBirth, contactNumber, location]
+      const rows = arrays.map(function(a){
+        if (Array.isArray(a)) {
+          return { fullName:a[0], email:a[1], dateOfBirth:a[2], contactNumber:a[3], location:a[4] };
+        }
+        return { fullName:a.fn||a.fullName, email:a.em||a.email,
+          dateOfBirth:a.dob||a.dateOfBirth, contactNumber:a.ct||a.contactNumber,
+          location:a.lo||a.location };
+      });
+      return jsonResponse(Object.assign({ success: true }, pushBirthdayRows(rows)));
+    }catch(err){ return jsonResponse({ success: false, error: toEnglishErrorMessage(err.message) }); }
+  }
   if (action === 'getDailyStats')             return jsonResponse(getDailyStats());
   if (action === 'getAdvisorProfile')         return jsonResponse(getAdvisorProfile());
   if (action === 'getProfileImagePreview')    return jsonResponse(getProfileImagePreviewData());
@@ -846,7 +916,7 @@ function normalizeDateCellToYmd(value, tz){
 }
 
 function getDueTodayRows(){
-  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_NAME);
+  const sheet = getSpreadsheet().getSheetByName(SHEET_NAME);
   if (!sheet) return [];
   const data = sheet.getDataRange().getValues();
   const headers = data[0];
@@ -880,6 +950,10 @@ function doPost(e){
   let body;
   try{ body = JSON.parse(e.postData.contents); }
   catch(err){ return jsonResponse({ error: 'Invalid request body' }); }
+
+  if (!ACTIONS_EXEMPT_FROM_HARD_STOP.includes(body.action) && !PropertiesService.getScriptProperties().getProperty('SPREADSHEET_ID')){
+    return jsonResponse({ error: 'SHEET_NOT_CONFIGURED', message: 'Run ?action=setSpreadsheetId&id=YOUR_SHEET_ID first.' });
+  }
 
   if (!ACTIONS_EXEMPT_FROM_HARD_STOP.includes(body.action) && !isAdvisorActive()){
     return jsonResponse(Object.assign({ error: 'ADVISOR_INACTIVE' }, getAdvisorActiveStatus()));
@@ -922,7 +996,7 @@ function jsonResponse(obj){
    ============================================================ */
 function pushDuesRows(rows){
   setupSheet();
-  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_NAME);
+  const sheet = getSpreadsheet().getSheetByName(SHEET_NAME);
   const data = sheet.getDataRange().getValues();
   const policyCol = HEADERS.indexOf('Policy Number');
   const lastReminderCol = HEADERS.indexOf('Last Reminder Sent');
@@ -962,7 +1036,7 @@ function pushDuesRows(rows){
 
 function pushBirthdayRows(rows){
   setupBirthdaySheet();
-  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(BIRTHDAY_SHEET_NAME);
+  const sheet = getSpreadsheet().getSheetByName(BIRTHDAY_SHEET_NAME);
   const data = sheet.getDataRange().getValues();
   const emailCol = BIRTHDAY_HEADERS.indexOf('Email');
   const lastSentCol = BIRTHDAY_HEADERS.indexOf('Last Greeting Sent (Year)');
@@ -1020,7 +1094,7 @@ function getDailyStat(statKey){
 }
 
 function countDueOnOffset(offsetDays){
-  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_NAME);
+  const sheet = getSpreadsheet().getSheetByName(SHEET_NAME);
   if (!sheet) return 0;
   const data = sheet.getDataRange().getValues();
   const headers = data[0];
@@ -1050,7 +1124,7 @@ function getDailyStats(){
 function sendDailyReminders(){
   if (!getAutoSendStatus().enabled) return;
   if (!isAdvisorActive()) return; // hard stop: past the inactivity deadline
-  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_NAME);
+  const sheet = getSpreadsheet().getSheetByName(SHEET_NAME);
   if (!sheet) return;
   const data = sheet.getDataRange().getValues();
   const headers = data[0];
@@ -1245,7 +1319,7 @@ function sendDuesTestEmailToSelf(){
    ============================================================ */
 
 function getBirthdaysTodayRows(){
-  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(BIRTHDAY_SHEET_NAME);
+  const sheet = getSpreadsheet().getSheetByName(BIRTHDAY_SHEET_NAME);
   if (!sheet) return [];
   const data = sheet.getDataRange().getValues();
   const headers = data[0];
@@ -1279,7 +1353,7 @@ function getBirthdaysTodayRows(){
 }
 
 function countBirthdaysOnOffset(offsetDays){
-  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(BIRTHDAY_SHEET_NAME);
+  const sheet = getSpreadsheet().getSheetByName(BIRTHDAY_SHEET_NAME);
   if (!sheet) return 0;
   const data = sheet.getDataRange().getValues();
   const headers = data[0];
@@ -1308,7 +1382,7 @@ function getBirthdayDailyStats(){
 function sendDailyBirthdayGreetings(){
   if (!getBirthdayAutoSendStatus().enabled) return;
   if (!isAdvisorActive()) return; // hard stop: past the inactivity deadline
-  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(BIRTHDAY_SHEET_NAME);
+  const sheet = getSpreadsheet().getSheetByName(BIRTHDAY_SHEET_NAME);
   if (!sheet) return;
   const data = sheet.getDataRange().getValues();
   const headers = data[0];
@@ -1408,7 +1482,7 @@ function ordinalSuffix(n){
 
 function getPolicyAnniversariesTodayRows(){
   setupSheet();
-  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_NAME);
+  const sheet = getSpreadsheet().getSheetByName(SHEET_NAME);
   if (!sheet) return [];
   const data = sheet.getDataRange().getValues();
   const headers = data[0];
@@ -1451,7 +1525,7 @@ function getPolicyAnniversariesTodayRows(){
 }
 
 function countAnniversariesOnOffset(offsetDays){
-  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_NAME);
+  const sheet = getSpreadsheet().getSheetByName(SHEET_NAME);
   if (!sheet) return 0;
   const data = sheet.getDataRange().getValues();
   const headers = data[0];
@@ -1484,7 +1558,7 @@ function sendDailyAnniversaryGreetings(){
   if (!getAnniversaryAutoSendStatus().enabled) return;
   if (!isAdvisorActive()) return; // hard stop: past the inactivity deadline
   setupSheet();
-  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_NAME);
+  const sheet = getSpreadsheet().getSheetByName(SHEET_NAME);
   if (!sheet) return;
   const data = sheet.getDataRange().getValues();
   const headers = data[0];
@@ -1637,7 +1711,7 @@ function ensureAnniversaryDailyTriggerExists(){
 
 function setAnniversaryPreference(policyNumber, enabled){
   setupSheet();
-  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_NAME);
+  const sheet = getSpreadsheet().getSheetByName(SHEET_NAME);
   const data = sheet.getDataRange().getValues();
   const headers = data[0];
   const policyCol = headers.indexOf('Policy Number');
@@ -1916,7 +1990,7 @@ const BROADCAST_LOG_TAB_NAME = 'Broadcast Log';
 const BROADCAST_LOG_HEADERS = ['Timestamp', 'Subject', 'Email'];
 
 function getBroadcastLogTab(){
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const ss = getSpreadsheet();
   let sheet = ss.getSheetByName(BROADCAST_LOG_TAB_NAME);
   if (!sheet){
     sheet = ss.insertSheet(BROADCAST_LOG_TAB_NAME);
@@ -2341,30 +2415,69 @@ function deleteDraft(draftId){
 function toEnglishErrorMessage(rawMessage){
   const msg = String(rawMessage || '');
   const patterns = [
-    { match: /Limitasyon.*Laki ng Body|Body.*[Ll]imit exceeded|Nalagpasan.*[Ll]imitasyon/i,
+    // ── Email size ──────────────────────────────────────────────────────
+    { match: /Limitasyon.*Laki ng Body|Body.*[Ll]imit exceeded|Nalagpasan.*[Ll]imitasyon|message too large|attachment.*too large|sumasobra.*laki/i,
       english: 'Email is too large to send \u2014 remove an inline image or attachment and try again.' },
-    { match: /Invalid email|[Mm]ali ang email|hindi wasto ang email/i,
+
+    // ── Invalid email address ───────────────────────────────────────────
+    { match: /Invalid email|[Mm]ali ang email|hindi wasto ang email|invalid.*recipient|di.*wastong.*email/i,
       english: 'Invalid email address.' },
-    // Matches both the English quota message ("Service invoked too
-    // many times for one day") and its actual Tagalog form as returned
-    // by Google for this account ("...masyadong madaming beses
-    // pinagana sa isang araw...") — the previous pattern only matched
-    // the word "limitasyon" near "araw", which this specific message
-    // never contains, so it fell through untranslated and displayed as
-    // raw Tagalog error text instead of a clear, actionable English
-    // explanation.
-    { match: /quota|limitasyon.*araw|daily.*limit|invoked too many times|masyadong madaming beses.*araw/i,
+
+    // ── Daily quota / sending limit ─────────────────────────────────────
+    { match: /quota|limitasyon.*araw|daily.*limit|invoked too many times|masyadong madaming beses.*araw|naabot.*limitasyon|Service.*invoked.*many/i,
       english: 'Daily sending limit reached for this Google account (personal Gmail accounts get 100 emails/day; Google Workspace accounts get up to 1,500/day) \u2014 try again after the quota resets, or send the rest tomorrow.' },
-    { match: /Recipient address required|kinakailangan ang address/i,
-      english: 'Recipient address is missing or invalid.' },
-    { match: /rate limit|masyadong marami/i,
+
+    // ── Rate limiting ───────────────────────────────────────────────────
+    { match: /rate limit|masyadong marami|too many.*request|too fast|mabilis.*nang/i,
       english: 'Sending too fast \u2014 please wait a moment and try again.' },
+
+    // ── Recipient address ───────────────────────────────────────────────
+    { match: /Recipient address required|kinakailangan ang address|walang.*tatanggap|tatanggap.*wala/i,
+      english: 'Recipient address is missing or invalid.' },
+
+    // ── Permission / authorization ──────────────────────────────────────
+    { match: /permiso|pahintulot|walang.*pahintulot|You do not have permission|hindi.*pinahintulutan|access.*denied|hindi.*ma-access/i,
+      english: 'Permission denied \u2014 make sure the script is authorized and deployed with Execute as: Me.' },
+
+    // ── Spreadsheet not found ───────────────────────────────────────────
+    { match: /Spreadsheet.*not found|hindi.*mahanap.*spreadsheet|walang.*spreadsheet|sheet.*not found|hindi.*sheet/i,
+      english: 'Spreadsheet not found \u2014 check that the Sheet ID is correct and the script has access to it.' },
+
+    // ── Script not authorized ───────────────────────────────────────────
+    { match: /Script.*not authorized|hindi.*awtorisado|awtorisasyon.*kailangan|Authorization.*required|kailangang.*payagan/i,
+      english: 'Script not authorized \u2014 open the Apps Script editor and run any function once to complete authorization.' },
+
+    // ── Drive storage full ──────────────────────────────────────────────
+    { match: /Drive.*storage|storage.*full|puno.*na.*storage|Drive.*puno/i,
+      english: 'Google Drive storage is full \u2014 free up space in Google Drive and try again.' },
+
+    // ── GmailApp disabled / not enabled ────────────────────────────────
+    { match: /GmailApp.*disabled|hindi.*pinagana.*Gmail|Gmail.*not enabled/i,
+      english: 'Gmail service is not enabled for this script \u2014 add it under Services in the Apps Script editor.' },
+
+    // ── Execution time limit ────────────────────────────────────────────
+    { match: /time.*limit|execution.*exceeded|naabot.*oras|lumampas.*oras|napatagal/i,
+      english: 'Script execution timed out \u2014 the batch size may be too large. Try again; it will pick up from where it stopped.' },
+
+    // ── Network / connection errors ─────────────────────────────────────
+    { match: /network.*error|koneksyon.*error|walang.*koneksyon|connection.*failed|hindi.*kumokonekta/i,
+      english: 'Network connection error \u2014 check your internet connection and try again.' },
+
+    // ── Blocked recipient (corporate mail gateway) ──────────────────────
+    { match: /blocked|na-block|message.*rejected|tinanggihan.*mensahe|550|554/i,
+      english: 'Message blocked \u2014 the recipient\'s email server rejected it. This is usually a corporate mail filter. Nothing you can do on your end.' },
+
+    // ── Catch-all: any remaining Tagalog text ───────────────────────────
+    // Detects common Tagalog words and replaces the whole message so
+    // raw untranslated Tagalog never reaches the advisor's screen.
+    { match: /\b(ang|ng|na|sa|ay|hindi|wala|para|nang|ito|kami|mo|niya|sila|kayo|ako|mga|kung|pero|at|o|may|magpadala|tatanggap|mensahe|error|problema)\b/i,
+      english: 'An error occurred while processing your request. Please try again. If the problem persists, check your Apps Script deployment settings.' },
   ];
   for (const p of patterns){
     if (p.match.test(msg)) return p.english;
   }
-  // Unrecognized message: return as-is rather than hide it, so nothing
-  // gets silently swallowed if a new/unseen Gmail error shows up.
+  // Unrecognized message in any language: return as-is so nothing
+  // gets silently swallowed if a new/unseen error shows up.
   return msg;
 }
 
