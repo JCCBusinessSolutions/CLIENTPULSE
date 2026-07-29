@@ -5,15 +5,9 @@
  * ============================================================
  */
 
-// The Sheet ID is stored in Script Properties so this same script
-// works for any buyer — each one runs setSpreadsheetId() once with
-// their own Sheet ID, and the script remembers it from then on.
-// To set it: open Apps Script editor, run setSpreadsheetId('YOUR_SHEET_ID')
-// or call it from the browser: ?action=setSpreadsheetId&id=YOUR_SHEET_ID
+// Bound to sheet (Extensions → Apps Script): getActiveSpreadsheet() works automatically.
+// Standalone script: set Sheet ID once via ?action=setSpreadsheetId&id=SHEET_ID
 function getSpreadsheet(){
-  // Works in both contexts:
-  // 1. Bound to a sheet (Extensions → Apps Script) → getActiveSpreadsheet() works
-  // 2. Standalone script with Sheet ID set → openById() works
   try{
     const active = SpreadsheetApp.getActiveSpreadsheet();
     if (active) return active;
@@ -807,10 +801,6 @@ function doGet(e){
   const action = e.parameter.action;
   if (action === 'getAdvisorActiveStatus')    return jsonResponse(getAdvisorActiveStatus());
   if (action === 'setSpreadsheetId')          { const id = e.parameter.id || ''; if (!id) return jsonResponse({ error: 'Missing id parameter' }); PropertiesService.getScriptProperties().setProperty('SPREADSHEET_ID', id); return jsonResponse({ success: true, message: 'Connected to sheet: ' + id }); }
-  // All other actions need the sheet to be configured first
-  if (!PropertiesService.getScriptProperties().getProperty('SPREADSHEET_ID')){
-    return jsonResponse({ error: 'SHEET_NOT_CONFIGURED', message: 'Run ?action=setSpreadsheetId&id=YOUR_SHEET_ID first.' });
-  }
   if (!ACTIONS_EXEMPT_FROM_HARD_STOP.includes(action) && !isAdvisorActive()){
     return jsonResponse(Object.assign({ error: 'ADVISOR_INACTIVE' }, getAdvisorActiveStatus()));
   }
@@ -950,10 +940,6 @@ function doPost(e){
   let body;
   try{ body = JSON.parse(e.postData.contents); }
   catch(err){ return jsonResponse({ error: 'Invalid request body' }); }
-
-  if (!ACTIONS_EXEMPT_FROM_HARD_STOP.includes(body.action) && !PropertiesService.getScriptProperties().getProperty('SPREADSHEET_ID')){
-    return jsonResponse({ error: 'SHEET_NOT_CONFIGURED', message: 'Run ?action=setSpreadsheetId&id=YOUR_SHEET_ID first.' });
-  }
 
   if (!ACTIONS_EXEMPT_FROM_HARD_STOP.includes(body.action) && !isAdvisorActive()){
     return jsonResponse(Object.assign({ error: 'ADVISOR_INACTIVE' }, getAdvisorActiveStatus()));
