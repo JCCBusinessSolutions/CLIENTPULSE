@@ -2181,7 +2181,7 @@ input:checked + #studioSection .slider-toggle::before{transform:translateX(19px)
         <p class="sub">One-time: paste your Dues Tracker Apps Script Web App URL.</p>
         <label for="scriptUrl">Apps Script Web App URL</label>
         <div class="gate-pw-wrap">
-          <input type="password" id="scriptUrl" placeholder="https://script.google.com/macros/s/.../exec" autocomplete="off" style="padding-right:44px;">
+          <input type="text" id="scriptUrl" placeholder="https://script.google.com/macros/s/.../exec" autocomplete="off" style="padding-right:44px; -webkit-text-security:disc; font-family:monospace; letter-spacing:0.1em;">
           <button type="button" class="gate-pw-toggle" onclick="togglePasswordVisibility('scriptUrl', this)" aria-label="Show URL"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></button>
         </div>
         <div class="row">
@@ -6942,6 +6942,16 @@ const EYE_CLOSED_PATH = '<path d="M17.94 17.94A10.94 10.94 0 0 1 12 20c-7 0-11-8
 function togglePasswordVisibility(inputId, btn) {
   const input = document.getElementById(inputId);
   const svg = btn.querySelector('svg');
+  // scriptUrl uses CSS text-security masking (not type=password) to avoid
+  // browser autofill corruption when pasting URLs. Toggle differently.
+  if (inputId === 'scriptUrl') {
+    const masked = input.style.webkitTextSecurity !== 'none';
+    input.style.webkitTextSecurity = masked ? 'none' : 'disc';
+    input.style.letterSpacing = masked ? 'normal' : '0.1em';
+    svg.innerHTML = masked ? EYE_CLOSED_PATH : EYE_OPEN_PATH;
+    btn.setAttribute('aria-label', masked ? 'Hide URL' : 'Show URL');
+    return;
+  }
   if (input.type === 'password') {
     input.type = 'text';
     svg.innerHTML = EYE_CLOSED_PATH;
