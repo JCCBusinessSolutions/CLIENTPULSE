@@ -3201,8 +3201,13 @@ function parseDuesFromWorkbook(workbook){
    APPS SCRIPT CALLS  (text/plain body avoids CORS preflight)
    ============================================================ */
 async function callBackend(payload){
-  const url = getScriptUrl();
+  // Use dataset.value first (set on save and on init), fall back to
+  // localStorage directly — this prevents a silent failure if the DOM
+  // element's dataset was never populated (e.g. page loaded before
+  // initScriptUrl ran, or the field was cleared by a browser bug).
+  const url = getScriptUrl() || localStorage.getItem(SCRIPT_URL_STORAGE_KEY) || '';
   if (!url) throw new Error('NO_SCRIPT_URL');
+  console.log('[callBackend] action:', payload.action, '| URL:', url.slice(0, 80) + '...');
   const bodyStr = JSON.stringify(payload);
   try{
     const res = await fetch(url, {
