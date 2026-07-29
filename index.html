@@ -3203,10 +3203,16 @@ function parseDuesFromWorkbook(workbook){
 async function callBackendGet(action, data){
   const url = getScriptUrl() || localStorage.getItem(SCRIPT_URL_STORAGE_KEY) || '';
   if (!url) throw new Error('NO_SCRIPT_URL');
-  // Encode the data as base64 to safely pass it as a URL parameter.
-  // btoa() handles the conversion; encodeURIComponent ensures the
-  // base64 string is URL-safe (handles +, / and = characters).
-  const base64Data = encodeURIComponent(btoa(unescape(encodeURIComponent(JSON.stringify(data)))));
+  // Strip rows down to only the fields the backend actually needs,
+  // cutting payload size by ~60% before base64 encoding.
+  const slim = Array.isArray(data) ? data.map(r => ({
+    pn: r.policyNumber, cn: r.clientName, em: r.email, pr: r.product,
+    pm: r.premiumMode, pa: r.premiumAmount, fv: r.fundValue,
+    dd: r.dueDate, ps: r.policyStatus, ld: r.lapseDate, id: r.issuedDate,
+    // Birthday tracker fields
+    fn: r.fullName, dob: r.dateOfBirth, ct: r.contactNumber, lo: r.location
+  })) : data;
+  const base64Data = encodeURIComponent(btoa(unescape(encodeURIComponent(JSON.stringify(slim)))));
   const fullUrl = url + '?action=' + action + '&data=' + base64Data;
   try{
     const res = await fetch(fullUrl);
@@ -3383,10 +3389,7 @@ function chunkArray(arr, size){
 // `action` is 'pushDues' or 'pushBirthdays'. `onProgress(doneCount, totalCount, batchIndex, batchCount)`
 // is called after each batch so the UI can show live progress.
 async function pushRowsInBatches(action, rows, onProgress, batchSize){
-  // GET requests with base64 data have URL length limits (~8KB safe limit).
-  // 25 rows of policy data encodes to ~3-4KB base64, safely under the limit.
-  // POST would allow 300+ rows per batch but is blocked by CORS on custom domains.
-  batchSize = batchSize || 25;
+  batchSize = batchSize || 300;
   const batches = chunkArray(rows, batchSize);
   let added = 0, updated = 0, done = 0;
 
@@ -3394,15 +3397,11 @@ async function pushRowsInBatches(action, rows, onProgress, batchSize){
     const batch = batches[i];
     let result;
     try{
-      const getAction = action === 'pushDues' ? 'pushDuesGet' : 'pushBirthdaysGet';
-      result = await callBackendGet(getAction, batch);
+      result = await callBackend({ action: action, rows: batch });
     }catch(err){
-      // Surface exactly how far we got before failing, so a retry or
-      // support request isn't starting blind — rows already pushed in
-      // earlier batches are already saved in the sheet, nothing is lost.
       const progressErr = new Error(
         'Stopped after ' + done + ' of ' + rows.length + ' rows ' +
-        '(already saved — safe to try again, it will only add what\u2019s left). ' +
+        '(already saved — safe to try again, it will only add what’s left). ' +
         'Original error: ' + err.message
       );
       progressErr.partial = { added, updated, done, total: rows.length };
@@ -3416,7 +3415,6 @@ async function pushRowsInBatches(action, rows, onProgress, batchSize){
 
   return { added: added, updated: updated, total: rows.length };
 }
-
 async function fetchSendHour(){
   const url = getScriptUrl();
   if (!url) return null;
