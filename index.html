@@ -2178,14 +2178,21 @@ input:checked + #studioSection .slider-toggle::before{transform:translateX(19px)
 
       <div class="card" id="configCard" style="display:none;">
         <h2>Connection Setup</h2>
-        <p class="sub">One-time: paste your Dues Tracker Apps Script Web App URL.</p>
-        <label for="scriptUrl">Apps Script Web App URL</label>
+        <p class="sub">Paste your Apps Script Web App URL and your Google Sheet link — the app handles the rest automatically.</p>
+
+        <label for="scriptUrl">Step 1 — Apps Script Web App URL</label>
         <div class="gate-pw-wrap">
           <input type="text" id="scriptUrl" placeholder="https://script.google.com/macros/s/.../exec" autocomplete="off" style="padding-right:44px; -webkit-text-security:disc; font-family:monospace; letter-spacing:0.1em;">
           <button type="button" class="gate-pw-toggle" onclick="togglePasswordVisibility('scriptUrl', this)" aria-label="Show URL"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></button>
         </div>
-        <div class="row">
-          <button class="btn-ghost" id="saveScriptUrl">SAVE URL</button>
+
+        <label for="sheetLink" style="margin-top:14px;">Step 2 — Google Sheet Link</label>
+        <p class="sub" style="margin-bottom:6px;">Open your Dues Tracker Google Sheet, copy the link from your browser, and paste it here.</p>
+        <input type="text" id="sheetLink" placeholder="https://docs.google.com/spreadsheets/d/.../edit" autocomplete="off">
+        <div id="sheetLinkStatus" style="font-size:12px; margin-top:4px; min-height:16px;"></div>
+
+        <div class="row" style="margin-top:12px;">
+          <button class="btn-gold" id="saveScriptUrl" style="width:100%;">SAVE &amp; CONNECT</button>
         </div>
         <div class="status" id="configStatus"></div>
       </div>
@@ -3507,11 +3514,47 @@ el('toggleConfig').addEventListener('click', () => {
   openSettingsPage();
 });
 
-el('saveScriptUrl').addEventListener('click', () => {
+el('saveScriptUrl').addEventListener('click', async () => {
   const val = el('scriptUrl').value.trim();
   el('scriptUrl').dataset.value = val;
   persistScriptUrl(val);
   updateSetupBlinkState();
+
+  // Extract Sheet ID from whatever the buyer pasted — full URL or just the ID
+  const sheetInput = el('sheetLink').value.trim();
+  const sheetStatus = el('sheetLinkStatus');
+
+  if (sheetInput){
+    // Handle both full URL and bare ID
+    // Full URL: https://docs.google.com/spreadsheets/d/SHEET_ID/edit...
+    // Bare ID: 12j4ZOYPYs_qBnbwuPJYS1nH09O2RykLZE9DBQq-OJEg
+    const urlMatch = sheetInput.match(/\/spreadsheets\/d\/([a-zA-Z0-9_-]+)/);
+    const sheetId = urlMatch ? urlMatch[1] : sheetInput.replace(/[^a-zA-Z0-9_-]/g, '');
+
+    if (sheetId && sheetId.length > 20){
+      sheetStatus.style.color = '#9CA3AF';
+      sheetStatus.textContent = 'Connecting to your sheet\u2026';
+      try{
+        const connectUrl = val + '?action=setSpreadsheetId&id=' + encodeURIComponent(sheetId);
+        const res = await fetch(connectUrl);
+        const data = await res.json();
+        if (data && data.success){
+          sheetStatus.style.color = '#27AE60';
+          sheetStatus.textContent = '\u2713 Connected! Sheet ID saved successfully.';
+        } else {
+          sheetStatus.style.color = '#EB5757';
+          sheetStatus.textContent = '\u2717 Could not connect: ' + (data.error || 'Unknown error');
+        }
+      }catch(e){
+        sheetStatus.style.color = '#EB5757';
+        sheetStatus.textContent = '\u2717 Connection failed. Check your Web App URL and try again.';
+      }
+    } else {
+      sheetStatus.style.color = '#EB5757';
+      sheetStatus.textContent = '\u2717 That doesn\u2019t look like a valid Google Sheet link.';
+    }
+  }
+
   showStatus('configStatus','success','Saved \u2014 this browser will remember it next time you open the app.');
   fetchBrandConfig().then(config => populateBrandingFields(config));
   fetchSendHour().then(hour => populateSendHour(hour));
@@ -4186,6 +4229,24 @@ function renderShowSelectedOnlyToggle(){
     ? 'Showing only selected (' + bcSelectedEmails.size + ')'
     : 'Show only selected recipients';
 }
+
+el('sheetLink').addEventListener('input', () => {
+  const val = el('sheetLink').value.trim();
+  const status = el('sheetLinkStatus');
+  if (!val){ status.textContent = ''; return; }
+  const urlMatch = val.match(/\/spreadsheets\/d\/([a-zA-Z0-9_-]+)/);
+  if (urlMatch){
+    status.style.color = '#27AE60';
+    status.textContent = '\u2713 Sheet ID detected: ' + urlMatch[1].slice(0,12) + '\u2026';
+  } else if (val.length > 20 && /^[a-zA-Z0-9_-]+$/.test(val)){
+    status.style.color = '#27AE60';
+    status.textContent = '\u2713 Sheet ID looks valid.';
+  } else {
+    status.style.color = '#9CA3AF';
+    status.textContent = 'Paste the full Google Sheet link from your browser.';
+  }
+});
+
 
 el('bcShowSelectedOnlyBtn').addEventListener('click', () => {
   bcShowSelectedOnly = !bcShowSelectedOnly;
