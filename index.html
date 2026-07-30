@@ -6404,9 +6404,23 @@ el('birthdayParseBtn').addEventListener('click', async () => {
     }
 
     showStatus('birthdayMainStatus','info','Pushing ' + rows.length + ' clients to your Birthday Tracker…');
-    const result = await pushRowsInBatches('pushBirthdays', rows, (done, total) => {
-      showStatus('birthdayMainStatus','info','Pushing ' + done + ' of ' + total + ' clients to your Birthday Tracker…');
-    });
+
+    // Birthday uses POST directly (not the GET workaround used for dues) —
+    // birthday rows are much smaller (5 fields vs 11) so they work fine
+    // with POST batches of 300 without hitting size limits. POST was
+    // working for birthday before the CORS issues started, and since
+    // the CORS issue is specifically with the dues upload (large payloads),
+    // birthday can safely go back to the original working approach.
+    const BDAY_BATCH = 150;
+    let bdayAdded = 0, bdayUpdated = 0;
+    for (let i = 0; i < rows.length; i += BDAY_BATCH){
+      const batch = rows.slice(i, i + BDAY_BATCH);
+      showStatus('birthdayMainStatus','info','Pushing ' + Math.min(i + BDAY_BATCH, rows.length) + ' of ' + rows.length + ' clients…');
+      const res = await callBackend({ action: 'pushBirthdays', rows: batch });
+      bdayAdded += res.added || 0;
+      bdayUpdated += res.updated || 0;
+    }
+    const result = { added: bdayAdded, updated: bdayUpdated, total: rows.length };
 
     showStatus('birthdayMainStatus','success','Done. Your Birthday Tracker is up to date.');
     el('birthdaySummary').style.display = 'grid';
