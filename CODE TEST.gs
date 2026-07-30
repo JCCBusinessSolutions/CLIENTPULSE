@@ -1067,7 +1067,6 @@ function pushBirthdayRows(rows){
   if (rows.length > 0) recordUploadActivity();
   return { added: added, updated: updated, total: rows.length };
 }
-
 /* ============================================================
    DAILY REMINDER CHECK
    ============================================================ */
