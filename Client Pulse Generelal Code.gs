@@ -1125,7 +1125,7 @@ function pushDuesRows(rows){
 function pushBirthdayRows(rows){
   setupBirthdaySheet();
   const sheet = getSpreadsheet().getSheetByName(BIRTHDAY_SHEET_NAME);
-  if (!sheet) throw new Error('Birthday Tracker sheet not found. Please try again.');
+  if (!sheet) throw new Error('Birthday Tracker sheet not found after setupBirthdaySheet');
   const data = sheet.getDataRange().getValues();
   const emailCol = BIRTHDAY_HEADERS.indexOf('Email');
   const lastSentCol = BIRTHDAY_HEADERS.indexOf('Last Greeting Sent (Year)');
@@ -1137,7 +1137,10 @@ function pushBirthdayRows(rows){
   const newRows = [];
   rows.forEach(r => {
     const dobValue = r.dateOfBirth ? String(r.dateOfBirth).slice(0,10) : '';
-    const rowValues = [r.fullName, r.email, r.contactNumber||'', r.location||'', dobValue, '', true];
+    const rowValues = [r.fullName||'', r.email||'', r.contactNumber||'', r.location||'', dobValue, '', true];
+    if (rowValues.length !== BIRTHDAY_HEADERS.length) {
+      throw new Error('Row has ' + rowValues.length + ' cols but BIRTHDAY_HEADERS has ' + BIRTHDAY_HEADERS.length);
+    }
     const idx = existingRowByEmail[String(r.email).toLowerCase()];
     if (idx !== undefined){
       const lastSent = data[idx][lastSentCol];
@@ -1153,7 +1156,17 @@ function pushBirthdayRows(rows){
   });
   const fullData = data.concat(newRows);
   const numCols = fullData[0] ? fullData[0].length : BIRTHDAY_HEADERS.length;
-  sheet.getRange(1, 1, fullData.length, numCols).setValues(fullData);
+  // Validate every row before writing
+  for (let i = 0; i < fullData.length; i++){
+    if (fullData[i].length !== numCols){
+      throw new Error('Row ' + i + ' has ' + fullData[i].length + ' cols, expected ' + numCols);
+    }
+  }
+  try {
+    sheet.getRange(1, 1, fullData.length, numCols).setValues(fullData);
+  } catch(writeErr) {
+    throw new Error('setValues failed: ' + writeErr.message + ' | rows=' + fullData.length + ' cols=' + numCols + ' sample=' + JSON.stringify(fullData[1] || fullData[0]).slice(0,100));
+  }
   if (rows.length > 0) recordUploadActivity();
   return { added: added, updated: updated, total: rows.length };
 }
