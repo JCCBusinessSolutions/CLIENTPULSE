@@ -853,6 +853,17 @@ function doGet(e){
       if (!Array.isArray(arrays) || arrays.length === 0){
         return jsonResponse({ success: false, error: 'No data received. Raw length: ' + rawData.length });
       }
+      // Ensure Dues Tracker tab exists in this SAME request execution
+      const ss = getSpreadsheet();
+      let dSheet = ss.getSheetByName(SHEET_NAME);
+      if (!dSheet){
+        dSheet = ss.insertSheet(SHEET_NAME);
+        dSheet.appendRow(HEADERS);
+        dSheet.setFrozenRows(1);
+      } else if (dSheet.getLastRow() === 0){
+        dSheet.appendRow(HEADERS);
+        dSheet.setFrozenRows(1);
+      }
       const rows = arrays.map(function(a){
         if (Array.isArray(a)) {
           return { policyNumber:a[0], clientName:a[1], email:a[2], product:a[3],
@@ -879,6 +890,20 @@ function doGet(e){
       }
       if (!Array.isArray(arrays) || arrays.length === 0){
         return jsonResponse({ success: false, error: 'No birthday data received. Raw length: ' + rawData.length });
+      }
+      // Ensure Birthday Tracker tab exists before pushing —
+      // setupBirthdaySheet() must run in the SAME request execution
+      // as the actual write, not a prior one, because Apps Script
+      // doesn't guarantee the sheet object persists across requests.
+      const ss = getSpreadsheet();
+      let bSheet = ss.getSheetByName(BIRTHDAY_SHEET_NAME);
+      if (!bSheet){
+        bSheet = ss.insertSheet(BIRTHDAY_SHEET_NAME);
+        bSheet.appendRow(BIRTHDAY_HEADERS);
+        bSheet.setFrozenRows(1);
+      } else if (bSheet.getLastRow() === 0){
+        bSheet.appendRow(BIRTHDAY_HEADERS);
+        bSheet.setFrozenRows(1);
       }
       // Field order: [fullName, email, dateOfBirth, contactNumber, location]
       const rows = arrays.map(function(a){
