@@ -5,8 +5,31 @@
  * ============================================================
  */
 
+// The Sheet ID is stored in Script Properties so this same script
+// works for any buyer â each one runs setSpreadsheetId() once with
+// their own Sheet ID, and the script remembers it from then on.
+// To set it: open Apps Script editor, run setSpreadsheetId('YOUR_SHEET_ID')
+// or call it from the browser: ?action=setSpreadsheetId&id=YOUR_SHEET_ID
+function getSpreadsheet(){
+  // Works in both contexts:
+  // 1. Bound to a sheet (Extensions â Apps Script) â getActiveSpreadsheet() works
+  // 2. Standalone script with Sheet ID set â openById() works
+  try{
+    const active = SpreadsheetApp.getActiveSpreadsheet();
+    if (active) return active;
+  }catch(e){}
+  const id = PropertiesService.getScriptProperties().getProperty('SPREADSHEET_ID');
+  if (!id) throw new Error('Sheet ID not set. Run ?action=setSpreadsheetId&id=YOUR_SHEET_ID first.');
+  return SpreadsheetApp.openById(id);
+}
+
+function setSpreadsheetId(id){
+  PropertiesService.getScriptProperties().setProperty('SPREADSHEET_ID', id);
+  return 'Connected to sheet: ' + id;
+}
+
 const SHEET_NAME = 'Dues Tracker';
-const HEADERS = ['Policy Number','Client Name','Email','Product','Premium Mode','Premium Amount','Fund Value','Due Date','Policy Status','Last Reminder Sent','Send Dues?','Lapse Date','Issued Date'];
+const HEADERS = ['Policy Number','Client Name','Email','Product','Premium Mode','Premium Amount','Fund Value','Due Date','Policy Status','Last Reminder Sent','Send Dues?','Lapse Date','Issued Date','Last Anniversary Sent (Year)','Send Anniversary?'];
 
 const BIRTHDAY_SHEET_NAME = 'Birthday Tracker';
 const BIRTHDAY_HEADERS = ['Full Name','Email','Contact Number','Location','Date of Birth','Last Greeting Sent (Year)','Send Birthday?'];
@@ -14,7 +37,7 @@ const BIRTHDAY_HEADERS = ['Full Name','Email','Contact Number','Location','Date 
 // Scheduled broadcasts: each row is one queued send. The full payload
 // (subject, body, recipients, attachments, template flag) is stored as
 // a JSON string in PayloadJSON, since PropertiesService's 9KB-per-value
-// limit is too small once inline images/attachments are included —
+// limit is too small once inline images/attachments are included â
 // Sheet cells comfortably hold much larger text. TriggerId lets a
 // scheduled send be cancelled later by deleting its specific trigger.
 const SCHEDULE_SHEET_NAME = 'Scheduled Broadcasts';
@@ -33,9 +56,275 @@ const CONFIG_DEFAULTS = {
   headerImageFileId: '',
   footerImageFileId: '',
   connectLink: '',
-  payLink: ''
+  payLink: '',
+  reviewLink: ''
 };
 const CONFIG_KEYS = Object.keys(CONFIG_DEFAULTS);
+
+/* ============================================================
+   ADVISOR ACTIVITY / HARD-STOP CHECK
+   ------------------------------------------------------------
+   Every real upload (pushDuesRows or pushBirthdayRows) stamps
+   LAST_UPLOAD_TIMESTAMP. The deadline is calendar-anchored rather
+   than a flat rolling count: it's the 1st day of the month AFTER
+   the last upload, plus INACTIVITY_GRACE_DAYS. E.g. an upload any
+   time in June anchors to July 1, giving a deadline of ~July 31 â
+   a predictable "you have through the end of next month" cadence
+   tied to calendar months, instead of an arbitrary window measured
+   from the exact upload timestamp. Once that deadline passes, the
+   advisor is considered inactive and the script hard-stops:
+   doGet/doPost refuse every action except the ones needed to let
+   them reactivate (uploading new data, or checking their own
+   status), and the time-triggered senders (daily dues reminders,
+   birthday greetings, scheduled broadcasts) skip themselves
+   entirely so nothing sends on a stale account.
+   ============================================================ */
+const INACTIVITY_GRACE_DAYS = 30;
+
+// Actions allowed to run even while hard-stopped. Uploading is
+// deliberately included â it's the only way to self-reactivate â and
+// the status/branding reads are included so the app can render a clear
+// "you're locked out, upload to continue" screen instead of a raw error.
+const ACTIONS_EXEMPT_FROM_HARD_STOP = [
+  'pushDues', 'pushBirthdays', 'getAdvisorActiveStatus', 'getConfig', 'getAdvisorProfile', 'getProfileImagePreview', 'setSpreadsheetId'
+];
+
+function recordUploadActivity(){
+  PropertiesService.getScriptProperties().setProperty('LAST_UPLOAD_TIMESTAMP', new Date().toISOString());
+}
+
+// 1st day of the month following the given timestamp, plus the grace
+// window â e.g. an upload on June 25 anchors to July 1, deadline
+// July 31. Computed in UTC purely for clean month-boundary math; a
+// few hours of timezone drift doesn't matter for a 30-day business
+// rule like this one.
+function computeInactivityDeadline(lastUploadIso){
+  const lastUpload = new Date(lastUploadIso);
+  const anchor = new Date(Date.UTC(lastUpload.getUTCFullYear(), lastUpload.getUTCMonth() + 1, 1));
+  return new Date(anchor.getTime() + INACTIVITY_GRACE_DAYS * 24 * 60 * 60 * 1000);
+}
+
+// Returns the activity status. If no upload has ever been recorded,
+// falls back to a stamped first-run install date (set on first call)
+// so a brand-new deployment gets a full grace period rather than
+// looking instantly stale.
+function getAdvisorActiveStatus(){
+  const props = PropertiesService.getScriptProperties();
+  let lastUpload = props.getProperty('LAST_UPLOAD_TIMESTAMP');
+  if (!lastUpload){
+    let installedAt = props.getProperty('FIRST_INSTALL_TIMESTAMP');
+    if (!installedAt){
+      installedAt = new Date().toISOString();
+      props.setProperty('FIRST_INSTALL_TIMESTAMP', installedAt);
+    }
+    lastUpload = installedAt;
+  }
+  const deadline = computeInactivityDeadline(lastUpload);
+  const msRemaining = deadline.getTime() - Date.now();
+  const daysSince = (Date.now() - new Date(lastUpload).getTime()) / (24 * 60 * 60 * 1000);
+  return {
+    active: msRemaining > 0,
+    lastUploadTimestamp: lastUpload,
+    daysSinceLastUpload: Math.floor(daysSince),
+    daysUntilLock: Math.max(0, Math.ceil(msRemaining / (24 * 60 * 60 * 1000))),
+    cycleDeadline: deadline.toISOString()
+  };
+}
+
+function isAdvisorActive(){
+  return getAdvisorActiveStatus().active;
+}
+
+/* ============================================================
+   AUTO-CLEAR CLIENT DATA â 30 DAYS FROM THE 1ST OF THE MONTH
+   ------------------------------------------------------------
+   Runs once a day (installed alongside the other daily triggers â
+   see createInactivityPurgeTrigger). Once the calendar-anchored
+   deadline computed in getAdvisorActiveStatus() has passed, every
+   stored client record (Dues Tracker, Birthday Tracker, Scheduled
+   Broadcasts, Broadcast Drafts) is wiped â but a CSV snapshot is
+   saved to Drive first, and the advisor is emailed a notice, so
+   this is never a silent, unrecoverable surprise. Guarded so it
+   only fires once per inactivity stretch: a fresh upload resets
+   LAST_UPLOAD_TIMESTAMP, which automatically re-arms it for the
+   next cycle.
+   ============================================================ */
+function purgeInactiveClientData(){
+  const status = getAdvisorActiveStatus();
+  if (status.active) return; // deadline hasn't passed yet â not due
+
+  const props = PropertiesService.getScriptProperties();
+  if (props.getProperty('LAST_PURGE_BASELINE') === status.lastUploadTimestamp){
+    return; // already purged for this inactivity stretch
+  }
+
+  const ss = getSpreadsheet();
+  const summary = { duesCleared: 0, birthdaysCleared: 0, scheduledCleared: 0, draftsCleared: 0, backupFileUrl: null };
+
+  try{
+    summary.backupFileUrl = backupClientDataToDrive(ss);
+  }catch(e){
+    // Backup failing should never block the purge itself â being past
+    // the inactivity deadline means data minimization takes priority.
+  }
+
+  summary.duesCleared      = clearSheetDataRows(ss, SHEET_NAME, HEADERS.length);
+  summary.birthdaysCleared = clearSheetDataRows(ss, BIRTHDAY_SHEET_NAME, BIRTHDAY_HEADERS.length);
+  summary.scheduledCleared = clearScheduledBroadcastsAndTriggers(ss);
+  summary.draftsCleared    = clearSheetDataRows(ss, DRAFT_SHEET_NAME, DRAFT_HEADERS.length);
+
+  props.setProperty('LAST_PURGE_BASELINE', status.lastUploadTimestamp);
+  props.setProperty('LAST_PURGE_TIMESTAMP', new Date().toISOString());
+
+  notifyAdvisorOfPurge(summary);
+  return summary;
+}
+
+// Clears every data row below the header in a sheet (leaves the header
+// and the sheet itself intact). Returns how many rows were cleared.
+function clearSheetDataRows(ss, sheetName, numCols){
+  const sheet = ss.getSheetByName(sheetName);
+  if (!sheet) return 0;
+  const lastRow = sheet.getLastRow();
+  if (lastRow <= 1) return 0; // header only (or empty) â nothing to clear
+  const clearedCount = lastRow - 1;
+  sheet.getRange(2, 1, clearedCount, numCols).clearContent();
+  return clearedCount;
+}
+
+// Scheduled Broadcasts rows can carry a live one-time trigger â delete
+// those before clearing the row so nothing fires against data that's
+// about to disappear.
+function clearScheduledBroadcastsAndTriggers(ss){
+  const sheet = ss.getSheetByName(SCHEDULE_SHEET_NAME);
+  if (!sheet) return 0;
+  const data = sheet.getDataRange().getValues();
+  if (data.length <= 1) return 0;
+  const triggerIdCol = data[0].indexOf('TriggerId');
+  const projectTriggers = ScriptApp.getProjectTriggers();
+  for (let i = 1; i < data.length; i++){
+    const triggerId = triggerIdCol !== -1 ? data[i][triggerIdCol] : null;
+    if (triggerId){
+      projectTriggers.forEach(t => {
+        if (t.getUniqueId() === String(triggerId)) ScriptApp.deleteTrigger(t);
+      });
+    }
+  }
+  const clearedCount = data.length - 1;
+  sheet.getRange(2, 1, clearedCount, data[0].length).clearContent();
+  return clearedCount;
+}
+
+// Snapshots the Dues Tracker and Birthday Tracker sheets to a single
+// timestamped CSV in a "Client Pulse Purge Backups" Drive folder,
+// right before they get wiped. Returns the backup file's URL, or null
+// if there was nothing worth backing up.
+function backupClientDataToDrive(ss){
+  const folderName = 'Client Pulse Purge Backups';
+  const existingFolders = DriveApp.getFoldersByName(folderName);
+  const folder = existingFolders.hasNext() ? existingFolders.next() : DriveApp.createFolder(folderName);
+  const tz = Session.getScriptTimeZone();
+  const stamp = Utilities.formatDate(new Date(), tz, 'yyyy-MM-dd_HHmm');
+
+  const duesSheet = ss.getSheetByName(SHEET_NAME);
+  const bdaySheet = ss.getSheetByName(BIRTHDAY_SHEET_NAME);
+  let csv = '';
+  if (duesSheet && duesSheet.getLastRow() > 1){
+    csv += 'DUES TRACKER\n' + sheetToCsv(duesSheet) + '\n\n';
+  }
+  if (bdaySheet && bdaySheet.getLastRow() > 1){
+    csv += 'BIRTHDAY TRACKER\n' + sheetToCsv(bdaySheet) + '\n';
+  }
+  if (!csv) return null;
+  const file = folder.createFile('client_pulse_backup_' + stamp + '.csv', csv, MimeType.CSV);
+  return file.getUrl();
+}
+
+function sheetToCsv(sheet){
+  const data = sheet.getDataRange().getValues();
+  const tz = Session.getScriptTimeZone();
+  return data.map(row => row.map(cell => {
+    if (cell instanceof Date) return Utilities.formatDate(cell, tz, 'yyyy-MM-dd');
+    const s = String(cell == null ? '' : cell);
+    return '"' + s.replace(/"/g, '""') + '"';
+  }).join(',')).join('\n');
+}
+
+// contactEmail (not getActiveUser/getEffectiveUser) is used deliberately
+// here â this runs from a time-driven trigger, and some Workspace
+// policies (e.g. Sun Life's) block the scope those need. contactEmail
+// sidesteps that entirely, same as the rest of this file.
+function notifyAdvisorOfPurge(summary){
+  try{
+    const config = getBrandConfig();
+    const recipient = config.contactEmail;
+    if (!recipient) return; // nowhere configured to send it
+    const body =
+      'This is an automated notice from Client Pulse.\n\n' +
+      'No client data has been uploaded in time, so all stored client information has been automatically cleared:\n\n' +
+      '- Dues Tracker: ' + summary.duesCleared + ' row(s) cleared\n' +
+      '- Birthday Tracker: ' + summary.birthdaysCleared + ' row(s) cleared\n' +
+      '- Scheduled Broadcasts: ' + summary.scheduledCleared + ' row(s) cleared\n' +
+      '- Broadcast Drafts: ' + summary.draftsCleared + ' row(s) cleared\n\n' +
+      (summary.backupFileUrl ? ('A backup was saved before deletion, in case you need it back:\n' + summary.backupFileUrl + '\n\n') : '') +
+      'Upload a new client list anytime to reactivate the app and start fresh.';
+    GmailApp.sendEmail(recipient, 'Client Pulse: client data auto-cleared (inactive too long)', body);
+  }catch(e){
+    // A failed notification should never surface as a broken purge â
+    // the data clearing above has already completed successfully.
+  }
+}
+
+/* ============================================================
+   5-DAY ADVANCE REMINDER
+   ------------------------------------------------------------
+   Runs daily alongside the purge check (see dailyInactivityCheck).
+   Once the advisor is within REMINDER_DAYS_BEFORE_LOCK days of the
+   hard-stop/purge deadline, sends one heads-up email so they get a
+   chance to re-upload before everything gets wiped â not just find
+   out after the fact. Fires once per inactivity cycle, same
+   once-only guard pattern as the purge itself; a fresh upload
+   automatically re-arms it for the next cycle.
+   ============================================================ */
+const REMINDER_DAYS_BEFORE_LOCK = 5;
+
+function sendInactivityReminderIfNeeded(){
+  const status = getAdvisorActiveStatus();
+  if (!status.active) return; // already past the deadline â the purge handles this case
+  if (status.daysUntilLock > REMINDER_DAYS_BEFORE_LOCK) return; // not close enough yet
+
+  const props = PropertiesService.getScriptProperties();
+  if (props.getProperty('LAST_REMINDER_BASELINE') === status.lastUploadTimestamp){
+    return; // already reminded for this cycle
+  }
+
+  try{
+    const config = getBrandConfig();
+    const recipient = config.contactEmail;
+    if (recipient){
+      const days = status.daysUntilLock;
+      const body =
+        'You have ' + days + ' day' + (days === 1 ? '' : 's') + ' remaining to reupload your life policy list and client list.\n\n' +
+        'After which the app will clear your data and stop auto reminder.\n\n' +
+        'Upload your latest Dues or Birthday list anytime before then to keep Client Pulse running without interruption.';
+      GmailApp.sendEmail(recipient, 'Client Pulse: ' + days + ' day' + (days === 1 ? '' : 's') + ' left before your data is cleared', body);
+    }
+  }catch(e){
+    // A failed reminder should never block the purge check from running.
+  }
+
+  props.setProperty('LAST_REMINDER_BASELINE', status.lastUploadTimestamp);
+}
+
+// Installed on the daily 3AM trigger â sends the 5-day advance
+// reminder first, then runs the purge check. Order matters only in
+// that both should run every day; the reminder's own "already past
+// deadline" guard means it naturally stops firing once the purge has
+// taken over for that cycle.
+function dailyInactivityCheck(){
+  sendInactivityReminderIfNeeded();
+  purgeInactiveClientData();
+}
 
 function getBrandConfig(){
   const props = PropertiesService.getScriptProperties();
@@ -189,7 +478,9 @@ function getProfileImagePreviewData(){
 }
 
 function setupSheet(){
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  createInactivityPurgeTrigger(); // self-installs once; cheap no-op after that
+  ensureAnniversaryDailyTriggerExists(); // same reasoning â advisors from before this feature existed need this too
+  const ss = getSpreadsheet();
   let sheet = ss.getSheetByName(SHEET_NAME);
   if (!sheet){
     sheet = ss.insertSheet(SHEET_NAME);
@@ -213,7 +504,7 @@ function setupSheet(){
     if (!refreshedHeaders.includes('Send Dues?')){
       // Uses this sheet's own current column count (not HEADERS.length,
       // which no longer reflects "Send Dues?" being the last column now
-      // that Lapse Date was added after it) — appending after whatever
+      // that Lapse Date was added after it) â appending after whatever
       // this specific sheet currently has is always correct regardless
       // of how HEADERS itself has grown since.
       const lastCol = sheet.getLastColumn() + 1;
@@ -232,13 +523,27 @@ function setupSheet(){
       const lastCol = sheet.getLastColumn() + 1;
       sheet.getRange(1, lastCol).setValue('Issued Date');
     }
+    const headersAfterIssuedDate = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+    if (!headersAfterIssuedDate.includes('Last Anniversary Sent (Year)')){
+      const lastCol = sheet.getLastColumn() + 1;
+      sheet.getRange(1, lastCol).setValue('Last Anniversary Sent (Year)');
+    }
+    const headersAfterAnniversarySent = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+    if (!headersAfterAnniversarySent.includes('Send Anniversary?')){
+      const lastCol = sheet.getLastColumn() + 1;
+      sheet.getRange(1, lastCol).setValue('Send Anniversary?');
+      // Default existing rows to included, same convention as Send Dues?
+      for (let i = 2; i <= sheet.getLastRow(); i++){
+        sheet.getRange(i, lastCol).setValue(true);
+      }
+    }
   }
   const policyColIndex = HEADERS.indexOf('Policy Number') + 1;
   sheet.getRange(1, policyColIndex, sheet.getMaxRows(), 1).setNumberFormat('@');
 }
 
 function setupBirthdaySheet(){
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const ss = getSpreadsheet();
   let sheet = ss.getSheetByName(BIRTHDAY_SHEET_NAME);
   if (!sheet){
     sheet = ss.insertSheet(BIRTHDAY_SHEET_NAME);
@@ -259,7 +564,7 @@ function setupBirthdaySheet(){
 }
 
 function setupScheduleSheet(){
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const ss = getSpreadsheet();
   let sheet = ss.getSheetByName(SCHEDULE_SHEET_NAME);
   if (!sheet){
     sheet = ss.insertSheet(SCHEDULE_SHEET_NAME);
@@ -268,7 +573,7 @@ function setupScheduleSheet(){
     sheet.appendRow(SCHEDULE_HEADERS);
     sheet.setFrozenRows(1);
   } else {
-    // Existing sheets created before SentCount/FailedCount existed —
+    // Existing sheets created before SentCount/FailedCount existed â
     // append any missing columns at the end rather than inserting them
     // mid-row, so nothing already in the sheet shifts position.
     const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
@@ -282,7 +587,7 @@ function setupScheduleSheet(){
 }
 
 function setupDraftSheet(){
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const ss = getSpreadsheet();
   let sheet = ss.getSheetByName(DRAFT_SHEET_NAME);
   if (!sheet){
     sheet = ss.insertSheet(DRAFT_SHEET_NAME);
@@ -325,6 +630,8 @@ function setSendHour(hour){
   PropertiesService.getScriptProperties().setProperty('SEND_HOUR', String(hour));
   createDailyTrigger(hour);
   createBirthdayDailyTrigger(hour);
+  createAnniversaryDailyTrigger(hour);
+  createInactivityPurgeTrigger();
   return { hour: hour };
 }
 
@@ -352,13 +659,38 @@ function createBirthdayDailyTrigger(hour){
     .create();
 }
 
+// Runs independently of the advisor's chosen send hour â fixed at 3AM
+// so it never competes with, or gets skipped alongside, the reminder/
+// birthday sends if the advisor later disables those. Checks for an
+// existing trigger first rather than delete-then-recreate every time,
+// since this is also called from setupSheet() on every upload â that
+// keeps it cheap and lets it self-install for advisors who were
+// already using the app before this feature existed, without needing
+// them to touch Send Hour settings.
+function createInactivityPurgeTrigger(){
+  // Clean up the old direct-purge trigger from before the 5-day
+  // reminder existed, so it isn't left running alongside the new
+  // combined check.
+  ScriptApp.getProjectTriggers().forEach(t => {
+    if (t.getHandlerFunction() === 'purgeInactiveClientData') ScriptApp.deleteTrigger(t);
+  });
+  const alreadyInstalled = ScriptApp.getProjectTriggers()
+    .some(t => t.getHandlerFunction() === 'dailyInactivityCheck');
+  if (alreadyInstalled) return;
+  ScriptApp.newTrigger('dailyInactivityCheck')
+    .timeBased()
+    .everyDays(1)
+    .atHour(3)
+    .create();
+}
+
 /* ============================================================
    CLIENT PREFERENCE MANAGEMENT
    ============================================================ */
 
 function getDuesClientList(){
   setupSheet();
-  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_NAME);
+  const sheet = getSpreadsheet().getSheetByName(SHEET_NAME);
   if (!sheet) return [];
   const data = sheet.getDataRange().getValues();
   const headers = data[0];
@@ -412,7 +744,7 @@ function getDuesClientList(){
 
 function getBirthdayClientList(){
   setupBirthdaySheet();
-  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(BIRTHDAY_SHEET_NAME);
+  const sheet = getSpreadsheet().getSheetByName(BIRTHDAY_SHEET_NAME);
   if (!sheet) return [];
   const data = sheet.getDataRange().getValues();
   const headers = data[0];
@@ -438,7 +770,7 @@ function getBirthdayClientList(){
 
 function setDuesPreference(policyNumber, enabled){
   setupSheet();
-  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_NAME);
+  const sheet = getSpreadsheet().getSheetByName(SHEET_NAME);
   const data = sheet.getDataRange().getValues();
   const headers = data[0];
   const policyCol = headers.indexOf('Policy Number');
@@ -454,7 +786,7 @@ function setDuesPreference(policyNumber, enabled){
 
 function setBirthdayPreference(email, enabled){
   setupBirthdaySheet();
-  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(BIRTHDAY_SHEET_NAME);
+  const sheet = getSpreadsheet().getSheetByName(BIRTHDAY_SHEET_NAME);
   const data = sheet.getDataRange().getValues();
   const headers = data[0];
   const emailCol = headers.indexOf('Email');
@@ -473,12 +805,63 @@ function setBirthdayPreference(email, enabled){
    ============================================================ */
 function doGet(e){
   const action = e.parameter.action;
+  if (action === 'getAdvisorActiveStatus')    return jsonResponse(getAdvisorActiveStatus());
+  if (action === 'setSpreadsheetId')          { const id = e.parameter.id || ''; if (!id) return jsonResponse({ error: 'Missing id parameter' }); PropertiesService.getScriptProperties().setProperty('SPREADSHEET_ID', id); return jsonResponse({ success: true, message: 'Connected to sheet: ' + id }); }
+  // All other actions need the sheet to be configured first
+  if (!PropertiesService.getScriptProperties().getProperty('SPREADSHEET_ID')){
+    return jsonResponse({ error: 'SHEET_NOT_CONFIGURED', message: 'Run ?action=setSpreadsheetId&id=YOUR_SHEET_ID first.' });
+  }
+  if (!ACTIONS_EXEMPT_FROM_HARD_STOP.includes(action) && !isAdvisorActive()){
+    return jsonResponse(Object.assign({ error: 'ADVISOR_INACTIVE' }, getAdvisorActiveStatus()));
+  }
   if (action === 'getDuesClientList')         return jsonResponse({ clients: getDuesClientList() });
   if (action === 'getBirthdayClientList')     return jsonResponse({ clients: getBirthdayClientList() });
   if (action === 'getRemainingEmailQuota')    return jsonResponse(getRemainingEmailQuota());
   if (action === 'getDueToday')               return jsonResponse({ rows: getDueTodayRows() });
   if (action === 'getConfig')                 return jsonResponse({ config: getBrandConfig() });
   if (action === 'getImagePreview')           return jsonResponse(getImagePreviewData(e.parameter.target));
+  // GET-based push handlers â POST from custom domains is blocked by
+  // Google's CORS redirect flow. Sending data as base64-encoded JSON
+  // in a GET parameter bypasses this entirely since GET requests are
+  // never redirected by Apps Script's authorization layer.
+  if (action === 'pushDuesGet'){
+    try{
+      const arrays = JSON.parse(decodeURIComponent(e.parameter.data || '[]'));
+      // Expand positional arrays back to named objects that pushDuesRows expects.
+      // Field order matches what callBackendGet sends:
+      // [policyNumber, clientName, email, product, premiumMode, premiumAmount,
+      //  fundValue, dueDate, policyStatus, lapseDate, issuedDate]
+      const rows = arrays.map(function(a){
+        if (Array.isArray(a)) {
+          return { policyNumber:a[0], clientName:a[1], email:a[2], product:a[3],
+            premiumMode:a[4], premiumAmount:a[5], fundValue:a[6],
+            dueDate:a[7], policyStatus:a[8], lapseDate:a[9], issuedDate:a[10] };
+        }
+        // Fallback: handle both slim {pn,cn...} and full {policyNumber,...} objects
+        return { policyNumber:a.pn||a.policyNumber, clientName:a.cn||a.clientName,
+          email:a.em||a.email, product:a.pr||a.product, premiumMode:a.pm||a.premiumMode,
+          premiumAmount:a.pa||a.premiumAmount, fundValue:a.fv||a.fundValue,
+          dueDate:a.dd||a.dueDate, policyStatus:a.ps||a.policyStatus,
+          lapseDate:a.ld||a.lapseDate, issuedDate:a.id||a.issuedDate };
+      });
+      return jsonResponse(Object.assign({ success: true }, pushDuesRows(rows)));
+    }catch(err){ return jsonResponse({ success: false, error: toEnglishErrorMessage(err.message) }); }
+  }
+  if (action === 'pushBirthdaysGet'){
+    try{
+      const arrays = JSON.parse(decodeURIComponent(e.parameter.data || '[]'));
+      // Field order: [fullName, email, dateOfBirth, contactNumber, location]
+      const rows = arrays.map(function(a){
+        if (Array.isArray(a)) {
+          return { fullName:a[0], email:a[1], dateOfBirth:a[2], contactNumber:a[3], location:a[4] };
+        }
+        return { fullName:a.fn||a.fullName, email:a.em||a.email,
+          dateOfBirth:a.dob||a.dateOfBirth, contactNumber:a.ct||a.contactNumber,
+          location:a.lo||a.location };
+      });
+      return jsonResponse(Object.assign({ success: true }, pushBirthdayRows(rows)));
+    }catch(err){ return jsonResponse({ success: false, error: toEnglishErrorMessage(err.message) }); }
+  }
   if (action === 'getDailyStats')             return jsonResponse(getDailyStats());
   if (action === 'getAdvisorProfile')         return jsonResponse(getAdvisorProfile());
   if (action === 'getProfileImagePreview')    return jsonResponse(getProfileImagePreviewData());
@@ -486,9 +869,13 @@ function doGet(e){
   if (action === 'getBirthdaysToday')         return jsonResponse({ rows: getBirthdaysTodayRows() });
   if (action === 'getBirthdayDailyStats')     return jsonResponse(getBirthdayDailyStats());
   if (action === 'getBirthdayAutoSendStatus') return jsonResponse(getBirthdayAutoSendStatus());
+  if (action === 'getAnniversariesToday')     return jsonResponse({ rows: getPolicyAnniversariesTodayRows() });
+  if (action === 'getAnniversaryDailyStats')  return jsonResponse(getAnniversaryDailyStats());
+  if (action === 'getAnniversaryAutoSendStatus') return jsonResponse(getAnniversaryAutoSendStatus());
   if (action === 'getSendHour')               return jsonResponse(getSendHour());
   if (action === 'diagnoseTemplateSize')      return jsonResponse(diagnoseTemplateSize());
   if (action === 'getScheduledBroadcasts')    return jsonResponse({ schedules: getScheduledBroadcasts() });
+  if (action === 'getSentEmailsForSubject')   return getSentEmailsForSubject(e.parameter.subject || '');
   if (action === 'getDrafts')                 return jsonResponse({ drafts: getDrafts() });
   return jsonResponse({ error: 'Unknown action' });
 }
@@ -505,8 +892,31 @@ function getImagePreviewData(target){
   }
 }
 
+// Google Sheets often silently auto-converts a date-like string (e.g.
+// "2026-07-13") into a real Date value once it's written to a cell â
+// even though the cell still visibly displays "the date is there".
+// Comparing that against a plain string with === then fails, since
+// String(dateObject) produces something like "Mon Jul 13 2026
+// 00:00:00 GMT+0800..." rather than "2026-07-13". This normalizes
+// either shape (Date object or string) back to a clean yyyy-MM-dd, so
+// "was this already sent today" comparisons work regardless of which
+// form Sheets actually stored.
+function normalizeDateCellToYmd(value, tz){
+  if (!value) return '';
+  if (value instanceof Date) return Utilities.formatDate(value, tz, 'yyyy-MM-dd');
+  const str = String(value).trim();
+  // A stray value that looks like a full date-and-time string (Sheets
+  // occasionally hands back a string in this shape too) still needs
+  // parsing down to just the date part, not a raw string compare.
+  const parsed = new Date(str);
+  if (!isNaN(parsed.getTime()) && /\d{4}/.test(str)) {
+    return Utilities.formatDate(parsed, tz, 'yyyy-MM-dd');
+  }
+  return str;
+}
+
 function getDueTodayRows(){
-  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_NAME);
+  const sheet = getSpreadsheet().getSheetByName(SHEET_NAME);
   if (!sheet) return [];
   const data = sheet.getDataRange().getValues();
   const headers = data[0];
@@ -518,8 +928,7 @@ function getDueTodayRows(){
   for (let i = 1; i < data.length; i++){
     const row = data[i];
     const dueDate = row[col('Due Date')];
-    const lastReminderSent = row[col('Last Reminder Sent')] || '';
-    const lastSentStr = lastReminderSent ? String(lastReminderSent) : '';
+    const lastSentStr = normalizeDateCellToYmd(row[col('Last Reminder Sent')], tz);
     const wasSentToday = lastSentStr === todayStr;
     const dueDateStr = (dueDate instanceof Date) ? Utilities.formatDate(dueDate, tz, 'yyyy-MM-dd') : '';
     const isDueToday = dueDateStr === todayStr;
@@ -542,8 +951,17 @@ function doPost(e){
   try{ body = JSON.parse(e.postData.contents); }
   catch(err){ return jsonResponse({ error: 'Invalid request body' }); }
 
+  if (!ACTIONS_EXEMPT_FROM_HARD_STOP.includes(body.action) && !PropertiesService.getScriptProperties().getProperty('SPREADSHEET_ID')){
+    return jsonResponse({ error: 'SHEET_NOT_CONFIGURED', message: 'Run ?action=setSpreadsheetId&id=YOUR_SHEET_ID first.' });
+  }
+
+  if (!ACTIONS_EXEMPT_FROM_HARD_STOP.includes(body.action) && !isAdvisorActive()){
+    return jsonResponse(Object.assign({ error: 'ADVISOR_INACTIVE' }, getAdvisorActiveStatus()));
+  }
+
   if (body.action === 'setDuesPreference')      return jsonResponse(setDuesPreference(body.policyNumber, body.enabled));
   if (body.action === 'setBirthdayPreference')  return jsonResponse(setBirthdayPreference(body.email, body.enabled));
+  if (body.action === 'setAnniversaryPreference') return jsonResponse(setAnniversaryPreference(body.policyNumber, body.enabled));
   if (body.action === 'saveConfig')             { saveBrandConfig(body.config || {}); return jsonResponse({ success: true }); }
   if (body.action === 'uploadImage')            { const fileId = uploadBrandImage(body.target, body.base64, body.mimeType); return jsonResponse({ success: true, fileId: fileId }); }
   if (body.action === 'saveAdvisorName')        { saveAdvisorName(body.name || ''); return jsonResponse({ success: true }); }
@@ -552,16 +970,16 @@ function doPost(e){
   if (body.action === 'pushDues')               { const result = pushDuesRows(body.rows || []); return jsonResponse(Object.assign({ success: true }, result)); }
   if (body.action === 'pushBirthdays')          { const result = pushBirthdayRows(body.rows || []); return jsonResponse(Object.assign({ success: true }, result)); }
   if (body.action === 'setBirthdayAutoSendStatus') { setBirthdayAutoSendStatus(!!body.enabled); return jsonResponse({ success: true }); }
+  if (body.action === 'setAnniversaryAutoSendStatus') { setAnniversaryAutoSendStatus(!!body.enabled); return jsonResponse({ success: true }); }
   if (body.action === 'setSendHour')            { const result = setSendHour(body.hour); return jsonResponse(Object.assign({ success: true }, result)); }
   if (body.action === 'sendDuesTestEmail')      { try{ return jsonResponse(sendDuesTestEmailToSelf()); }catch(err){ return jsonResponse({ success: false, error: toEnglishErrorMessage(err.message) }); } }
   if (body.action === 'sendBirthdayTestEmail')  { try{ return jsonResponse(sendBirthdayTestEmailToSelf()); }catch(err){ return jsonResponse({ success: false, error: toEnglishErrorMessage(err.message) }); } }
+  if (body.action === 'sendAnniversaryTestEmail') { try{ return jsonResponse(sendAnniversaryTestEmailToSelf()); }catch(err){ return jsonResponse({ success: false, error: toEnglishErrorMessage(err.message) }); } }
   if (body.action === 'sendBroadcastBatch')     { try{ return jsonResponse(Object.assign({ success: true }, sendBroadcastEmailBatch(body.rows || [], body.subject || '', body.htmlBody || '', body.attachments || [], body.useTemplate))); }catch(err){ return jsonResponse({ success: false, error: toEnglishErrorMessage(err.message) }); } }
   if (body.action === 'scheduleBroadcast')      { try{ return jsonResponse(scheduleBroadcast(body.scheduledFor, body.payload)); }catch(err){ return jsonResponse({ success: false, error: toEnglishErrorMessage(err.message) }); } }
   if (body.action === 'cancelScheduledBroadcast') { try{ return jsonResponse(cancelScheduledBroadcast(body.scheduleId)); }catch(err){ return jsonResponse({ success: false, error: toEnglishErrorMessage(err.message) }); } }
   if (body.action === 'deleteCompletedBroadcast') { try{ return jsonResponse(deleteCompletedBroadcast(body.scheduleId)); }catch(err){ return jsonResponse({ success: false, error: toEnglishErrorMessage(err.message) }); } }
   if (body.action === 'getScheduledBroadcasts') { try{ return jsonResponse({ schedules: getScheduledBroadcasts() }); }catch(err){ return jsonResponse({ success: false, error: toEnglishErrorMessage(err.message) }); } }
-  if (body.action === 'editScheduledBroadcast') { try{ return jsonResponse(editScheduledBroadcast(body.scheduleId, body.scheduledFor, body.payload)); }catch(err){ return jsonResponse({ success: false, error: toEnglishErrorMessage(err.message) }); } }
-  if (body.action === 'getScheduledBroadcastPayload') { try{ return jsonResponse(getScheduledBroadcastPayload(body.scheduleId)); }catch(err){ return jsonResponse({ success: false, error: toEnglishErrorMessage(err.message) }); } }
   if (body.action === 'saveDraft')              { try{ return jsonResponse(saveDraft(body.draftId, body.payload)); }catch(err){ return jsonResponse({ success: false, error: toEnglishErrorMessage(err.message) }); } }
   if (body.action === 'getDrafts')              { try{ return jsonResponse({ drafts: getDrafts() }); }catch(err){ return jsonResponse({ success: false, error: toEnglishErrorMessage(err.message) }); } }
   if (body.action === 'deleteDraft')            { try{ return jsonResponse(deleteDraft(body.draftId)); }catch(err){ return jsonResponse({ success: false, error: toEnglishErrorMessage(err.message) }); } }
@@ -578,7 +996,7 @@ function jsonResponse(obj){
    ============================================================ */
 function pushDuesRows(rows){
   setupSheet();
-  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_NAME);
+  const sheet = getSpreadsheet().getSheetByName(SHEET_NAME);
   const data = sheet.getDataRange().getValues();
   const policyCol = HEADERS.indexOf('Policy Number');
   const lastReminderCol = HEADERS.indexOf('Last Reminder Sent');
@@ -612,12 +1030,13 @@ function pushDuesRows(rows){
   });
   const fullData = data.concat(newRows);
   sheet.getRange(1, 1, fullData.length, HEADERS.length).setValues(fullData);
+  if (rows.length > 0) recordUploadActivity();
   return { added: added, updated: updated, total: rows.length };
 }
 
 function pushBirthdayRows(rows){
   setupBirthdaySheet();
-  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(BIRTHDAY_SHEET_NAME);
+  const sheet = getSpreadsheet().getSheetByName(BIRTHDAY_SHEET_NAME);
   const data = sheet.getDataRange().getValues();
   const emailCol = BIRTHDAY_HEADERS.indexOf('Email');
   const lastSentCol = BIRTHDAY_HEADERS.indexOf('Last Greeting Sent (Year)');
@@ -645,6 +1064,7 @@ function pushBirthdayRows(rows){
   });
   const fullData = data.concat(newRows);
   sheet.getRange(1, 1, fullData.length, BIRTHDAY_HEADERS.length).setValues(fullData);
+  if (rows.length > 0) recordUploadActivity();
   return { added: added, updated: updated, total: rows.length };
 }
 
@@ -674,7 +1094,7 @@ function getDailyStat(statKey){
 }
 
 function countDueOnOffset(offsetDays){
-  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_NAME);
+  const sheet = getSpreadsheet().getSheetByName(SHEET_NAME);
   if (!sheet) return 0;
   const data = sheet.getDataRange().getValues();
   const headers = data[0];
@@ -703,7 +1123,8 @@ function getDailyStats(){
 
 function sendDailyReminders(){
   if (!getAutoSendStatus().enabled) return;
-  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_NAME);
+  if (!isAdvisorActive()) return; // hard stop: past the inactivity deadline
+  const sheet = getSpreadsheet().getSheetByName(SHEET_NAME);
   if (!sheet) return;
   const data = sheet.getDataRange().getValues();
   const headers = data[0];
@@ -717,8 +1138,7 @@ function sendDailyReminders(){
     const dueDate = row[col('Due Date')];
     if (!(dueDate instanceof Date)) continue;
     const dueDateStr = Utilities.formatDate(dueDate, tz, 'yyyy-MM-dd');
-    const lastSent = row[col('Last Reminder Sent')];
-    const lastSentStr = lastSent ? String(lastSent) : '';
+    const lastSentStr = normalizeDateCellToYmd(row[col('Last Reminder Sent')], tz);
     if (dueDateStr === todayStr && lastSentStr !== todayStr){
       let sent = false;
       try{ sent = sendReminderEmail(row, col); }
@@ -791,22 +1211,34 @@ function getEmailImages(config){
   };
 }
 
-function formatClientName(rawName){
+// Some Filipino names lead with "Ma." (short for Maria) or the spelled-
+// out "Maria" as a formal prefix before the name someone actually goes
+// by â e.g. "Dela Cruz, Ma. Teresa" or "Dela Cruz, Maria Cristina".
+// People go by "Teresa" or "Cristina", not "Ma." or "Maria", so when
+// the first word is one of these, skip it and use the next word
+// instead. Falls back to the prefix itself if there's nothing after it
+// (e.g. the name really is just "Maria" with no middle name).
+const MARIA_STYLE_PREFIXES = ['ma', 'maria'];
+
+function firstNameOnly(rawName){
   const name = String(rawName || '').trim();
   if (!name) return '';
   const commaIdx = name.indexOf(',');
-  if (commaIdx === -1) return name;
-  const lastName = name.slice(0, commaIdx).trim();
-  const rest = name.slice(commaIdx + 1).trim();
-  const firstName = rest.split(/\s+/)[0] || '';
-  return (firstName + ' ' + lastName).trim();
+  const rest = commaIdx !== -1 ? name.slice(commaIdx + 1).trim() : name;
+  const words = rest.split(/\s+/).filter(Boolean);
+  if (words.length === 0) return '';
+  const firstWordNormalized = words[0].toLowerCase().replace(/\.$/, '');
+  if (MARIA_STYLE_PREFIXES.includes(firstWordNormalized) && words.length > 1){
+    return words[1];
+  }
+  return words[0];
 }
 
 function buildReminderEmailHtml(clientName, policyNumber, product, amount, dueDate, config){
   const tz = Session.getScriptTimeZone();
   const formattedAmount = 'PHP ' + Number(amount).toLocaleString('en-PH', { minimumFractionDigits: 2 });
   const formattedDate = Utilities.formatDate(dueDate, tz, 'MMMM d, yyyy');
-  const greetingName = formatClientName(clientName);
+  const greetingName = firstNameOnly(clientName);
   return ''
     + '<div style="font-family:Arial,sans-serif;max-width:480px;margin:0 auto;border:1px solid #E7DFCF;border-radius:10px;overflow:hidden;">'
     + '  <img src="cid:headerImg" alt="Header" style="width:100%;display:block;">'
@@ -887,7 +1319,7 @@ function sendDuesTestEmailToSelf(){
    ============================================================ */
 
 function getBirthdaysTodayRows(){
-  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(BIRTHDAY_SHEET_NAME);
+  const sheet = getSpreadsheet().getSheetByName(BIRTHDAY_SHEET_NAME);
   if (!sheet) return [];
   const data = sheet.getDataRange().getValues();
   const headers = data[0];
@@ -895,18 +1327,25 @@ function getBirthdaysTodayRows(){
   const tz = Session.getScriptTimeZone();
   const today = new Date();
   const todayMonth = today.getMonth(), todayDay = today.getDate();
+  const currentYearStr = String(today.getFullYear());
   const result = [];
   for (let i = 1; i < data.length; i++){
     const row = data[i];
     const dob = row[col('Date of Birth')];
     if (!(dob instanceof Date)) continue;
     if (dob.getMonth() === todayMonth && dob.getDate() === todayDay){
+      const lastGreetingYear = String(row[col('Last Greeting Sent (Year)')] || '');
+      // Only counts as "sent" if it matches THIS year specifically â
+      // a value left over from last year's birthday (or any earlier
+      // one) shouldn't make today's greeting look like it already
+      // went out.
+      const wasSentThisYear = lastGreetingYear === currentYearStr;
       result.push({
         fullName: row[col('Full Name')],
         email: row[col('Email')],
         location: row[col('Location')],
         dobFormatted: Utilities.formatDate(dob, tz, 'MMMM d'),
-        lastGreetingSent: row[col('Last Greeting Sent (Year)')] || ''
+        lastGreetingSent: wasSentThisYear ? lastGreetingYear : ''
       });
     }
   }
@@ -914,7 +1353,7 @@ function getBirthdaysTodayRows(){
 }
 
 function countBirthdaysOnOffset(offsetDays){
-  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(BIRTHDAY_SHEET_NAME);
+  const sheet = getSpreadsheet().getSheetByName(BIRTHDAY_SHEET_NAME);
   if (!sheet) return 0;
   const data = sheet.getDataRange().getValues();
   const headers = data[0];
@@ -942,7 +1381,8 @@ function getBirthdayDailyStats(){
 
 function sendDailyBirthdayGreetings(){
   if (!getBirthdayAutoSendStatus().enabled) return;
-  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(BIRTHDAY_SHEET_NAME);
+  if (!isAdvisorActive()) return; // hard stop: past the inactivity deadline
+  const sheet = getSpreadsheet().getSheetByName(BIRTHDAY_SHEET_NAME);
   if (!sheet) return;
   const data = sheet.getDataRange().getValues();
   const headers = data[0];
@@ -993,7 +1433,300 @@ function sendBirthdayEmail(row, col){
 }
 
 /* ============================================================
-   BROADCAST EMAIL — custom message sent to all Dues Tracker
+   POLICY ANNIVERSARY GREETER
+   ------------------------------------------------------------
+   Reuses the existing Dues Tracker sheet (Issued Date is already
+   a column there) rather than a separate tracker â a policy
+   anniversary is just "today's month/day matches Issued Date",
+   the same shape as a birthday but keyed off the policy instead
+   of the person. "Send Anniversary?" is its own independent
+   toggle per row (like "Send Dues?"), so an advisor can turn
+   anniversary greetings off for a client without touching their
+   due reminders.
+   ============================================================ */
+
+// Mirrors isLapsedStatus() in the frontend exactly â that one only ever
+// existed client-side, but the Policy Anniversary Greeter needs the
+// same check server-side to skip lapsed policies when sending. Kept
+// identical on purpose (same substring match, same case-folding) so
+// "lapsed" means the same thing everywhere in this app, not two
+// slightly different rules that could disagree on an edge case.
+function isLapsedStatus(policyStatus){
+  const s = String(policyStatus || '').toLowerCase();
+  return s.includes('lapsed') || s.includes('lapse');
+}
+
+function assertConfiguredForAnniversary(config){
+  const required = ['senderName','headerImageFileId','footerImageFileId'];
+  const missing = required.filter(key => !config[key]);
+  if (missing.length > 0){
+    throw new Error(
+      'Branding not set up yet. Open the app, tap "Setup", fill in ' +
+      '"Your branding" (missing: ' + missing.join(', ') + '), and tap ' +
+      'SAVE BRANDING before anniversary greetings can be sent.'
+    );
+  }
+}
+
+// e.g. 1 -> "1st", 2 -> "2nd", 3 -> "3rd", 4 -> "4th", 11-13 -> "th"
+function ordinalSuffix(n){
+  const rem100 = n % 100;
+  if (rem100 >= 11 && rem100 <= 13) return 'th';
+  switch (n % 10){
+    case 1: return 'st';
+    case 2: return 'nd';
+    case 3: return 'rd';
+    default: return 'th';
+  }
+}
+
+function getPolicyAnniversariesTodayRows(){
+  setupSheet();
+  const sheet = getSpreadsheet().getSheetByName(SHEET_NAME);
+  if (!sheet) return [];
+  const data = sheet.getDataRange().getValues();
+  const headers = data[0];
+  const col = name => headers.indexOf(name);
+  const tz = Session.getScriptTimeZone();
+  const today = new Date();
+  const todayMonth = today.getMonth(), todayDay = today.getDate();
+  const currentYear = today.getFullYear();
+  const currentYearStr = String(currentYear);
+  const result = [];
+  for (let i = 1; i < data.length; i++){
+    const row = data[i];
+    const issuedDate = row[col('Issued Date')];
+    if (!(issuedDate instanceof Date)) continue;
+    if (issuedDate.getMonth() !== todayMonth || issuedDate.getDate() !== todayDay) continue;
+    // A lapsed policy isn't really something to celebrate â skip it
+    // entirely rather than greeting someone for a policy that's no
+    // longer active. Uses the same isLapsedStatus() check the rest of
+    // the app already relies on as the source of truth for "lapsed",
+    // not the Lapse Date column alone (a policy can carry an old Lapse
+    // Date value while its current Policy Status says otherwise, e.g.
+    // reinstated).
+    if (isLapsedStatus(row[col('Policy Status')])) continue;
+    const yearsCount = currentYear - issuedDate.getFullYear();
+    if (yearsCount <= 0) continue; // issued today this same year â not an anniversary yet
+    const lastSentYear = String(row[col('Last Anniversary Sent (Year)')] || '');
+    const wasSentThisYear = lastSentYear === currentYearStr;
+    result.push({
+      policyNumber: row[col('Policy Number')],
+      clientName: row[col('Client Name')],
+      email: row[col('Email')],
+      product: row[col('Product')],
+      issuedDateFormatted: Utilities.formatDate(issuedDate, tz, 'MMMM d, yyyy'),
+      years: yearsCount,
+      yearsLabel: yearsCount + ordinalSuffix(yearsCount) + ' Anniversary',
+      lastAnniversarySent: wasSentThisYear ? lastSentYear : ''
+    });
+  }
+  return result;
+}
+
+function countAnniversariesOnOffset(offsetDays){
+  const sheet = getSpreadsheet().getSheetByName(SHEET_NAME);
+  if (!sheet) return 0;
+  const data = sheet.getDataRange().getValues();
+  const headers = data[0];
+  const col = name => headers.indexOf(name);
+  const target = new Date();
+  target.setDate(target.getDate() + offsetDays);
+  const targetMonth = target.getMonth(), targetDay = target.getDate();
+  const targetYear = target.getFullYear();
+  let count = 0;
+  const statusCol = col('Policy Status');
+  for (let i = 1; i < data.length; i++){
+    const issuedDate = data[i][col('Issued Date')];
+    if (!(issuedDate instanceof Date)) continue;
+    if (isLapsedStatus(data[i][statusCol])) continue; // keep this count consistent with the actual list/send logic
+    if (issuedDate.getMonth() === targetMonth && issuedDate.getDate() === targetDay && issuedDate.getFullYear() < targetYear) count++;
+  }
+  return count;
+}
+
+function getAnniversaryDailyStats(){
+  return {
+    sent: getDailyStat('ANNIV_STAT_SENT'),
+    failed: getDailyStat('ANNIV_STAT_FAILED'),
+    anniversariesToday: countAnniversariesOnOffset(0),
+    anniversariesTomorrow: countAnniversariesOnOffset(1)
+  };
+}
+
+function sendDailyAnniversaryGreetings(){
+  if (!getAnniversaryAutoSendStatus().enabled) return;
+  if (!isAdvisorActive()) return; // hard stop: past the inactivity deadline
+  setupSheet();
+  const sheet = getSpreadsheet().getSheetByName(SHEET_NAME);
+  if (!sheet) return;
+  const data = sheet.getDataRange().getValues();
+  const headers = data[0];
+  const col = name => headers.indexOf(name);
+  const today = new Date();
+  const todayMonth = today.getMonth(), todayDay = today.getDate();
+  const currentYear = today.getFullYear();
+  const currentYearStr = String(currentYear);
+  for (let i = 1; i < data.length; i++){
+    const row = data[i];
+    const sendAnniv = row[col('Send Anniversary?')];
+    if (sendAnniv === false || sendAnniv === 'FALSE' || sendAnniv === 0 || sendAnniv === '0') continue;
+    const issuedDate = row[col('Issued Date')];
+    if (!(issuedDate instanceof Date)) continue;
+    if (issuedDate.getMonth() !== todayMonth || issuedDate.getDate() !== todayDay) continue;
+    if (isLapsedStatus(row[col('Policy Status')])) continue; // same rule as the display list â no greeting for a lapsed policy
+    const yearsCount = currentYear - issuedDate.getFullYear();
+    if (yearsCount <= 0) continue;
+    const lastSentYear = String(row[col('Last Anniversary Sent (Year)')] || '');
+    if (lastSentYear === currentYearStr) continue;
+    let sent = false;
+    try{ sent = sendAnniversaryEmail(row, col, yearsCount); }
+    catch(err){ bumpDailyStat('ANNIV_STAT_FAILED'); continue; }
+    if (sent){
+      bumpDailyStat('ANNIV_STAT_SENT');
+      sheet.getRange(i + 1, col('Last Anniversary Sent (Year)') + 1).setValue(currentYearStr);
+    }
+  }
+}
+
+function sendAnniversaryEmail(row, col, years){
+  const email = row[col('Email')];
+  if (!email) return false;
+  const config = getBrandConfig();
+  assertConfiguredForAnniversary(config);
+  const clientName = row[col('Client Name')];
+  const subject = 'HAPPY POLICY ANNIVERSARY!';
+  const htmlBody = buildAnniversaryEmailHtml(clientName, years, config);
+
+  const options = {
+    htmlBody: htmlBody,
+    name: config.senderName,
+    inlineImages: getEmailImages(config)
+  };
+  if (config.contactEmail){
+    options.cc = config.contactEmail;
+    options.replyTo = config.contactEmail;
+  }
+  sendWithOptionalFromAlias(email, subject, options, config.contactEmail);
+  return true;
+}
+
+// Deliberately no "Pay Online" button here â an anniversary is a
+// relationship touchpoint, not a billing moment. The two CTAs instead
+// invite a review conversation (reviewLink) and general contact
+// (connectLink), each shown only if that link is actually configured.
+function buildAnniversaryEmailHtml(clientName, years, config){
+  const greetingName = firstNameOnly(clientName);
+  const yearsLabel = years + ordinalSuffix(years);
+
+  const reviewBlock = config.reviewLink
+    ? ('    <div style="text-align:center;margin:18px 0 6px;">'
+      + '      <a href="' + config.reviewLink + '" style="display:inline-block;background:#0C447C;color:#FFFFFF;text-decoration:none;padding:14px 30px;border-radius:8px;font-weight:700;font-size:14px;letter-spacing:.5px;">SCHEDULE A 15-MIN POLICY REVIEW</a>'
+      + '    </div>')
+    : '';
+  const connectBlock = config.connectLink
+    ? ('    <div style="text-align:center;margin:10px 0 6px;">'
+      + '      <a href="' + config.connectLink + '" style="display:inline-block;background:#C99A3B;color:#FFFFFF;text-decoration:none;padding:14px 30px;border-radius:8px;font-weight:700;font-size:14px;letter-spacing:.5px;">CONNECT WITH ME</a>'
+      + '    </div>')
+    : '';
+
+  return ''
+    + '<div style="font-family:Arial,sans-serif;max-width:480px;margin:0 auto;border:1px solid #E7DFCF;border-radius:10px;overflow:hidden;">'
+    + '  <img src="cid:headerImg" alt="Header" style="width:100%;display:block;">'
+    + '  <div style="padding:24px;background:#FDF8F0;color:#1C2A38;text-align:center;">'
+    + '    <p style="font-size:18px;font-weight:700;color:#0C447C;margin:0 0 10px;">Happy ' + yearsLabel + ' Policy Anniversary, ' + greetingName + '! &#127881;</p>'
+    + '    <p style="font-size:14px;">' + years + ' year' + (years === 1 ? '' : 's') + ' ago, you took a step toward protecting what matters most. I\u2019ve been honored to walk that journey with you since, and I\u2019m grateful for your continued trust.</p>'
+    + '    <p style="font-size:14px;">A policy anniversary is also a great moment to check that your coverage still fits your life today. If you\u2019d like, let\u2019s take 15 minutes to go over it together.</p>'
+    + reviewBlock
+    + connectBlock
+    + '    <p style="margin-top:20px;text-align:left;">Warm regards,</p>'
+    + '  </div>'
+    + '  <img src="cid:footerImg" alt="Footer" style="width:100%;display:block;">'
+    + '</div>';
+}
+
+function previewAnniversaryEmail(){
+  const myEmail = Session.getActiveUser().getEmail();
+  const config = getBrandConfig();
+  assertConfiguredForAnniversary(config);
+  const htmlBody = buildAnniversaryEmailHtml('Dela Cruz, Juan Miguel', 5, config);
+  GmailApp.sendEmail(myEmail, 'PREVIEW \u2013 HAPPY POLICY ANNIVERSARY', '', {
+    htmlBody: htmlBody,
+    name: config.senderName,
+    inlineImages: getEmailImages(config)
+  });
+}
+
+// Test email: sends to contactEmail if set, otherwise falls back to
+// the active user's email (works in the Apps Script editor context).
+function sendAnniversaryTestEmailToSelf(){
+  const config = getBrandConfig();
+  assertConfiguredForAnniversary(config);
+  const recipient = config.contactEmail;
+  if (!recipient) throw new Error('Please set a Contact Email in Your Branding first, then try the test email again.');
+  const htmlBody = buildAnniversaryEmailHtml('Dela Cruz, Juan Miguel', 5, config);
+  sendWithOptionalFromAlias(recipient, 'TEST \u2013 HAPPY POLICY ANNIVERSARY', {
+    htmlBody: htmlBody,
+    name: config.senderName,
+    inlineImages: getEmailImages(config)
+  }, config.contactEmail);
+  return { success: true, sentTo: recipient };
+}
+
+function getAnniversaryAutoSendStatus(){
+  const val = PropertiesService.getScriptProperties().getProperty('ANNIV_AUTO_SEND_ENABLED');
+  return { enabled: val === null ? true : val === '1' };
+}
+
+function setAnniversaryAutoSendStatus(enabled){
+  PropertiesService.getScriptProperties().setProperty('ANNIV_AUTO_SEND_ENABLED', enabled ? '1' : '0');
+}
+
+function createAnniversaryDailyTrigger(hour){
+  hour = hour !== undefined ? hour : getSendHour().hour;
+  ScriptApp.getProjectTriggers().forEach(t => {
+    if (t.getHandlerFunction() === 'sendDailyAnniversaryGreetings') ScriptApp.deleteTrigger(t);
+  });
+  ScriptApp.newTrigger('sendDailyAnniversaryGreetings')
+    .timeBased()
+    .everyDays(1)
+    .atHour(hour)
+    .create();
+}
+
+// Cheap, idempotent self-install for advisors who were already using
+// the app before the Policy Anniversary Greeter existed and haven't
+// touched their Send Hour setting since â createAnniversaryDailyTrigger()
+// above always deletes-and-recreates, which is fine for the rare
+// "advisor changed their send hour" case it's built for, but far too
+// expensive to call on every single upload. This only creates the
+// trigger if one doesn't already exist at all, same pattern as
+// createInactivityPurgeTrigger.
+function ensureAnniversaryDailyTriggerExists(){
+  const alreadyInstalled = ScriptApp.getProjectTriggers()
+    .some(t => t.getHandlerFunction() === 'sendDailyAnniversaryGreetings');
+  if (alreadyInstalled) return;
+  createAnniversaryDailyTrigger();
+}
+
+function setAnniversaryPreference(policyNumber, enabled){
+  setupSheet();
+  const sheet = getSpreadsheet().getSheetByName(SHEET_NAME);
+  const data = sheet.getDataRange().getValues();
+  const headers = data[0];
+  const policyCol = headers.indexOf('Policy Number');
+  const sendCol = headers.indexOf('Send Anniversary?');
+  for (let i = 1; i < data.length; i++){
+    if (String(data[i][policyCol]) === String(policyNumber)){
+      sheet.getRange(i + 1, sendCol + 1).setValue(enabled);
+      return { success: true };
+    }
+  }
+  return { success: false, error: 'Policy not found' };
+}
+
+/* ============================================================
+   BROADCAST EMAIL â custom message sent to all Dues Tracker
    clients, with optional image/PDF attachments and {FirstName}
    personalization. Sent in batches from the front-end (same
    pattern as pushDuesRows) to stay under the 30-second Web App
@@ -1006,7 +1739,7 @@ function sendBirthdayEmail(row, col){
 // replaced per-recipient before sending.
 // useTemplate: when true, wraps htmlBody with the same header/footer
 // images used by dues reminders and birthday greetings, via cid:
-// references + inlineImages — this is the reliable method real email
+// references + inlineImages â this is the reliable method real email
 // clients render correctly, unlike data-URL images which many inboxes
 // (including Gmail's own web client in some cases) strip or block.
 // Personal Gmail accounts (the common case for individual advisors) are
@@ -1023,12 +1756,12 @@ function getRemainingEmailQuota(){
 
 function sendBroadcastEmailBatch(rows, subject, htmlBody, attachments, useTemplate){
   const config = getBrandConfig();
-  // Broadcast Email only strictly needs a sender name — header/footer
+  // Broadcast Email only strictly needs a sender name â header/footer
   // photos are optional here (unlike dues reminders and birthday
   // greetings, which always embed them). Requiring them unconditionally
   // was blocking every broadcast for any advisor who hadn't set up a
   // header/footer yet, even when the "Use header & footer template"
-  // toggle was off and no template was going to be embedded at all —
+  // toggle was off and no template was going to be embedded at all â
   // this was the actual cause of broadcasts failing to send regardless
   // of message size.
   if (!config.senderName){
@@ -1046,7 +1779,7 @@ function sendBroadcastEmailBatch(rows, subject, htmlBody, attachments, useTempla
 
   // Check the ACTUAL stored header/footer file sizes before attempting
   // anything. Client-side compression only affects newly-uploaded
-  // photos going forward — an advisor's existing header/footer (saved
+  // photos going forward â an advisor's existing header/footer (saved
   // before this fix, or re-saved via an older code path) can still be
   // large. Without this check, every single recipient in the batch
   // fails one-by-one with the same size error, which wastes the whole
@@ -1058,7 +1791,7 @@ function sendBroadcastEmailBatch(rows, subject, htmlBody, attachments, useTempla
     templateMB = (headerBytes + footerBytes) / (1024 * 1024);
   }
 
-  // The size check above only ever covered the header/footer template —
+  // The size check above only ever covered the header/footer template â
   // it completely missed images inserted directly into the message body
   // via the editor's own Image button, which get embedded as base64
   // data URLs right inside htmlBody itself. That gap is exactly what
@@ -1069,14 +1802,14 @@ function sendBroadcastEmailBatch(rows, subject, htmlBody, attachments, useTempla
   const attachmentBytesTotal = (attachments || []).reduce((sum, a) => sum + Math.ceil((a.base64 || '').length * 0.75), 0);
 
   // Any image inserted via the composer's own Image button lands in
-  // htmlBody as a literal <img src="data:..."> data URL — this is
+  // htmlBody as a literal <img src="data:..."> data URL â this is
   // simple to build client-side, but it means the image's full base64
   // text sits directly inside the HTML body string. GmailApp's
   // body/header size quota (which is separate from, and apparently far
   // stricter than, the 25MB attachment limit) counts that inflated HTML
   // text directly, which is why a broadcast that measured well under
   // our 6MB threshold could still be rejected by Gmail for every single
-  // recipient — the real quota-counted size was dominated by base64
+  // recipient â the real quota-counted size was dominated by base64
   // text sitting in the body, not by attachments or the header/footer
   // template at all. Converting each data-URL image into a proper
   // cid: reference (exactly like the header/footer template already
@@ -1112,7 +1845,7 @@ function sendBroadcastEmailBatch(rows, subject, htmlBody, attachments, useTempla
   // (which counted body images as inflated base64 text sitting directly
   // in the HTML, rather than as separate inline resources) was rejected
   // by Gmail for every single recipient. That means Gmail's actual body
-  // quota is far stricter than 6MB — this threshold is set with a wide
+  // quota is far stricter than 6MB â this threshold is set with a wide
   // safety margin below that real failure point now that data-URL
   // images are correctly converted to cid: references before this
   // check runs, rather than trying to guess a new raw-byte number that
@@ -1146,7 +1879,8 @@ function sendBroadcastEmailBatch(rows, subject, htmlBody, attachments, useTempla
 
   let sent = 0, failed = 0;
   const failedEmails = [];
-  const failureReasons = []; // { email, reason } — surfaced to the frontend so
+  const sentEmails = []; // used to log this send for the "already sent this subject" exclusion check
+  const failureReasons = []; // { email, reason } â surfaced to the frontend so
                               // "1 failed" isn't a dead end with no explanation
   let quotaExhausted = false; // once true, every remaining row in this batch is marked failed without attempting to send
 
@@ -1158,7 +1892,7 @@ function sendBroadcastEmailBatch(rows, subject, htmlBody, attachments, useTempla
     }
     if (quotaExhausted){
       // The daily sending quota was already confirmed exhausted earlier
-      // in this same batch — attempting the remaining recipients would
+      // in this same batch â attempting the remaining recipients would
       // only produce the identical rejection for every one of them
       // (exactly what happened in a real broadcast: 44 and 17 failures,
       // all the same "quota" error). Marking them failed immediately
@@ -1198,6 +1932,7 @@ function sendBroadcastEmailBatch(rows, subject, htmlBody, attachments, useTempla
       }
       sendWithOptionalFromAlias(r.email, subject, options, config.contactEmail);
       sent++;
+      sentEmails.push(r.email);
     }catch(err){
       failed++;
       failedEmails.push(r.email);
@@ -1214,7 +1949,7 @@ function sendBroadcastEmailBatch(rows, subject, htmlBody, attachments, useTempla
         : '';
       failureReasons.push({ email: r.email, reason: translatedReason + diagnosticSuffix });
       // A quota-exhausted error is a hard stop for the rest of this
-      // batch — unlike a bad email address or an isolated failure,
+      // batch â unlike a bad email address or an isolated failure,
       // every subsequent send would fail for the exact same reason
       // until the quota resets, which the daily limit does NOT do
       // mid-batch.
@@ -1224,17 +1959,98 @@ function sendBroadcastEmailBatch(rows, subject, htmlBody, attachments, useTempla
     }
   });
 
+  if (sentEmails.length > 0){
+    try{ recordBroadcastSentTo(subject, sentEmails); }
+    catch(e){ /* logging failure should never block the actual send result from being returned */ }
+  }
+
   return { sent: sent, failed: failed, failedEmails: failedEmails, failureReasons: failureReasons, total: rows.length, quotaExhausted: quotaExhausted };
 }
 
 /* ============================================================
-   SCHEDULED BROADCASTS — lets an advisor queue a broadcast to
+   BROADCAST LOG â "already sent this subject" exclusion
+   ------------------------------------------------------------
+   Separate "Broadcast Log" tab, auto-created on first successful
+   send. Columns: Timestamp | Subject | Email â one row per
+   recipient per successful send (both immediate and scheduled
+   broadcasts funnel through sendBroadcastEmailBatch, so both are
+   covered by this same log automatically). Used by the recipient
+   picker to grey out anyone who already received THIS exact
+   subject, so re-running a campaign can't accidentally double-send
+   to someone who already got it â they still show in the list
+   (so it's obvious who's excluded and why), just can't be
+   selected.
+
+   Matching is by exact subject text after trimming and
+   case-folding â "Q3 Newsletter" and "q3 newsletter " are treated
+   as the same campaign, but a genuinely different subject is
+   never treated as a duplicate, even for the same recipients.
+   ============================================================ */
+const BROADCAST_LOG_TAB_NAME = 'Broadcast Log';
+const BROADCAST_LOG_HEADERS = ['Timestamp', 'Subject', 'Email'];
+
+function getBroadcastLogTab(){
+  const ss = getSpreadsheet();
+  let sheet = ss.getSheetByName(BROADCAST_LOG_TAB_NAME);
+  if (!sheet){
+    sheet = ss.insertSheet(BROADCAST_LOG_TAB_NAME);
+    sheet.appendRow(BROADCAST_LOG_HEADERS);
+    sheet.setFrozenRows(1);
+  }
+  return sheet;
+}
+
+function normalizeSubjectForMatch(subject){
+  return String(subject || '').trim().toLowerCase();
+}
+
+function recordBroadcastSentTo(subject, emails){
+  if (!emails || emails.length === 0) return;
+  const sheet = getBroadcastLogTab();
+  const now = new Date();
+  // One writeup of all rows at once (setValues) rather than an
+  // appendRow() per recipient â for a broadcast to hundreds of
+  // people, hundreds of individual writes would be needlessly slow
+  // and risks pushing this past the Web App's execution time limit.
+  const startRow = sheet.getLastRow() + 1;
+  const rows = emails.map(email => [now, subject, email]);
+  sheet.getRange(startRow, 1, rows.length, 3).setValues(rows);
+}
+
+/**
+ * Returns every distinct email that has already received a broadcast
+ * with this exact subject (trimmed, case-insensitive match) â used by
+ * the recipient picker to grey those rows out. Scans the whole log
+ * rather than filtering as it's read since Sheets doesn't support a
+ * server-side query here; for the realistic size of this log (one row
+ * per recipient per send) this stays fast well beyond normal usage.
+ */
+function getSentEmailsForSubject(subject){
+  const target = normalizeSubjectForMatch(subject);
+  if (!target) return jsonResponse({ emails: [] });
+
+  const sheet = getBroadcastLogTab();
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) return jsonResponse({ emails: [] });
+
+  const data = sheet.getRange(2, 1, lastRow - 1, 3).getValues();
+  const matched = new Set();
+  for (let i = 0; i < data.length; i++){
+    if (normalizeSubjectForMatch(data[i][1]) === target){
+      matched.add(String(data[i][2]).trim().toLowerCase());
+    }
+  }
+  return jsonResponse({ emails: Array.from(matched) });
+}
+
+/* ============================================================
+   SCHEDULED BROADCASTS â lets an advisor queue a broadcast to
    send at a specific future date/time instead of immediately.
    Each schedule gets its own one-time Apps Script trigger
    (ScriptApp...at(specificDateTime)) that fires
    sendScheduledBroadcast() at exactly that moment. The full
    payload (subject, body, recipients, attachments, template
-   flag) is stored as JSON in the Scheduled Broadcasts sheet —
+   flag) is stored as JSON in the Scheduled Broadcasts sheet â
    PropertiesService's 9KB-per-value limit is too small once
    inline images/attachments are included, but a sheet cell
    comfortably holds far more. Multiple schedules can be queued
@@ -1243,7 +2059,7 @@ function sendBroadcastEmailBatch(rows, subject, htmlBody, attachments, useTempla
    ============================================================ */
 
 // scheduledFor: ISO datetime string for when this should send.
-// payload: { rows, subject, htmlBody, attachments, useTemplate } —
+// payload: { rows, subject, htmlBody, attachments, useTemplate } â
 // exactly the same shape sendBroadcastEmailBatch already accepts,
 // just captured now and replayed later at the scheduled time.
 function scheduleBroadcast(scheduledFor, payload){
@@ -1260,7 +2076,7 @@ function scheduleBroadcast(scheduledFor, payload){
   const payloadJson = JSON.stringify(payload || {});
 
   // One-time trigger, distinct from the recurring daily triggers used
-  // elsewhere — this fires exactly once, at exactly this timestamp.
+  // elsewhere â this fires exactly once, at exactly this timestamp.
   const trigger = ScriptApp.newTrigger('runScheduledBroadcastTrigger')
     .timeBased()
     .at(scheduledDate)
@@ -1270,7 +2086,7 @@ function scheduleBroadcast(scheduledFor, payload){
   // The trigger only knows to call runScheduledBroadcastTrigger() with
   // no arguments (Apps Script time triggers can't carry custom
   // parameters), so the scheduleId has to be recoverable some other
-  // way — storing triggerId alongside the row lets the trigger handler
+  // way â storing triggerId alongside the row lets the trigger handler
   // look up "which row was I created for" when it fires.
   sheet.appendRow([
     scheduleId,
@@ -1289,18 +2105,18 @@ function scheduleBroadcast(scheduledFor, payload){
 
 // The actual function every scheduled trigger calls. Since Apps Script
 // time-based triggers can't pass custom data, this looks itself up by
-// matching the trigger's own unique ID against the TriggerId column —
+// matching the trigger's own unique ID against the TriggerId column â
 // whichever row matches is the schedule that just came due.
 // Apps Script kills a running script outright once it hits its 6-minute
-// execution limit — this does NOT throw a catchable exception, so a
+// execution limit â this does NOT throw a catchable exception, so a
 // broadcast to 100+ recipients (each GmailApp.sendEmail() call taking a
 // meaningful fraction of a second) could previously get partway through
-// sending, hit the time limit, and simply stop — leaving the Error
+// sending, hit the time limit, and simply stop â leaving the Error
 // column blank and Status stuck wherever it happened to be, since the
 // script never reached the line that would have recorded a failure.
 // This processes recipients in small time-boxed chunks instead of all
-// at once, checking elapsed time frequently, and — if a chunk finishes
-// but recipients remain — creates a new one-time trigger to pick up
+// at once, checking elapsed time frequently, and â if a chunk finishes
+// but recipients remain â creates a new one-time trigger to pick up
 // exactly where this run left off, chaining across as many trigger
 // firings as needed rather than risking one long, uninterruptible run.
 const SCHEDULED_BROADCAST_MAX_RUNTIME_MS = 4.5 * 60 * 1000; // 4.5 min, safely under the 6-minute hard limit
@@ -1320,7 +2136,7 @@ function runScheduledBroadcastTrigger(e){
     }
   }
 
-  // Always clean up the one-time trigger regardless of outcome below —
+  // Always clean up the one-time trigger regardless of outcome below â
   // it has already fired and will never fire again, so leaving it
   // registered only clutters the project's trigger list.
   if (triggerId){
@@ -1329,12 +2145,20 @@ function runScheduledBroadcastTrigger(e){
     });
   }
 
-  if (rowIndex === -1) return; // no matching row found — nothing to do
+  if (rowIndex === -1) return; // no matching row found â nothing to do
 
   const rowNum = rowIndex + 1;
   const status = data[rowIndex][col('Status')];
   if (status === 'cancelled'){
-    return; // person cancelled it before it fired — do nothing
+    return; // person cancelled it before it fired â do nothing
+  }
+
+  if (!isAdvisorActive()){
+    // hard stop: past the inactivity deadline. Mark the row instead of
+    // silently dropping it so it's visible in the sheet why nothing went out.
+    sheet.getRange(rowNum, col('Status') + 1).setValue('skipped');
+    sheet.getRange(rowNum, col('Error') + 1).setValue('Advisor inactive (no recent upload) â broadcast skipped');
+    return;
   }
 
   const startTime = Date.now();
@@ -1358,7 +2182,7 @@ function runScheduledBroadcastTrigger(e){
 
     // Small batches (10 recipients per sendBroadcastEmailBatch call)
     // rather than one giant call for everyone, or one call per single
-    // recipient — a single call for 100+ recipients is exactly what
+    // recipient â a single call for 100+ recipients is exactly what
     // silently hit the 6-minute execution wall with no error logged,
     // while calling once per individual recipient would repeat the
     // header/footer size validation (a Drive lookup) 100+ times,
@@ -1371,7 +2195,7 @@ function runScheduledBroadcastTrigger(e){
 
     for (let i = 0; i < remainingRows.length; i += CHUNK_SIZE){
       if (Date.now() - startTime > SCHEDULED_BROADCAST_MAX_RUNTIME_MS){
-        break; // time's up for this run — whatever's left continues in the next chained trigger
+        break; // time's up for this run â whatever's left continues in the next chained trigger
       }
       const batchSlice = remainingRows.slice(i, i + CHUNK_SIZE);
       const batchResult = sendBroadcastEmailBatch(
@@ -1403,7 +2227,7 @@ function runScheduledBroadcastTrigger(e){
     }
 
     if (stillRemaining > 0){
-      // Not finished — chain a new trigger to continue almost
+      // Not finished â chain a new trigger to continue almost
       // immediately (a few seconds out is the minimum Apps Script
       // allows), rather than leaving the rest unsent.
       const continuationTrigger = ScriptApp.newTrigger('runScheduledBroadcastTrigger')
@@ -1421,7 +2245,7 @@ function runScheduledBroadcastTrigger(e){
     // Per the advisor's own instruction: if anything is missing or
     // broken by the time this fires (recipient list changed, Setup URL
     // gone, branding incomplete), skip silently and just log the
-    // error in the sheet — no additional notification.
+    // error in the sheet â no additional notification.
     sheet.getRange(rowNum, col('Status') + 1).setValue('failed');
     sheet.getRange(rowNum, col('Error') + 1).setValue(toEnglishErrorMessage(err.message || String(err)));
   }
@@ -1454,23 +2278,6 @@ function getScheduledBroadcasts(){
   return result;
 }
 
-// getScheduledBroadcasts() intentionally omits PayloadJSON (recipient
-// lists and attachments can be large, and the list view never needs
-// them) — this fetches the full payload for exactly one schedule,
-// used only when the advisor opens a queued broadcast to edit it.
-function getScheduledBroadcastPayload(scheduleId){
-  const sheet = setupScheduleSheet();
-  const data = sheet.getDataRange().getValues();
-  const headers = data[0];
-  const col = name => headers.indexOf(name);
-  for (let i = 1; i < data.length; i++){
-    if (String(data[i][col('Schedule ID')]) === String(scheduleId)){
-      return { payload: JSON.parse(data[i][col('PayloadJSON')] || '{}') };
-    }
-  }
-  return { payload: null };
-}
-
 // Deletes the underlying trigger (so it can never fire) and marks the
 // row cancelled rather than deleting it outright, so there's still a
 // record of what was scheduled and cancelled.
@@ -1497,7 +2304,7 @@ function cancelScheduledBroadcast(scheduleId){
 
 // Permanently removes a finished broadcast's row so it stops cluttering
 // the Completed Broadcasts list on the dashboard. Only allowed for
-// broadcasts that are actually done (sent/failed) — a scheduled or
+// broadcasts that are actually done (sent/failed) â a scheduled or
 // currently-sending broadcast still has a live trigger and recipients
 // waiting, so those must go through cancelScheduledBroadcast instead,
 // which also cleans up that trigger before removing anything.
@@ -1520,103 +2327,19 @@ function deleteCompletedBroadcast(scheduleId){
   return { success: false, error: 'Broadcast not found.' };
 }
 
-// Edits an already-queued scheduled broadcast — the message, recipients,
-// attachments, template flag, and/or the send time itself, all before
-// it fires. Only works while status is still 'scheduled' (a broadcast
-// that already sent, failed, or was cancelled can't be edited back into
-// existence — start a new one instead).
-//
-// If scheduledFor is provided and differs from the stored time, the old
-// one-time trigger is deleted and a new one created at the new time —
-// Apps Script triggers have no "reschedule" operation, only delete and
-// recreate. If scheduledFor is omitted, only the payload changes and
-// the existing trigger/time are left untouched.
-function editScheduledBroadcast(scheduleId, scheduledFor, payload){
-  const sheet = setupScheduleSheet();
-  const data = sheet.getDataRange().getValues();
-  const headers = data[0];
-  const col = name => headers.indexOf(name);
-
-  let rowIndex = -1;
-  for (let i = 1; i < data.length; i++){
-    if (String(data[i][col('Schedule ID')]) === String(scheduleId)){
-      rowIndex = i;
-      break;
-    }
-  }
-  if (rowIndex === -1){
-    return { success: false, error: 'Schedule not found.' };
-  }
-  const rowNum = rowIndex + 1;
-  const currentStatus = data[rowIndex][col('Status')];
-  if (currentStatus === 'sending'){
-    return { success: false, error: 'This broadcast is currently sending and can\u2019t be edited right now \u2014 wait for it to finish, or cancel it to stop the remaining recipients.' };
-  }
-  if (currentStatus !== 'scheduled'){
-    return { success: false, error: 'This broadcast already ' + currentStatus + ' and can no longer be edited.' };
-  }
-
-  let newTriggerId = data[rowIndex][col('TriggerId')];
-  if (scheduledFor){
-    const newDate = new Date(scheduledFor);
-    if (isNaN(newDate.getTime())){
-      return { success: false, error: 'Invalid scheduled date/time.' };
-    }
-    if (newDate.getTime() <= Date.now()){
-      return { success: false, error: 'Scheduled time must be in the future.' };
-    }
-    // Create the new trigger FIRST, before deleting the old one — if
-    // trigger creation is going to fail (e.g. the project has hit
-    // Apps Script's per-user trigger limit), it's better to fail with
-    // the old schedule still intact than to have already deleted the
-    // working trigger and then fail to replace it, which would leave
-    // this broadcast silently unscheduled with no trigger at all.
-    const newTrigger = ScriptApp.newTrigger('runScheduledBroadcastTrigger')
-      .timeBased()
-      .at(newDate)
-      .create();
-    newTriggerId = newTrigger.getUniqueId();
-
-    const oldTriggerId = data[rowIndex][col('TriggerId')];
-    if (oldTriggerId && oldTriggerId !== newTriggerId){
-      // getProjectTriggers() scans every trigger across every feature
-      // in this project (daily reminders, birthday greetings, every
-      // other scheduled broadcast) — with many broadcasts queued this
-      // can be slow enough to push total execution time toward the
-      // 30-second Web App limit, which surfaces to the browser as a
-      // raw network failure ("Load failed") rather than a clean error.
-      // This still does the scan, but only once, after the new trigger
-      // already exists, so a slow scan here never risks leaving the
-      // broadcast without any working trigger.
-      ScriptApp.getProjectTriggers().forEach(t => {
-        if (t.getUniqueId() === oldTriggerId) ScriptApp.deleteTrigger(t);
-      });
-    }
-    sheet.getRange(rowNum, col('Scheduled For') + 1).setValue(newDate);
-    sheet.getRange(rowNum, col('TriggerId') + 1).setValue(newTriggerId);
-  }
-
-  if (payload){
-    sheet.getRange(rowNum, col('Subject') + 1).setValue(payload.subject || '');
-    sheet.getRange(rowNum, col('PayloadJSON') + 1).setValue(JSON.stringify(payload));
-  }
-
-  return { success: true };
-}
-
 /* ============================================================
-   BROADCAST DRAFTS — lets an advisor save a message (subject,
+   BROADCAST DRAFTS â lets an advisor save a message (subject,
    body, recipients, attachments, template flag) without sending
    or scheduling it, to finish later or reuse as a starting
    point. Unlike Scheduled Broadcasts, drafts never trigger
-   anything on their own — they just sit until explicitly opened,
+   anything on their own â they just sit until explicitly opened,
    edited, or deleted. Same PayloadJSON-in-a-cell pattern, for
    the same reason (attachments/images are too big for
    PropertiesService's 9KB-per-value limit).
    ============================================================ */
 
 // Creates a new draft if draftId is omitted, or overwrites an existing
-// one if provided — lets "Save Draft" double as "update this draft"
+// one if provided â lets "Save Draft" double as "update this draft"
 // once the advisor has saved it once and keeps editing.
 function saveDraft(draftId, payload){
   const sheet = setupDraftSheet();
@@ -1635,7 +2358,7 @@ function saveDraft(draftId, payload){
         return { success: true, draftId: draftId };
       }
     }
-    // draftId was provided but not found (e.g. it was deleted elsewhere) —
+    // draftId was provided but not found (e.g. it was deleted elsewhere) â
     // fall through and create a fresh one instead of silently failing.
   }
 
@@ -1682,52 +2405,80 @@ function deleteDraft(draftId){
 }
 
 // GmailApp.sendEmail() (and other Google services) return error messages
-// in whatever language the deploying Google account's locale is set to —
+// in whatever language the deploying Google account's locale is set to â
 // not necessarily English, e.g. Tagalog: "Nalagpasan ang Limitasyon: Laki
 // ng Body ng E-mail". Since every message shown to the advisor must be
 // English, this recognizes the known Gmail error patterns we've actually
 // seen and maps them to a clean English equivalent. Anything unrecognized
-// falls through unchanged rather than being silently hidden — better to
+// falls through unchanged rather than being silently hidden â better to
 // show an unfamiliar-but-honest message than to guess wrong.
 function toEnglishErrorMessage(rawMessage){
   const msg = String(rawMessage || '');
   const patterns = [
-    { match: /Limitasyon.*Laki ng Body|Body.*[Ll]imit exceeded|Nalagpasan.*[Ll]imitasyon/i,
+    // ââ Email size ââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+    { match: /Limitasyon.*Laki ng Body|Body.*[Ll]imit exceeded|Nalagpasan.*[Ll]imitasyon|message too large|attachment.*too large|sumasobra.*laki/i,
       english: 'Email is too large to send \u2014 remove an inline image or attachment and try again.' },
-    { match: /Invalid email|[Mm]ali ang email|hindi wasto ang email/i,
+
+    // ââ Invalid email address âââââââââââââââââââââââââââââââââââââââââââ
+    { match: /Invalid email|[Mm]ali ang email|hindi wasto ang email|invalid.*recipient|di.*wastong.*email/i,
       english: 'Invalid email address.' },
-    // Matches both the English quota message ("Service invoked too
-    // many times for one day") and its actual Tagalog form as returned
-    // by Google for this account ("...masyadong madaming beses
-    // pinagana sa isang araw...") — the previous pattern only matched
-    // the word "limitasyon" near "araw", which this specific message
-    // never contains, so it fell through untranslated and displayed as
-    // raw Tagalog error text instead of a clear, actionable English
-    // explanation.
-    { match: /quota|limitasyon.*araw|daily.*limit|invoked too many times|masyadong madaming beses.*araw/i,
+
+    // ââ Daily quota / sending limit âââââââââââââââââââââââââââââââââââââ
+    { match: /quota|limitasyon.*araw|daily.*limit|invoked too many times|masyadong madaming beses.*araw|naabot.*limitasyon|Service.*invoked.*many/i,
       english: 'Daily sending limit reached for this Google account (personal Gmail accounts get 100 emails/day; Google Workspace accounts get up to 1,500/day) \u2014 try again after the quota resets, or send the rest tomorrow.' },
-    { match: /Recipient address required|kinakailangan ang address/i,
-      english: 'Recipient address is missing or invalid.' },
-    { match: /rate limit|masyadong marami/i,
+
+    // ââ Rate limiting âââââââââââââââââââââââââââââââââââââââââââââââââââ
+    { match: /rate limit|masyadong marami|too many.*request|too fast|mabilis.*nang/i,
       english: 'Sending too fast \u2014 please wait a moment and try again.' },
+
+    // ââ Recipient address âââââââââââââââââââââââââââââââââââââââââââââââ
+    { match: /Recipient address required|kinakailangan ang address|walang.*tatanggap|tatanggap.*wala/i,
+      english: 'Recipient address is missing or invalid.' },
+
+    // ââ Permission / authorization ââââââââââââââââââââââââââââââââââââââ
+    { match: /permiso|pahintulot|walang.*pahintulot|You do not have permission|hindi.*pinahintulutan|access.*denied|hindi.*ma-access/i,
+      english: 'Permission denied \u2014 make sure the script is authorized and deployed with Execute as: Me.' },
+
+    // ââ Spreadsheet not found âââââââââââââââââââââââââââââââââââââââââââ
+    { match: /Spreadsheet.*not found|hindi.*mahanap.*spreadsheet|walang.*spreadsheet|sheet.*not found|hindi.*sheet/i,
+      english: 'Spreadsheet not found \u2014 check that the Sheet ID is correct and the script has access to it.' },
+
+    // ââ Script not authorized âââââââââââââââââââââââââââââââââââââââââââ
+    { match: /Script.*not authorized|hindi.*awtorisado|awtorisasyon.*kailangan|Authorization.*required|kailangang.*payagan/i,
+      english: 'Script not authorized \u2014 open the Apps Script editor and run any function once to complete authorization.' },
+
+    // ââ Drive storage full ââââââââââââââââââââââââââââââââââââââââââââââ
+    { match: /Drive.*storage|storage.*full|puno.*na.*storage|Drive.*puno/i,
+      english: 'Google Drive storage is full \u2014 free up space in Google Drive and try again.' },
+
+    // ââ GmailApp disabled / not enabled ââââââââââââââââââââââââââââââââ
+    { match: /GmailApp.*disabled|hindi.*pinagana.*Gmail|Gmail.*not enabled/i,
+      english: 'Gmail service is not enabled for this script \u2014 add it under Services in the Apps Script editor.' },
+
+    // ââ Execution time limit ââââââââââââââââââââââââââââââââââââââââââââ
+    { match: /time.*limit|execution.*exceeded|naabot.*oras|lumampas.*oras|napatagal/i,
+      english: 'Script execution timed out \u2014 the batch size may be too large. Try again; it will pick up from where it stopped.' },
+
+    // ââ Network / connection errors âââââââââââââââââââââââââââââââââââââ
+    { match: /network.*error|koneksyon.*error|walang.*koneksyon|connection.*failed|hindi.*kumokonekta/i,
+      english: 'Network connection error \u2014 check your internet connection and try again.' },
+
+    // ââ Blocked recipient (corporate mail gateway) ââââââââââââââââââââââ
+    { match: /blocked|na-block|message.*rejected|tinanggihan.*mensahe|550|554/i,
+      english: 'Message blocked \u2014 the recipient\'s email server rejected it. This is usually a corporate mail filter. Nothing you can do on your end.' },
+
+    // ââ Catch-all: any remaining Tagalog text âââââââââââââââââââââââââââ
+    // Detects common Tagalog words and replaces the whole message so
+    // raw untranslated Tagalog never reaches the advisor's screen.
+    { match: /\b(ang|ng|na|sa|ay|hindi|wala|para|nang|ito|kami|mo|niya|sila|kayo|ako|mga|kung|pero|at|o|may|magpadala|tatanggap|mensahe|error|problema)\b/i,
+      english: 'An error occurred while processing your request. Please try again. If the problem persists, check your Apps Script deployment settings.' },
   ];
   for (const p of patterns){
     if (p.match.test(msg)) return p.english;
   }
-  // Unrecognized message: return as-is rather than hide it, so nothing
-  // gets silently swallowed if a new/unseen Gmail error shows up.
+  // Unrecognized message in any language: return as-is so nothing
+  // gets silently swallowed if a new/unseen error shows up.
   return msg;
-}
-
-function firstNameOnly(rawName){
-  const name = String(rawName || '').trim();
-  if (!name) return '';
-  const commaIdx = name.indexOf(',');
-  if (commaIdx !== -1){
-    const rest = name.slice(commaIdx + 1).trim();
-    return rest.split(/\s+/)[0] || '';
-  }
-  return name.split(/\s+/)[0] || '';
 }
 
 function buildBirthdayEmailHtml(fullName, config){
