@@ -947,7 +947,37 @@ function doGet(e){
           dateOfBirth:a.dob||a.dateOfBirth, contactNumber:a.ct||a.contactNumber,
           location:a.lo||a.location };
       });
-      return jsonResponse(Object.assign({ success: true }, pushBirthdayRows(rows)));
+      // Write DIRECTLY using bSheet already open — avoids pushBirthdayRows()
+      // calling getSpreadsheet() again and opening a second connection.
+      const data = bSheet.getDataRange().getValues();
+      const emailCol = BIRTHDAY_HEADERS.indexOf('Email');
+      const lastSentCol = BIRTHDAY_HEADERS.indexOf('Last Greeting Sent (Year)');
+      const existingRowByEmail = {};
+      for (var i = 1; i < data.length; i++){
+        existingRowByEmail[String(data[i][emailCol]).toLowerCase()] = i;
+      }
+      var added = 0, updated = 0;
+      var newRows = [];
+      rows.forEach(function(r){
+        var dobValue = r.dateOfBirth ? String(r.dateOfBirth).slice(0,10) : '';
+        var rowValues = [r.fullName||'', r.email||'', r.contactNumber||'', r.location||'', dobValue, '', true];
+        var idx = existingRowByEmail[String(r.email||'').toLowerCase()];
+        if (idx !== undefined){
+          var lastSent = data[idx][lastSentCol];
+          var sendBday = data[idx][BIRTHDAY_HEADERS.indexOf('Send Birthday?')];
+          data[idx] = rowValues;
+          data[idx][lastSentCol] = lastSent;
+          data[idx][BIRTHDAY_HEADERS.indexOf('Send Birthday?')] = sendBday;
+          updated++;
+        } else {
+          newRows.push(rowValues);
+          added++;
+        }
+      });
+      var fullData = data.concat(newRows);
+      bSheet.getRange(1, 1, fullData.length, BIRTHDAY_HEADERS.length).setValues(fullData);
+      if (rows.length > 0) recordUploadActivity();
+      return jsonResponse({ success: true, added: added, updated: updated, total: rows.length });
     }catch(err){ return jsonResponse({ success: false, error: toEnglishErrorMessage(err.message) }); }
   }
   if (action === 'getDailyStats')             return jsonResponse(getDailyStats());
