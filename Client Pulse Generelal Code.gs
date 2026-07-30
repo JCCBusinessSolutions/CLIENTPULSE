@@ -1030,7 +1030,7 @@ function pushDuesRows(rows){
     // Row order must exactly match HEADERS: Policy Number, Client Name,
     // Email, Product, Premium Mode, Premium Amount, Fund Value, Due Date,
     // Policy Status, Last Reminder Sent, Send Dues?, Lapse Date, Issued Date
-    const rowValues = [r.policyNumber, r.clientName, r.email, r.product, r.premiumMode, r.premiumAmount, (r.fundValue || 0), dueDateValue, r.policyStatus, '', true, lapseDateValue, issuedDateValue];
+    const rowValues = [r.policyNumber, r.clientName, r.email, r.product, r.premiumMode, r.premiumAmount, (r.fundValue || 0), dueDateValue, r.policyStatus, '', true, lapseDateValue, issuedDateValue, '', true];
     const idx = existingRowByPolicy[String(r.policyNumber)];
     if (idx !== undefined){
       const lastReminderSent = data[idx][lastReminderCol];
@@ -1045,7 +1045,11 @@ function pushDuesRows(rows){
     }
   });
   const fullData = data.concat(newRows);
-  sheet.getRange(1, 1, fullData.length, HEADERS.length).setValues(fullData);
+  // Use the actual number of columns in fullData rows, not HEADERS.length —
+  // if the sheet has fewer columns than HEADERS (e.g. missing the anniversary
+  // columns added later), setValues with HEADERS.length would silently fail.
+  const numCols = fullData[0] ? fullData[0].length : HEADERS.length;
+  sheet.getRange(1, 1, fullData.length, numCols).setValues(fullData);
   if (rows.length > 0) recordUploadActivity();
   return { added: added, updated: updated, total: rows.length };
 }
@@ -1079,7 +1083,8 @@ function pushBirthdayRows(rows){
     }
   });
   const fullData = data.concat(newRows);
-  sheet.getRange(1, 1, fullData.length, BIRTHDAY_HEADERS.length).setValues(fullData);
+  const numCols = fullData[0] ? fullData[0].length : BIRTHDAY_HEADERS.length;
+  sheet.getRange(1, 1, fullData.length, numCols).setValues(fullData);
   if (rows.length > 0) recordUploadActivity();
   return { added: added, updated: updated, total: rows.length };
 }
