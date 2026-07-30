@@ -842,18 +842,22 @@ function doGet(e){
   // never redirected by Apps Script's authorization layer.
   if (action === 'pushDuesGet'){
     try{
-      const arrays = JSON.parse(decodeURIComponent(e.parameter.data || '[]'));
-      // Expand positional arrays back to named objects that pushDuesRows expects.
-      // Field order matches what callBackendGet sends:
-      // [policyNumber, clientName, email, product, premiumMode, premiumAmount,
-      //  fundValue, dueDate, policyStatus, lapseDate, issuedDate]
+      const rawData = e.parameter.data || '[]';
+      let arrays;
+      try{
+        arrays = JSON.parse(rawData);
+      }catch(parseErr){
+        return jsonResponse({ success: false, error: 'Data parse failed: ' + parseErr.message + ' | data length: ' + rawData.length });
+      }
+      if (!Array.isArray(arrays) || arrays.length === 0){
+        return jsonResponse({ success: false, error: 'No data received. Raw length: ' + rawData.length });
+      }
       const rows = arrays.map(function(a){
         if (Array.isArray(a)) {
           return { policyNumber:a[0], clientName:a[1], email:a[2], product:a[3],
             premiumMode:a[4], premiumAmount:a[5], fundValue:a[6],
             dueDate:a[7], policyStatus:a[8], lapseDate:a[9], issuedDate:a[10] };
         }
-        // Fallback: handle both slim {pn,cn...} and full {policyNumber,...} objects
         return { policyNumber:a.pn||a.policyNumber, clientName:a.cn||a.clientName,
           email:a.em||a.email, product:a.pr||a.product, premiumMode:a.pm||a.premiumMode,
           premiumAmount:a.pa||a.premiumAmount, fundValue:a.fv||a.fundValue,
@@ -865,7 +869,7 @@ function doGet(e){
   }
   if (action === 'pushBirthdaysGet'){
     try{
-      const arrays = JSON.parse(decodeURIComponent(e.parameter.data || '[]'));
+      const arrays = JSON.parse(e.parameter.data || '[]');
       // Field order: [fullName, email, dateOfBirth, contactNumber, location]
       const rows = arrays.map(function(a){
         if (Array.isArray(a)) {
