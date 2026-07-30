@@ -220,6 +220,7 @@
   .collapse-toggle.collapsed{ transform:rotate(-90deg); }
   #dueTodayBody.collapsed{ display:none; }
   #birthdaysTodayBody.collapsed{ display:none; }
+  #anniversariesTodayBody.collapsed{ display:none; }
   #duesClientsBody.collapsed{ display:none; }
   #birthdayClientsBody.collapsed{ display:none; }
   #planSummaryWrap.collapsed{ display:none; }
@@ -326,6 +327,8 @@
   body.dark-mode #heroCard .text-navy,
   body.dark-mode #autoSendBox .text-navy,
   body.dark-mode #birthdayAutoSendBox .text-navy,
+  body.dark-mode #anniversaryAutoSendBox .text-navy,
+  body.dark-mode #anniversaryAutoSendBox .text-muted,
   body.dark-mode .kpi-card .text-navy,
   body.dark-mode .kpi-card .text-info,
   body.dark-mode .due-item .due-field .value,
@@ -6950,7 +6953,7 @@ function wireRefreshFeedback(buttonId){
     }, 1500);
   });
 }
-['refreshDueToday','refreshStats','refreshBirthdaysToday','refreshBirthdayStats'].forEach(wireRefreshFeedback);
+['refreshDueToday','refreshStats','refreshBirthdaysToday','refreshBirthdayStats','refreshAnniversariesToday','refreshAnniversaryStats'].forEach(wireRefreshFeedback);
 
 /* ============================================================
    EMAIL GATE & SESSION-TOKEN AUTO-LOGOUT SYSTEM
