@@ -827,7 +827,40 @@ function doGet(e){
   const action = e.parameter.action;
   if (action === 'getAdvisorActiveStatus')    return jsonResponse(getAdvisorActiveStatus());
   if (action === 'setSpreadsheetId')          { const id = e.parameter.id || ''; if (!id) return jsonResponse({ error: 'Missing id parameter' }); PropertiesService.getScriptProperties().setProperty('SPREADSHEET_ID', id); return jsonResponse({ success: true, message: 'Connected to sheet: ' + id }); }
-  if (action === 'createBirthdaySheet')       { try{ setupBirthdaySheet(); return jsonResponse({ success: true, message: 'Birthday Tracker tab created successfully.' }); }catch(err){ return jsonResponse({ success: false, error: err.message }); } }
+  if (action === 'diagnoseBirthday'){
+    try{
+      const ss = getSpreadsheet();
+      const allSheets = ss.getSheets().map(s => s.getName());
+      const bSheet = ss.getSheetByName(BIRTHDAY_SHEET_NAME);
+      const result = {
+        spreadsheetName: ss.getName(),
+        spreadsheetId: ss.getId(),
+        allTabs: allSheets,
+        birthdayTabExists: !!bSheet,
+        birthdayTabRows: bSheet ? bSheet.getLastRow() : 0,
+        birthdayTabCols: bSheet ? bSheet.getLastColumn() : 0,
+      };
+      // Try writing one test row directly
+      if (bSheet){
+        try{
+          const testRow = ['TEST_NAME', 'test@test.com', '09170000000', 'Test Location', new Date('1990-01-01'), '', true];
+          const lastRow = bSheet.getLastRow() + 1;
+          bSheet.getRange(lastRow, 1, 1, testRow.length).setValues([testRow]);
+          result.testWriteSuccess = true;
+          result.wroteToRow = lastRow;
+          // Clean up test row
+          bSheet.deleteRow(lastRow);
+          result.testWriteCleaned = true;
+        }catch(writeErr){
+          result.testWriteSuccess = false;
+          result.testWriteError = writeErr.message;
+        }
+      }
+      return jsonResponse(result);
+    }catch(err){
+      return jsonResponse({ diagError: err.message });
+    }
+  }
   if (!ACTIONS_EXEMPT_FROM_HARD_STOP.includes(action) && !isAdvisorActive()){
     return jsonResponse(Object.assign({ error: 'ADVISOR_INACTIVE' }, getAdvisorActiveStatus()));
   }
