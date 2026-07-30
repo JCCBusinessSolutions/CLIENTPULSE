@@ -869,7 +869,16 @@ function doGet(e){
   }
   if (action === 'pushBirthdaysGet'){
     try{
-      const arrays = JSON.parse(e.parameter.data || '[]');
+      const rawData = e.parameter.data || '[]';
+      let arrays;
+      try{
+        arrays = JSON.parse(rawData);
+      }catch(parseErr){
+        return jsonResponse({ success: false, error: 'Birthday data parse failed: ' + parseErr.message + ' | data length: ' + rawData.length });
+      }
+      if (!Array.isArray(arrays) || arrays.length === 0){
+        return jsonResponse({ success: false, error: 'No birthday data received. Raw length: ' + rawData.length });
+      }
       // Field order: [fullName, email, dateOfBirth, contactNumber, location]
       const rows = arrays.map(function(a){
         if (Array.isArray(a)) {
@@ -1057,6 +1066,7 @@ function pushDuesRows(rows){
 function pushBirthdayRows(rows){
   setupBirthdaySheet();
   const sheet = getSpreadsheet().getSheetByName(BIRTHDAY_SHEET_NAME);
+  if (!sheet) throw new Error('Birthday Tracker sheet not found. Please try again.');
   const data = sheet.getDataRange().getValues();
   const emailCol = BIRTHDAY_HEADERS.indexOf('Email');
   const lastSentCol = BIRTHDAY_HEADERS.indexOf('Last Greeting Sent (Year)');
