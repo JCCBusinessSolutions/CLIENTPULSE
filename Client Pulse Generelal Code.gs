@@ -1033,35 +1033,38 @@ function normalizeDateCellToYmd(value, tz){
   return str;
 }
 
-function getDueTodayRows(){
-  const sheet = getDuesSheet();
-  if (!sheet) return [];
+function pushBirthdayRows(rows){
+  setupBirthdaySheet();
+  const sheet = getSpreadsheet().getSheetByName(BIRTHDAY_SHEET_NAME);
   const data = sheet.getDataRange().getValues();
-  const headers = data[0];
-  const col = name => headers.indexOf(name);
-  const tz = Session.getScriptTimeZone();
-  const todayStr = Utilities.formatDate(new Date(), tz, 'yyyy-MM-dd');
-  const todayFormatted = Utilities.formatDate(new Date(), tz, 'MMMM d, yyyy');
-  const result = [];
+  const emailCol = BIRTHDAY_HEADERS.indexOf('Email');
+  const lastSentCol = BIRTHDAY_HEADERS.indexOf('Last Greeting Sent (Year)');
+  const existingRowByEmail = {};
   for (let i = 1; i < data.length; i++){
-    const row = data[i];
-    const dueDate = row[col('Due Date')];
-    const lastSentStr = normalizeDateCellToYmd(row[col('Last Reminder Sent')], tz);
-    const wasSentToday = lastSentStr === todayStr;
-    const dueDateStr = (dueDate instanceof Date) ? Utilities.formatDate(dueDate, tz, 'yyyy-MM-dd') : '';
-    const isDueToday = dueDateStr === todayStr;
-    if (!isDueToday && !wasSentToday) continue;
-    result.push({
-      policyNumber: row[col('Policy Number')],
-      clientName: row[col('Client Name')],
-      product: row[col('Product')],
-      premiumAmount: row[col('Premium Amount')],
-      premiumMode: row[col('Premium Mode')],
-      dueDateFormatted: isDueToday ? Utilities.formatDate(dueDate, tz, 'MMMM d, yyyy') : todayFormatted,
-      lastReminderSent: lastSentStr
-    });
+    existingRowByEmail[String(data[i][emailCol]).toLowerCase()] = i;
   }
-  return result;
+  let added = 0, updated = 0;
+  const newRows = [];
+  rows.forEach(r => {
+    const dobValue = r.dateOfBirth ? new Date(r.dateOfBirth) : '';
+    const rowValues = [r.fullName, r.email, r.contactNumber, r.location, dobValue, '', true];
+    const idx = existingRowByEmail[String(r.email).toLowerCase()];
+    if (idx !== undefined){
+      const lastSent = data[idx][lastSentCol];
+      const sendBday = data[idx][BIRTHDAY_HEADERS.indexOf('Send Birthday?')];
+      data[idx] = rowValues;
+      data[idx][lastSentCol] = lastSent;
+      data[idx][BIRTHDAY_HEADERS.indexOf('Send Birthday?')] = sendBday;
+      updated++;
+    } else {
+      newRows.push(rowValues);
+      added++;
+    }
+  });
+  const fullData = data.concat(newRows);
+  sheet.getRange(1, 1, fullData.length, BIRTHDAY_HEADERS.length).setValues(fullData);
+  if (rows.length > 0) recordUploadActivity();
+  return { added: added, updated: updated, total: rows.length };
 }
 
 function doPost(e){
