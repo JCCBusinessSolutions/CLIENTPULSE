@@ -25,7 +25,20 @@ function setSpreadsheetId(id){
 const SHEET_NAME = 'Dues Tracker';
 const HEADERS = ['Policy Number','Client Name','Email','Product','Premium Mode','Premium Amount','Fund Value','Due Date','Policy Status','Last Reminder Sent','Send Dues?','Lapse Date','Issued Date','Last Anniversary Sent (Year)','Send Anniversary?'];
 
-const BIRTHDAY_SHEET_NAME = 'Birthday Tracker';
+function getDuesSheet(){
+  const ss = getSpreadsheet();
+  // Try exact name first, then common variations
+  return ss.getSheetByName('Dues Tracker')
+    || ss.getSheetByName('Dues tracker')
+    || ss.getSheetByName('dues tracker')
+    || ss.getSheetByName('DuesTracker')
+    || ss.getSheetByName('Policy List')
+    || ss.getSheetByName('Policies')
+    || ss.getSheets().find(s => s.getName().toLowerCase().includes('dues'))
+    || null;
+}
+
+
 const BIRTHDAY_HEADERS = ['Full Name','Email','Contact Number','Location','Date of Birth','Last Greeting Sent (Year)','Send Birthday?'];
 
 // Scheduled broadcasts: each row is one queued send. The full payload
@@ -684,15 +697,28 @@ function createInactivityPurgeTrigger(){
 
 function getDuesClientList(){
   setupSheet();
-  const sheet = getSpreadsheet().getSheetByName(SHEET_NAME);
+  const sheet = getDuesSheet();
   if (!sheet) return [];
   const data = sheet.getDataRange().getValues();
+  if (data.length < 2) return [];
   const headers = data[0];
-  const col = name => headers.indexOf(name);
+  // Accept common variations of the Policy Number column name
+  const col = name => {
+    const idx = headers.indexOf(name);
+    if (idx !== -1) return idx;
+    // Fallback: case-insensitive partial match
+    const lower = name.toLowerCase();
+    return headers.findIndex(h => String(h).toLowerCase().includes(lower.split(' ')[0]));
+  };
+  // Find policy number column with fallbacks
+  const policyCol = headers.findIndex(h => {
+    const s = String(h).toLowerCase().replace(/[\s#._-]/g, '');
+    return s === 'policynumber' || s === 'policyno' || s === 'policy' || s === 'policynr';
+  });
   const result = [];
   for (let i = 1; i < data.length; i++){
     const row = data[i];
-    const policyNum = row[col('Policy Number')];
+    const policyNum = policyCol !== -1 ? row[policyCol] : row[0];
     if (!policyNum) continue;
     let parsedAmount = 0;
     const premiumAmount = row[col('Premium Amount')];
@@ -764,7 +790,7 @@ function getBirthdayClientList(){
 
 function setDuesPreference(policyNumber, enabled){
   setupSheet();
-  const sheet = getSpreadsheet().getSheetByName(SHEET_NAME);
+  const sheet = getDuesSheet();
   const data = sheet.getDataRange().getValues();
   const headers = data[0];
   const policyCol = headers.indexOf('Policy Number');
@@ -906,7 +932,7 @@ function normalizeDateCellToYmd(value, tz){
 }
 
 function getDueTodayRows(){
-  const sheet = getSpreadsheet().getSheetByName(SHEET_NAME);
+  const sheet = getDuesSheet();
   if (!sheet) return [];
   const data = sheet.getDataRange().getValues();
   const headers = data[0];
@@ -982,7 +1008,7 @@ function jsonResponse(obj){
    ============================================================ */
 function pushDuesRows(rows){
   setupSheet();
-  const sheet = getSpreadsheet().getSheetByName(SHEET_NAME);
+  const sheet = getDuesSheet();
   const data = sheet.getDataRange().getValues();
   const policyCol = HEADERS.indexOf('Policy Number');
   const lastReminderCol = HEADERS.indexOf('Last Reminder Sent');
@@ -1080,7 +1106,7 @@ function getDailyStat(statKey){
 }
 
 function countDueOnOffset(offsetDays){
-  const sheet = getSpreadsheet().getSheetByName(SHEET_NAME);
+  const sheet = getDuesSheet();
   if (!sheet) return 0;
   const data = sheet.getDataRange().getValues();
   const headers = data[0];
@@ -1110,7 +1136,7 @@ function getDailyStats(){
 function sendDailyReminders(){
   if (!getAutoSendStatus().enabled) return;
   if (!isAdvisorActive()) return; // hard stop: past the inactivity deadline
-  const sheet = getSpreadsheet().getSheetByName(SHEET_NAME);
+  const sheet = getDuesSheet();
   if (!sheet) return;
   const data = sheet.getDataRange().getValues();
   const headers = data[0];
@@ -1468,7 +1494,7 @@ function ordinalSuffix(n){
 
 function getPolicyAnniversariesTodayRows(){
   setupSheet();
-  const sheet = getSpreadsheet().getSheetByName(SHEET_NAME);
+  const sheet = getDuesSheet();
   if (!sheet) return [];
   const data = sheet.getDataRange().getValues();
   const headers = data[0];
@@ -1511,7 +1537,7 @@ function getPolicyAnniversariesTodayRows(){
 }
 
 function countAnniversariesOnOffset(offsetDays){
-  const sheet = getSpreadsheet().getSheetByName(SHEET_NAME);
+  const sheet = getDuesSheet();
   if (!sheet) return 0;
   const data = sheet.getDataRange().getValues();
   const headers = data[0];
@@ -1544,7 +1570,7 @@ function sendDailyAnniversaryGreetings(){
   if (!getAnniversaryAutoSendStatus().enabled) return;
   if (!isAdvisorActive()) return; // hard stop: past the inactivity deadline
   setupSheet();
-  const sheet = getSpreadsheet().getSheetByName(SHEET_NAME);
+  const sheet = getDuesSheet();
   if (!sheet) return;
   const data = sheet.getDataRange().getValues();
   const headers = data[0];
@@ -1697,7 +1723,7 @@ function ensureAnniversaryDailyTriggerExists(){
 
 function setAnniversaryPreference(policyNumber, enabled){
   setupSheet();
-  const sheet = getSpreadsheet().getSheetByName(SHEET_NAME);
+  const sheet = getDuesSheet();
   const data = sheet.getDataRange().getValues();
   const headers = data[0];
   const policyCol = headers.indexOf('Policy Number');
