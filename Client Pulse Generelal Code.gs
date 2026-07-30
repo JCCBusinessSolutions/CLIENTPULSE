@@ -1136,8 +1136,8 @@ function pushBirthdayRows(rows){
   let added = 0, updated = 0;
   const newRows = [];
   rows.forEach(r => {
-    const dobValue = r.dateOfBirth ? new Date(r.dateOfBirth) : '';
-    const rowValues = [r.fullName, r.email, r.contactNumber, r.location, dobValue, '', true];
+    const dobValue = r.dateOfBirth ? String(r.dateOfBirth).slice(0,10) : '';
+    const rowValues = [r.fullName, r.email, r.contactNumber||'', r.location||'', dobValue, '', true];
     const idx = existingRowByEmail[String(r.email).toLowerCase()];
     if (idx !== undefined){
       const lastSent = data[idx][lastSentCol];
