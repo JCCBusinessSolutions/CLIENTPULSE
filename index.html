@@ -2193,7 +2193,6 @@ input:checked + #studioSection .slider-toggle::before{transform:translateX(19px)
         <p class="sub" style="margin-bottom:6px;">Open your Dues Tracker Google Sheet, copy the link from your browser, and paste it here.</p>
         <input type="text" id="sheetLink" placeholder="https://docs.google.com/spreadsheets/d/.../edit" autocomplete="off">
         <div id="sheetLinkStatus" style="font-size:12px; margin-top:4px; min-height:16px;"></div>
-
         <div class="row" style="margin-top:12px;">
           <button class="btn-gold" id="saveScriptUrl" style="width:100%;">SAVE &amp; CONNECT</button>
         </div>
@@ -3523,8 +3522,11 @@ el('saveScriptUrl').addEventListener('click', async () => {
   persistScriptUrl(val);
   updateSetupBlinkState();
 
-  // Extract Sheet ID from whatever the buyer pasted — full URL or just the ID
+  // Save the Google Sheet link to localStorage so it persists across page reloads
   const sheetInput = el('sheetLink').value.trim();
+  if (sheetInput) {
+    try { localStorage.setItem('clientPulse_sheetLink', sheetInput); } catch(e){}
+  }
   const sheetStatus = el('sheetLinkStatus');
 
   if (sheetInput){
@@ -6071,6 +6073,11 @@ el('refreshDueToday').addEventListener('click', loadDueToday);
     el('scriptUrl').value = saved;
     el('scriptUrl').dataset.value = saved;
   }
+  // Restore the Google Sheet link field too — was previously lost on every reload
+  try{
+    const savedSheetLink = localStorage.getItem('clientPulse_sheetLink');
+    if (savedSheetLink) el('sheetLink').value = savedSheetLink;
+  }catch(e){}
   updateSetupBlinkState();
 })();
 
