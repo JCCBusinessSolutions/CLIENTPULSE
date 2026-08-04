@@ -1533,7 +1533,7 @@ input:checked + #studioSection .slider-toggle::before{transform:translateX(19px)
         <div class="flex items-start gap-1.5 mt-3">
           <span class="text-[11px] flex-shrink-0">🔒</span>
           <ul class="footer-note !text-left m-0 pl-4" style="list-style:disc;">
-            <li>JCC Business Solutions · Dues Tracker Parser · Premium Paying and Paid-Up policies are imported together (Paid-Up policies won't receive due reminders, since they have no due date). Lapsed policies are imported separately for follow-up. Skipped automatically: Surrendered, Expired, Cancelled, Terminated, Matured.</li>
+            <li>JCC Business Solutions · Dues Tracker Parser · Premium Paying and Paid-Up policies are imported together (Paid-Up policies won't receive due reminders, since they have no due date). Lapsed policies are imported separately for follow-up. Skipped automatically: Surrendered, Expired, Cancelled, Terminated, Matured, Death/Deceased.</li>
             <li class="mt-1">The developer has no access to uploaded files under any circumstance — everything is processed in your browser and pushed only into your own Google Sheet once set up.</li>
           </ul>
         </div>
@@ -1657,6 +1657,7 @@ input:checked + #studioSection .slider-toggle::before{transform:translateX(19px)
           <button class="btn-primary" id="refreshBirthdayStats" style="display:flex;align-items:center;justify-content:center;gap:7px;">🔄 REFRESH ACTIVITY</button>
         </div>
         <div class="text-[11px] text-muted text-center mt-2" id="birthdayStatsUpdatedAt"></div>
+        <div id="birthdaySendDiagnostic" style="display:none;margin-top:12px;padding:10px 12px;background:#FDF6E3;border:1px solid #F0DFA6;border-radius:8px;font-size:12.5px;color:#7A5C00;line-height:1.5;"></div>
       </div>
 
       <div class="grid grid-cols-1 lg:grid-cols-[7fr_3fr] gap-5 items-start">
@@ -3119,7 +3120,7 @@ function parseDuesFromWorkbook(workbook){
   // excluded entirely. Paid-Up and Lapsed are handled separately below
   // (kept, not skipped) since the advisor still wants visibility into
   // both, just not mixed into the due-date reminder flow.
-  const DEAD_KEYWORDS = ['surrendered','expired','cancelled','canceled','terminated','matured'];
+  const DEAD_KEYWORDS = ['surrendered','expired','cancelled','canceled','terminated','matured','death','deceased','died'];
   const PAID_UP_KEYWORDS = ['paid-up','paid up'];
   const LAPSED_KEYWORDS = ['lapsed','lapse'];
 
@@ -3182,14 +3183,15 @@ function parseDuesFromWorkbook(workbook){
       premiumMode: idxMode !== -1 ? String(r[idxMode]||'').trim() : '',
       premiumAmount: amountDue,
       fundValue: fundValue,
-      // Paid-Up policies never have a real due date going forward — a
-      // policy that's paid-up needs no further premium reminders, so
-      // this is deliberately set to null (never a real Date) regardless
-      // of whatever the export file happened to list, which is exactly
-      // what keeps sendDailyReminders() in Code.gs from ever picking it
-      // up (that function only considers rows where the Due Date cell
-      // is an actual Date, so null here means automatic exclusion).
-      dueDate: isPaidUp ? null : (dueDateParsed ? dueDateParsed.toISOString() : null),
+      // Paid-Up policies never have a real due date going forward, and a
+      // Lapsed policy shouldn't be pestered for a payment on a policy
+      // that's no longer active — both are deliberately set to null
+      // regardless of whatever the export file happened to list, which
+      // is exactly what keeps sendDailyReminders() in Code.gs from ever
+      // picking them up (that function only considers rows where the
+      // Due Date cell is an actual Date, so null here means automatic
+      // exclusion for both).
+      dueDate: (isPaidUp || isLapsed) ? null : (dueDateParsed ? dueDateParsed.toISOString() : null),
       // Only meaningful for Lapsed rows — a distinct column from Due
       // Date, since the export tracks exactly when a policy actually
       // lapsed separately from its regular premium due date.
@@ -3209,6 +3211,33 @@ function parseDuesFromWorkbook(workbook){
 /* ============================================================
    APPS SCRIPT CALLS  (text/plain body avoids CORS preflight)
    ============================================================ */
+
+// Cloudflare Worker that proxies requests to Apps Script server-to-
+// server, where CORS doesn't apply (CORS is a browser-enforced rule).
+// One Worker serves every advisor — each request tells it which
+// script.google.com URL to forward to via ?target=, so no advisor's
+// own Script URL is hardcoded here.
+const CORS_PROXY_URL = 'https://client-pulse-proxy.castrojaymar0916.workers.dev';
+
+// Sends a real POST through the Worker proxy, body/response untouched
+// by any GET-style array/base64 conversion — used for dues/birthday
+// pushes now that CORS no longer forces the GET workaround for them.
+async function callBackendThroughProxy(payload){
+  const url = getScriptUrl() || localStorage.getItem(SCRIPT_URL_STORAGE_KEY) || '';
+  if (!url) throw new Error('NO_SCRIPT_URL');
+  const proxyUrl = CORS_PROXY_URL + '?target=' + encodeURIComponent(url);
+  const res = await fetch(proxyUrl, {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+    body: JSON.stringify(payload)
+  });
+  if (!res.ok) throw new Error('HTTP_' + res.status);
+  return res.json();
+}
+
+// LEGACY — kept for reference/rollback, no longer called by the push
+// path now that the Worker proxy handles CORS for real POST. Still
+// used nowhere else in this file as of this change.
 async function callBackendGet(action, data){
   const url = getScriptUrl() || localStorage.getItem(SCRIPT_URL_STORAGE_KEY) || '';
   if (!url) throw new Error('NO_SCRIPT_URL');
@@ -3395,22 +3424,48 @@ function chunkArray(arr, size){
   return chunks;
 }
 
-// Pushes a large set of rows to the backend in sequential batches instead
-// of one giant request. Apps Script Web Apps (doPost) hard-cap execution
-// at 30 seconds — a single request carrying thousands of rows (reading the
-// whole sheet, merging in memory, writing back) can blow past that and
-// fail with "Failed to fetch" even though nothing is actually broken.
-// Batching keeps each individual request small and fast, so this scales
-// to any number of clients — it just takes more round trips, not more risk.
+// Pushes a large set of rows to the backend in batches instead of one
+// giant request. Apps Script Web Apps (doPost) hard-cap execution at
+// 30 seconds — a single request carrying thousands of rows can blow
+// past that. Batching keeps each request safely inside that budget.
+//
+// Routed through the Cloudflare Worker proxy now (see CORS_PROXY_URL
+// above) instead of the old pushDuesGet/pushBirthdaysGet GET workaround
+// — that workaround existed only because a direct cross-origin POST's
+// response couldn't be read back by this page; the Worker forwards to
+// Apps Script server-to-server, where CORS never applied in the first
+// place. Rows go as plain objects in the POST body now — no more
+// converting to positional arrays to fit inside a GET URL's ~7.3KB
+// budget, since POST body size isn't a meaningful constraint here
+// (a 300-row batch is well under 100KB either way).
+//
+// Batch size default is 100, not "as large as possible": the real
+// ceiling isn't payload size, it's execution time on a RE-upload where
+// most/all rows are updates rather than new — the backend writes each
+// updated row individually, so a too-large all-updates batch risks the
+// 30-second cap. 100 stays safely clear of that while still cutting
+// round trips roughly 4-5x versus the old 20-27/batch GET workaround.
+//
 // `action` is 'pushDues' or 'pushBirthdays'. `onProgress(doneCount, totalCount, batchIndex, batchCount)`
 // is called after each batch so the UI can show live progress.
 async function pushRowsInBatches(action, rows, onProgress, batchSize){
-  batchSize = batchSize || 20;
+  batchSize = batchSize || 100;
   const MAX_RETRIES = 5;
   const RETRY_DELAY_MS = 2000;
-  const CONCURRENCY = 2;
   const batches = chunkArray(rows, batchSize);
-  const getAction = action === 'pushDues' ? 'pushDuesGet' : 'pushBirthdaysGet';
+  // Same defensive ISO-date truncation the old GET path applied —
+  // Apps Script's new Date(...) on a full ISO datetime string (rather
+  // than a plain YYYY-MM-DD) was a documented past cause of silent
+  // write failures, so this is preserved exactly even though rows are
+  // sent as objects now instead of positional arrays.
+  const d = v => v ? String(v).slice(0, 10) : '';
+  const sanitizeRow = r => r.policyNumber !== undefined
+    ? { policyNumber: r.policyNumber||'', clientName: r.clientName||'', email: r.email||'',
+        product: r.product||'', premiumMode: r.premiumMode||'', premiumAmount: r.premiumAmount||0,
+        fundValue: r.fundValue||0, dueDate: d(r.dueDate), policyStatus: r.policyStatus||'',
+        lapseDate: d(r.lapseDate), issuedDate: d(r.issuedDate) }
+    : { fullName: r.fullName||'', email: r.email||'', dateOfBirth: d(r.dateOfBirth),
+        contactNumber: r.contactNumber||'', location: r.location||'' };
   let added = 0, updated = 0, done = 0;
 
   async function sendBatchWithRetry(batch, batchIdx){
@@ -3420,7 +3475,7 @@ async function pushRowsInBatches(action, rows, onProgress, batchSize){
         if (attempt > 1 && onProgress){
           onProgress(done, rows.length, batchIdx + 1, batches.length, attempt, MAX_RETRIES);
         }
-        const result = await callBackendGet(getAction, batch);
+        const result = await callBackendThroughProxy({ action: action, rows: batch.map(sanitizeRow) });
         if (!result || result.success === false){
           throw new Error(result && result.error ? result.error : 'Backend returned failure');
         }
@@ -3435,11 +3490,17 @@ async function pushRowsInBatches(action, rows, onProgress, batchSize){
     throw lastErr;
   }
 
-  for (let i = 0; i < batches.length; i += CONCURRENCY){
-    const round = batches.slice(i, i + CONCURRENCY);
-    let results;
+  // Sequential, not parallel: with far fewer batches now (typically
+  // 2-9 instead of 20-40+), concurrency saves little wall-clock time
+  // here, while running strictly one-at-a-time avoids a real race —
+  // the backend computes "next empty row" for new-row appends from a
+  // snapshot read at the start of each request, so two batches running
+  // at the same time could both land on the same target row and one
+  // would silently overwrite the other's additions.
+  for (let i = 0; i < batches.length; i++){
+    let result;
     try{
-      results = await Promise.all(round.map((batch, j) => sendBatchWithRetry(batch, i + j)));
+      result = await sendBatchWithRetry(batches[i], i);
     }catch(err){
       const progressErr = new Error(
         'Stopped after ' + done + ' of ' + rows.length + ' rows ' +
@@ -3449,12 +3510,10 @@ async function pushRowsInBatches(action, rows, onProgress, batchSize){
       progressErr.partial = { added, updated, done, total: rows.length };
       throw progressErr;
     }
-    results.forEach((result, j) => {
-      added += result.added || 0;
-      updated += result.updated || 0;
-      done += round[j].length;
-    });
-    if (onProgress) onProgress(done, rows.length, Math.floor(i/CONCURRENCY) + 1, Math.ceil(batches.length/CONCURRENCY), 1, MAX_RETRIES);
+    added += result.added || 0;
+    updated += result.updated || 0;
+    done += batches[i].length;
+    if (onProgress) onProgress(done, rows.length, i + 1, batches.length, 1, MAX_RETRIES);
   }
 
   return { added: added, updated: updated, total: rows.length };
@@ -6367,6 +6426,11 @@ function parseBirthdaysFromWorkbook(workbook){
   const idxContact   = findColumn(headers, claimed, ['contact number','mobile number','phone number'], ['contact','mobile','phone']);
   const idxLocation  = findColumn(headers, claimed, ['location','address','city'], ['location','address','city']);
   const idxName      = findColumn(headers, claimed, ['client name','full name','insured name'], ['client name','full name','name']);
+  // Optional — not every Client List export includes this column, so
+  // idxStatus can legitimately be -1. When present, it's used only to
+  // exclude deceased clients from the Birthday Tracker; every other
+  // status value (Active, etc.) is imported exactly as before.
+  const idxStatus    = findColumn(headers, claimed, ['client status','death status','status'], ['status']);
 
   const missingLabels = [];
   if (idxName === -1) missingLabels.push('a client/full name column');
@@ -6374,7 +6438,13 @@ function parseBirthdaysFromWorkbook(workbook){
   if (idxDob === -1) missingLabels.push('a date of birth column');
   if (missingLabels.length > 0) throw new Error('MISSING_COLUMNS: ' + missingLabels.join(', '));
 
+  // Same case-insensitive substring matching style as the dues parser's
+  // DEAD_KEYWORDS — a deceased client should never receive a birthday
+  // greeting, regardless of which of these words the export happens to use.
+  const DEATH_KEYWORDS = ['death','deceased','died'];
+
   const out = [];
+  let skippedDeath = 0;
   for (let i = headerIdx+1; i < rows.length; i++){
     const r = rows[i];
     if (!r) continue;
@@ -6382,6 +6452,14 @@ function parseBirthdaysFromWorkbook(workbook){
     if (!fullName) continue;
     const email = String(r[idxEmail]||'').trim();
     if (!email) continue;
+
+    if (idxStatus !== -1){
+      const statusLower = String(r[idxStatus]||'').trim().toLowerCase();
+      if (DEATH_KEYWORDS.some(k => statusLower.includes(k))){
+        skippedDeath++;
+        continue;
+      }
+    }
 
     const dobRaw = r[idxDob];
     // Birth dates must be in the past, and bounded to a plausible human
@@ -6397,7 +6475,7 @@ function parseBirthdaysFromWorkbook(workbook){
     });
   }
 
-  return { rows: out };
+  return { rows: out, skippedDeath };
 }
 
 let selectedBirthdayFile = null;
@@ -6433,7 +6511,7 @@ el('birthdayParseBtn').addEventListener('click', async () => {
 
     showStatus('birthdayMainStatus','info','Parsing rows…');
     const workbook = XLSX.read(decrypted, {type:'array', cellDates:true});
-    const { rows } = parseBirthdaysFromWorkbook(workbook);
+    const { rows, skippedDeath } = parseBirthdaysFromWorkbook(workbook);
 
     if (rows.length === 0){
       showStatus('birthdayMainStatus','error','No client rows with a recorded birthdate were found in this file.');
@@ -6446,7 +6524,11 @@ el('birthdayParseBtn').addEventListener('click', async () => {
       showStatus('birthdayMainStatus','info','Pushing ' + done + ' of ' + total + ' clients to your Birthday Tracker…');
     });
 
-    showStatus('birthdayMainStatus','success','Done. Your Birthday Tracker is up to date.');
+    let birthdayDoneMsg = 'Done. Your Birthday Tracker is up to date.';
+    if (skippedDeath > 0){
+      birthdayDoneMsg += ' (' + skippedDeath + ' skipped \u2014 marked deceased.)';
+    }
+    showStatus('birthdayMainStatus','success', birthdayDoneMsg);
     el('birthdaySummary').style.display = 'grid';
     el('bdaySumAdded').textContent = result.added ?? '–';
     el('bdaySumUpdated').textContent = result.updated ?? '–';
@@ -6538,25 +6620,75 @@ el('toggleBirthdaysToday').addEventListener('click', () => {
 
 async function loadBirthdayStats(){
   const url = getScriptUrl();
+  const diag = el('birthdaySendDiagnostic');
   if (!url){
     el('bdayStatSent').textContent = '\u2013';
     el('bdayStatFailed').textContent = '\u2013';
     el('bdayStatToday').textContent = '\u2013';
     el('bdayStatTomorrow').textContent = '\u2013';
+    if (diag) diag.style.display = 'none';
     return;
   }
   try{
     const res = await fetch(url + '?action=getBirthdayDailyStats');
     const data = await res.json();
-    el('bdayStatSent').textContent = data.sent ?? 0;
-    el('bdayStatFailed').textContent = data.failed ?? 0;
-    el('bdayStatToday').textContent = data.birthdaysToday ?? 0;
+    const sent = data.sent ?? 0;
+    const failed = data.failed ?? 0;
+    const today = data.birthdaysToday ?? 0;
+    el('bdayStatSent').textContent = sent;
+    el('bdayStatFailed').textContent = failed;
+    el('bdayStatToday').textContent = today;
     el('bdayStatTomorrow').textContent = data.birthdaysTomorrow ?? 0;
+
+    // There's a birthday today, but nothing was sent AND nothing failed —
+    // that combination only happens when sendDailyBirthdayGreetings()
+    // exited before it ever reached the sending loop (auto-send is off,
+    // or the account is hard-stopped for inactivity). Check both known
+    // causes via existing endpoints and explain plainly what's blocking
+    // it, rather than leaving the advisor staring at 0/0/1 with no clue.
+    if (today > 0 && sent === 0 && failed === 0){
+      await runBirthdaySendDiagnostic();
+    } else if (diag){
+      diag.style.display = 'none';
+    }
   }catch(e){
     el('bdayStatSent').textContent = '\u2013';
     el('bdayStatFailed').textContent = '\u2013';
     el('bdayStatToday').textContent = '\u2013';
     el('bdayStatTomorrow').textContent = '\u2013';
+    if (diag) diag.style.display = 'none';
+  }
+}
+
+// Checks the two known silent-bailout conditions in sendDailyBirthdayGreetings()
+// — auto-send toggled off, or the advisor account is hard-stopped for
+// inactivity — and shows a plain-language explanation with what to do next.
+// If neither applies, it's most likely either a per-client "Send Birthday?"
+// toggle or missing branding, so it points there instead of guessing further.
+async function runBirthdaySendDiagnostic(){
+  const url = getScriptUrl();
+  const diag = el('birthdaySendDiagnostic');
+  if (!url || !diag) return;
+  try{
+    const [autoSendRes, activeRes] = await Promise.all([
+      fetch(url + '?action=getBirthdayAutoSendStatus'),
+      fetch(url + '?action=getAdvisorActiveStatus')
+    ]);
+    const autoSend = await autoSendRes.json();
+    const active = await activeRes.json();
+
+    let message = '';
+    if (autoSend.enabled === false){
+      message = '&#9888;&#65039; <strong>No birthday greetings were sent today because Auto-Send is turned OFF.</strong> Turn on the "Client Birthday Greetings" auto-send switch above to resume daily sending.';
+    } else if (active.active === false){
+      message = '&#9888;&#65039; <strong>No birthday greetings were sent today because your account is currently inactive</strong> (no recent Dues or Birthday upload). Upload a fresh list from the Upload section to reactivate sending.';
+    } else {
+      message = '&#8505;&#65039; Auto-Send is on and your account is active, but nothing sent today. This usually means today\'s birthday client has "Send Birthday?" turned off in Client Management, or your branding (sender name, header/footer photos) isn\'t fully saved in Settings \u2192 Branding Studio.';
+    }
+    diag.innerHTML = message;
+    diag.style.display = 'block';
+  }catch(e){
+    diag.style.display = 'none';
   }
 }
 
