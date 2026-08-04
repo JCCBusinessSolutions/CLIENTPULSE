@@ -3406,31 +3406,50 @@ function chunkArray(arr, size){
 // is called after each batch so the UI can show live progress.
 async function pushRowsInBatches(action, rows, onProgress, batchSize){
   batchSize = batchSize || 20;
-  const CONCURRENCY = 5;
+  const MAX_RETRIES = 5;
+  const RETRY_DELAY_MS = 2000;
   const batches = chunkArray(rows, batchSize);
+  const getAction = action === 'pushDues' ? 'pushDuesGet' : 'pushBirthdaysGet';
   let added = 0, updated = 0, done = 0;
 
-  for (let i = 0; i < batches.length; i += CONCURRENCY){
-    const round = batches.slice(i, i + CONCURRENCY);
-    const getAction = action === 'pushDues' ? 'pushDuesGet' : 'pushBirthdaysGet';
-    let results;
-    try{
-      results = await Promise.all(round.map(batch => callBackendGet(getAction, batch)));
-    }catch(err){
+  for (let i = 0; i < batches.length; i++){
+    const batch = batches[i];
+    let result = null;
+    let lastErr = null;
+
+    for (let attempt = 1; attempt <= MAX_RETRIES; attempt++){
+      try{
+        if (attempt > 1 && onProgress){
+          onProgress(done, rows.length, i + 1, batches.length, attempt, MAX_RETRIES);
+        }
+        result = await callBackendGet(getAction, batch);
+        if (!result || result.success === false){
+          throw new Error(result && result.error ? result.error : 'Backend returned failure');
+        }
+        lastErr = null;
+        break;
+      }catch(err){
+        lastErr = err;
+        if (attempt < MAX_RETRIES){
+          await new Promise(resolve => setTimeout(resolve, RETRY_DELAY_MS));
+        }
+      }
+    }
+
+    if (lastErr){
       const progressErr = new Error(
         'Stopped after ' + done + ' of ' + rows.length + ' rows ' +
         '(already saved — safe to try again, it will only add what’s left). ' +
-        'Original error: ' + err.message
+        'Original error: ' + lastErr.message
       );
       progressErr.partial = { added, updated, done, total: rows.length };
       throw progressErr;
     }
-    results.forEach((result, j) => {
-      added += result.added || 0;
-      updated += result.updated || 0;
-      done += round[j].length;
-    });
-    if (onProgress) onProgress(done, rows.length, Math.floor(i/CONCURRENCY)+1, Math.ceil(batches.length/CONCURRENCY));
+
+    added += result.added || 0;
+    updated += result.updated || 0;
+    done += batch.length;
+    if (onProgress) onProgress(done, rows.length, i + 1, batches.length, 1, MAX_RETRIES);
   }
 
   return { added: added, updated: updated, total: rows.length };
@@ -5871,8 +5890,13 @@ el('parseBtn').addEventListener('click', async () => {
     }
 
     showStatus('mainStatus','info','Pushing ' + rows.length + ' policies to your Dues Tracker…');
-    const result = await pushRowsInBatches('pushDues', rows, (done, total) => {
-      showStatus('mainStatus','info','Pushing ' + done + ' of ' + total + ' policies to your Dues Tracker…');
+    const result = await pushRowsInBatches('pushDues', rows, (done, total, batchIdx, batchCount, attempt, maxRetries) => {
+      if (attempt && attempt > 1){
+        showStatus('mainStatus','info',
+          'Connection interrupted. Retrying batch ' + batchIdx + '\u2026 Attempt ' + attempt + ' of ' + maxRetries);
+      } else {
+        showStatus('mainStatus','info','Pushing ' + done + ' of ' + total + ' policies to your Dues Tracker…');
+      }
     });
 
     const lapsedCount = rows.filter(r => r.isLapsed).length;
@@ -5882,24 +5906,26 @@ el('parseBtn').addEventListener('click', async () => {
       const parts = [];
       if (paidUpCount > 0) parts.push(paidUpCount + ' Paid-Up');
       if (lapsedCount > 0) parts.push(lapsedCount + ' Lapsed');
-      doneMsg += ' (including ' + parts.join(' and ') + ' — see the Clients page.)';
+      doneMsg += ' (including ' + parts.join(' and ') + ' \u2014 see the Clients page.)';
     }
     showStatus('mainStatus','success', doneMsg);
     el('summary').style.display = 'grid';
-    el('sumAdded').textContent = result.added ?? '–';
-    el('sumUpdated').textContent = result.updated ?? '–';
+    el('sumAdded').textContent = result.added ?? '\u2013';
+    el('sumUpdated').textContent = result.updated ?? '\u2013';
     el('sumSkipped').textContent = skippedStatus;
     checkAdvisorActiveStatus();
 
   }catch(e){
     let msg = e.message;
     if (msg === 'PASSWORD_REQUIRED') msg = 'This file is password-protected. Please save its password in the upload box first.';
-    if (msg === 'WRONG_PASSWORD_OR_FORMAT') msg = 'Could not open the file — check the password and try again.';
-    if (msg === 'NO_SCRIPT_URL') msg = 'No Apps Script URL configured. Tap "Setup" above.';
+    if (msg === 'WRONG_PASSWORD_OR_FORMAT') msg = 'Could not open the file \u2014 check the password and try again.';
+    if (msg === 'NO_SCRIPT_URL') msg = 'No Apps Script URL configured. Tap \u201cSetup\u201d above.';
     if (msg === 'HEADER_NOT_FOUND') msg = 'We couldn\u2019t find a header row in this file. Please check that you\u2019re uploading a policy list export with column headers like Policy Number, Client Name, Email, and Due Date.';
     if (msg.startsWith('MISSING_COLUMNS:')) msg = 'This file is missing: ' + msg.replace('MISSING_COLUMNS: ','') + '. Please check your column headers and try again.';
     showStatus('mainStatus','error', msg);
   }finally{
+    // Re-enable only after import fully finishes or all retries fail —
+    // never while a batch is still in-flight, preventing double-click imports.
     el('parseBtn').disabled = false;
   }
 });
