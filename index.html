@@ -3408,26 +3408,23 @@ async function pushRowsInBatches(action, rows, onProgress, batchSize){
   batchSize = batchSize || 20;
   const MAX_RETRIES = 5;
   const RETRY_DELAY_MS = 2000;
+  const CONCURRENCY = 2;
   const batches = chunkArray(rows, batchSize);
   const getAction = action === 'pushDues' ? 'pushDuesGet' : 'pushBirthdaysGet';
   let added = 0, updated = 0, done = 0;
 
-  for (let i = 0; i < batches.length; i++){
-    const batch = batches[i];
-    let result = null;
+  async function sendBatchWithRetry(batch, batchIdx){
     let lastErr = null;
-
     for (let attempt = 1; attempt <= MAX_RETRIES; attempt++){
       try{
         if (attempt > 1 && onProgress){
-          onProgress(done, rows.length, i + 1, batches.length, attempt, MAX_RETRIES);
+          onProgress(done, rows.length, batchIdx + 1, batches.length, attempt, MAX_RETRIES);
         }
-        result = await callBackendGet(getAction, batch);
+        const result = await callBackendGet(getAction, batch);
         if (!result || result.success === false){
           throw new Error(result && result.error ? result.error : 'Backend returned failure');
         }
-        lastErr = null;
-        break;
+        return result;
       }catch(err){
         lastErr = err;
         if (attempt < MAX_RETRIES){
@@ -3435,21 +3432,29 @@ async function pushRowsInBatches(action, rows, onProgress, batchSize){
         }
       }
     }
+    throw lastErr;
+  }
 
-    if (lastErr){
+  for (let i = 0; i < batches.length; i += CONCURRENCY){
+    const round = batches.slice(i, i + CONCURRENCY);
+    let results;
+    try{
+      results = await Promise.all(round.map((batch, j) => sendBatchWithRetry(batch, i + j)));
+    }catch(err){
       const progressErr = new Error(
         'Stopped after ' + done + ' of ' + rows.length + ' rows ' +
         '(already saved — safe to try again, it will only add what’s left). ' +
-        'Original error: ' + lastErr.message
+        'Original error: ' + err.message
       );
       progressErr.partial = { added, updated, done, total: rows.length };
       throw progressErr;
     }
-
-    added += result.added || 0;
-    updated += result.updated || 0;
-    done += batch.length;
-    if (onProgress) onProgress(done, rows.length, i + 1, batches.length, 1, MAX_RETRIES);
+    results.forEach((result, j) => {
+      added += result.added || 0;
+      updated += result.updated || 0;
+      done += round[j].length;
+    });
+    if (onProgress) onProgress(done, rows.length, Math.floor(i/CONCURRENCY) + 1, Math.ceil(batches.length/CONCURRENCY), 1, MAX_RETRIES);
   }
 
   return { added: added, updated: updated, total: rows.length };
