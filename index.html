@@ -1967,7 +1967,16 @@ input:checked + #studioSection .slider-toggle::before{transform:translateX(19px)
         <p class="sub">Write a custom message and choose exactly who receives it. Use <strong>{FirstName}</strong> anywhere in your message and it will be replaced with each client's actual first name.</p>
       </div>
 
+      <div id="bcQuotaBox" style="display:flex; align-items:center; gap:10px; margin-bottom:16px; padding:12px 14px; background:#EFF6FF; border:1px solid #BFDBFE; border-radius:10px; font-size:13px; color:#1E3A5F;">
+        <span style="font-size:18px; line-height:1;">📧</span>
+        <span id="bcQuotaBoxText">Checking today's remaining email quota…</span>
+      </div>
+
       <div class="card" id="broadcastCard">
+        <div id="bcEditingDraftBanner" style="display:none; align-items:center; justify-content:space-between; gap:10px; margin-bottom:14px; padding:10px 12px; background:#FDF6E3; border:1px solid #F0DFA6; border-radius:8px; font-size:13px; color:#7A5C00;">
+          <span>✏️ Editing draft: <strong id="bcEditingDraftLabel"></strong></span>
+          <button type="button" id="bcExitDraftBtn" style="flex-shrink:0; border:1px solid #C99A3B; background:#fff; color:#7A5C00; border-radius:6px; padding:5px 10px; font-size:12px; cursor:pointer;">✕ New Message</button>
+        </div>
         <label for="broadcastSubject">Subject</label>
         <input type="text" id="broadcastSubject" placeholder="e.g. A quick update from your advisor">
 
@@ -2361,6 +2370,22 @@ input:checked + #studioSection .slider-toggle::before{transform:translateX(19px)
         <div class="status" id="sendHourStatus"></div>
       </div>
 
+      <div class="card" id="advanceDaysCard" style="display:none;">
+        <h2>Advance Due Reminder</h2>
+        <p class="sub">How many days before a premium is actually due should Client Pulse start sending heads-up reminders. The reminder on the actual due date always still goes out regardless of this setting.</p>
+        <label for="advanceDaysSelect">Start reminding</label>
+        <select id="advanceDaysSelect">
+          <option value="1">1 day before (default)</option>
+          <option value="2">2 days before</option>
+          <option value="3">3 days before</option>
+          <option value="4">4 days before</option>
+          <option value="5">5 days before</option>
+          <option value="6">6 days before</option>
+          <option value="7">7 days before</option>
+        </select>
+        <div class="status" id="advanceDaysStatus"></div>
+      </div>
+
       <div class="card" id="setupGuideCard" style="text-align:center;">
         <a href="https://jccbusinesssolutions.github.io/CLIENT-PULSE-SETUP-GUIDE/" style="display:inline-block;font-weight:700;color:#0C447C;text-decoration:underline;">CLIENT PULSE SETUP GUIDE</a>
       </div>
@@ -2672,6 +2697,9 @@ function showPage(pageName){
   }
   if (pageName === 'broadcast' && typeof refreshDraftsList === 'function'){
     refreshDraftsList();
+  }
+  if (pageName === 'broadcast' && typeof updateQuotaBox === 'function'){
+    updateQuotaBox();
   }
 }
 
@@ -3533,6 +3561,21 @@ function populateSendHour(hour){
   el('sendHourSelect').value = String(hour);
 }
 
+async function fetchAdvanceDays(){
+  const url = getScriptUrl();
+  if (!url) return null;
+  try{
+    const res = await fetch(url + '?action=getAdvanceDays');
+    const data = await res.json();
+    return (data && data.advanceDays !== undefined) ? data.advanceDays : null;
+  }catch(e){ return null; }
+}
+
+function populateAdvanceDays(days){
+  if (days === null || days === undefined) return;
+  el('advanceDaysSelect').value = String(days);
+}
+
 async function fetchSavedPassword(){
   const url = getScriptUrl();
   if (!url) return '';
@@ -3586,7 +3629,7 @@ function hideStatus(id){ el(id).className = 'status'; }
 // everything instead of showing it — the Setup button appeared to do
 // nothing. This is now explicit and always shows, no guessing.
 function showSettingsCards(){
-  ['configCard','brandingCard','sendHourCard','headerFooterStudioCard','duesPreviewCard',
+  ['configCard','brandingCard','sendHourCard','advanceDaysCard','headerFooterStudioCard','duesPreviewCard',
    'duesTestEmailCard','birthdayPreviewCard','birthdayTestEmailCard',
    'anniversaryPreviewCard','anniversaryTestEmailCard','personalLinkCard'
   ].forEach(id => {
@@ -3646,6 +3689,7 @@ el('saveScriptUrl').addEventListener('click', async () => {
   showStatus('configStatus','success','Saved \u2014 this browser will remember it next time you open the app.');
   fetchBrandConfig().then(config => populateBrandingFields(config));
   fetchSendHour().then(hour => populateSendHour(hour));
+  fetchAdvanceDays().then(days => populateAdvanceDays(days));
   loadDueToday();
   loadDailyStats();
   refreshPersonalLink();
@@ -4971,6 +5015,12 @@ el('bcSaveDraftBtn').addEventListener('click', async () => {
       throw new Error(result.error || 'Unknown error from server');
     }
     bcEditingDraftId = result.draftId; // subsequent saves update this same draft
+    // Whether this was a brand-new save or an update to one already
+    // loaded, the composer is now attached to this draftId — reflect
+    // that in the banner so it stays an accurate signal either way.
+    el('bcEditingDraftBanner').style.display = 'flex';
+    el('bcEditingDraftLabel').textContent = subject || '(no subject)';
+    el('bcSaveDraftBtn').textContent = 'UPDATE THIS DRAFT';
     showStatus('broadcastStatus','success','Draft saved.');
     await refreshDraftsList();
   }catch(err){
@@ -5010,7 +5060,11 @@ async function refreshDraftsList(){
         btn.textContent = '...';
         try{
           await callBackend({ action: 'deleteDraft', draftId: btn.dataset.deleteDraft });
-          if (bcEditingDraftId === btn.dataset.deleteDraft) bcEditingDraftId = null;
+          if (bcEditingDraftId === btn.dataset.deleteDraft){
+            bcEditingDraftId = null;
+            el('bcEditingDraftBanner').style.display = 'none';
+            el('bcSaveDraftBtn').textContent = 'SAVE AS DRAFT';
+          }
           await refreshDraftsList();
         }catch(err){
           showStatus('broadcastStatus','error','Could not delete draft: ' + err.message);
@@ -5031,6 +5085,16 @@ async function loadDraftIntoEditor(draft){
   renderBcAttachmentList();
   bcUseTemplate = !!payload.useTemplate;
   el('bcTemplateToggle').querySelector('.theme-switch-track').classList.toggle('is-on', bcUseTemplate);
+
+  // Makes it unmistakable which draft (if any) is currently loaded, and
+  // gives a direct way out of that state — previously there was no
+  // visual signal at all that you were "inside" a draft, which made it
+  // easy to lose track of whether Save As Draft would update this one
+  // or you'd drifted into composing something unrelated while it was
+  // still silently attached.
+  el('bcEditingDraftBanner').style.display = 'flex';
+  el('bcEditingDraftLabel').textContent = payload.subject || '(no subject)';
+  el('bcSaveDraftBtn').textContent = 'UPDATE THIS DRAFT';
 
   // A saved draft's recipient list can go stale — if this exact subject
   // has since actually been sent (to some or all of them, via another
@@ -5070,6 +5134,31 @@ async function loadDraftIntoEditor(draft){
   // reading that lets an oversized saved draft pass the pre-send size check.
   updateSizeIndicator();
 }
+
+// Clears the composer back to a genuinely blank state and detaches from
+// whatever draft was loaded — previously the only way to do this was to
+// close and reopen the entire app, since bcEditingDraftId had no reset
+// path at all once a draft was loaded.
+function resetComposeToNewMessage(){
+  bcEditingDraftId = null;
+  el('bcEditingDraftBanner').style.display = 'none';
+  el('bcSaveDraftBtn').textContent = 'SAVE AS DRAFT';
+  el('broadcastSubject').value = '';
+  el('broadcastEditor').innerHTML = '';
+  bcAttachments = [];
+  renderBcAttachmentList();
+  bcUseTemplate = false;
+  el('bcTemplateToggle').querySelector('.theme-switch-track').classList.toggle('is-on', false);
+  bcAllClients = [];
+  bcSelectedEmails = new Set();
+  el('bcRecipientSummaryText').textContent = 'No recipients selected yet';
+  hideStatus('broadcastStatus');
+  updateSizeIndicator();
+}
+
+el('bcExitDraftBtn').addEventListener('click', () => {
+  resetComposeToNewMessage();
+});
 
 /* ============================================================
    HEADER/FOOTER TEMPLATE — reuses the exact header and footer
@@ -5638,6 +5727,9 @@ async function runBroadcastSend(recipients, subject, body, useTemplate, resumeFr
     el('bcSendBtn').disabled = false;
     el('bcPreviewBtn').disabled = false;
     el('bcStopSendBtn').style.display = 'none';
+    // Sending consumes the same quota the box up top is showing — refresh
+    // it now so the number doesn't sit stale for the rest of the session.
+    updateQuotaBox();
   }
 }
 
@@ -5695,6 +5787,16 @@ el('sendHourSelect').addEventListener('change', async () => {
     showStatus('sendHourStatus','success','Saved \u2014 dues reminders and birthday greetings will now send during this window.');
   }catch(e){
     showStatus('sendHourStatus','error','Could not save (check the Setup URL above). ' + e.message);
+  }
+});
+
+el('advanceDaysSelect').addEventListener('change', async () => {
+  const days = el('advanceDaysSelect').value;
+  try{
+    await callBackend({ action:'setAdvanceDays', days: days });
+    showStatus('advanceDaysStatus','success','Saved \u2014 dues reminders will now start this many days before each due date.');
+  }catch(e){
+    showStatus('advanceDaysStatus','error','Could not save (check the Setup URL above). ' + e.message);
   }
 });
 
@@ -6022,6 +6124,32 @@ async function fetchRemainingEmailQuota(){
   }
 }
 
+// Persistent quota box at the top of the Broadcast Email page — this is
+// the same MailApp.getRemainingDailyQuota() number already used as a
+// pre-send warning, just surfaced proactively so it's visible before
+// composing anything, not only reactively at the moment of sending.
+// The same quota is also consumed by dues reminders, birthday greetings,
+// and anniversary greetings, so this number can be lower than expected
+// on a day those have already sent a lot of email — the note below the
+// count says so, rather than implying broadcast is the only thing using it.
+async function updateQuotaBox(){
+  const box = el('bcQuotaBox');
+  const textEl = el('bcQuotaBoxText');
+  if (!box || !textEl) return;
+  textEl.textContent = 'Checking today\u2019s remaining email quota\u2026';
+  const remaining = await fetchRemainingEmailQuota();
+  if (remaining === null){
+    textEl.textContent = 'Could not check today\u2019s remaining email quota right now.';
+    return;
+  }
+  const low = remaining <= 10;
+  box.style.background = low ? '#FEF2F2' : '#EFF6FF';
+  box.style.borderColor = low ? '#FECACA' : '#BFDBFE';
+  box.style.color = low ? '#7A1F1F' : '#1E3A5F';
+  textEl.innerHTML = '<strong>' + remaining + '</strong> email' + (remaining === 1 ? '' : 's') + ' remaining in today\u2019s sending quota'
+    + '<div style="font-size:11.5px; opacity:.8; margin-top:2px;">Shared across broadcasts, dues reminders, birthday and anniversary greetings \u2014 personal Gmail accounts get 100/day, Google Workspace accounts up to 1,500/day. Resets at midnight Pacific Time.</div>';
+}
+
 function escapeHtml(str){
   return String(str).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
@@ -6175,6 +6303,7 @@ loadDueToday();
 loadDailyStats();
 fetchBrandConfig().then(config => populateBrandingFields(config));
 fetchSendHour().then(hour => populateSendHour(hour));
+  fetchAdvanceDays().then(days => populateAdvanceDays(days));
 refreshPersonalLink();
 
 </script>
@@ -7507,6 +7636,7 @@ function hideGate() {
     loadDailyStats();
     fetchBrandConfig().then(config => populateBrandingFields(config));
     fetchSendHour().then(hour => populateSendHour(hour));
+  fetchAdvanceDays().then(days => populateAdvanceDays(days));
     refreshPersonalLink();
     checkAdvisorActiveStatus();
     if (currentEmail === ADMIN_EMAIL){
