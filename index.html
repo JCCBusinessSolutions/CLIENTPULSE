@@ -5953,12 +5953,31 @@ function formatClientNameJS(rawName){
 
 // Mirrors buildReminderEmailHtml() in the Apps Script backend, using
 // sample data plus whatever the advisor has entered/uploaded so far.
-function buildPreviewEmailHtml(headerSrc, footerSrc){
+function buildPreviewEmailHtml(headerSrc, footerSrc, daysAhead){
+  daysAhead = daysAhead || 0;
   const connectLink = el('brandConnectLink').value.trim() || '#';
   const payLink = el('brandPayLink').value.trim() || '#';
   const greetingName = formatClientNameJS('Dela Cruz, Juan Miguel');
   const formattedAmount = 'PHP ' + (50000).toLocaleString('en-PH', {minimumFractionDigits:2});
-  const formattedDate = new Date().toLocaleDateString('en-US', {month:'long', day:'numeric', year:'numeric'});
+  const sampleDueDate = new Date();
+  sampleDueDate.setDate(sampleDueDate.getDate() + daysAhead);
+  const formattedDate = sampleDueDate.toLocaleDateString('en-US', {month:'long', day:'numeric', year:'numeric'});
+
+  // Mirrors the daysAhead-adaptive copy in Code.gs's buildReminderEmailHtml
+  // exactly, so this in-app preview shows the same wording a real advance
+  // reminder would actually send, instead of always showing the "due
+  // today" version regardless of the configured Advance Due Reminder setting.
+  let openingLine;
+  if (daysAhead === 0){
+    openingLine = 'This is a friendly reminder that your premium payment is due <strong>today</strong>.';
+  } else if (daysAhead === 1){
+    openingLine = 'This is a friendly reminder that your premium payment is due <strong>tomorrow, ' + formattedDate + '</strong>.';
+  } else {
+    openingLine = 'This is a friendly reminder that your premium payment is due in <strong>' + daysAhead + ' days, on ' + formattedDate + '</strong>.';
+  }
+  const closingLine = daysAhead === 0
+    ? 'Please settle this at your earliest convenience to keep your policy in force. If you have already made this payment, kindly disregard this reminder.'
+    : 'Please prepare your payment in advance to keep your policy in force. If you have already made this payment, kindly disregard this reminder.';
 
   const headerHtml = headerSrc
     ? '<img src="' + headerSrc + '" alt="Header" style="width:100%;display:block;">'
@@ -5972,14 +5991,14 @@ function buildPreviewEmailHtml(headerSrc, footerSrc){
     + headerHtml
     + '  <div style="padding:24px;background:#FDF8F0;color:#1C2A38;">'
     + '    <p>Hi ' + greetingName + ',</p>'
-    + '    <p>This is a friendly reminder that your premium payment is due <strong>today</strong>.</p>'
+    + '    <p>' + openingLine + '</p>'
     + '    <table style="width:100%;margin:16px 0;border-collapse:collapse;font-size:14px;">'
     + '      <tr><td style="padding:8px 0;color:#6B7280;">Policy Number</td><td style="text-align:right;font-weight:700;">0123456789</td></tr>'
     + '      <tr><td style="padding:8px 0;color:#6B7280;">Product</td><td style="text-align:right;font-weight:700;">Sample Insurance Plan</td></tr>'
     + '      <tr><td style="padding:8px 0;color:#6B7280;">Amount Due</td><td style="text-align:right;font-weight:700;color:#0C447C;">' + formattedAmount + '</td></tr>'
     + '      <tr><td style="padding:8px 0;color:#6B7280;">Due Date</td><td style="text-align:right;font-weight:700;">' + formattedDate + '</td></tr>'
     + '    </table>'
-    + '    <p>Please settle this at your earliest convenience to keep your policy in force. If you have already made this payment, kindly disregard this reminder.</p>'
+    + '    <p>' + closingLine + '</p>'
     + '    <div style="text-align:center;margin:22px 0;">'
     + '      <a href="' + payLink + '" style="display:inline-block;background:#0C447C;color:#FFFFFF;text-decoration:none;padding:14px 30px;border-radius:8px;font-weight:700;font-size:14px;letter-spacing:.5px;">PAY ONLINE NOW</a>'
     + '    </div>'
@@ -5997,16 +6016,21 @@ el('previewEmailBtn').addEventListener('click', async () => {
   el('previewEmailBtn').disabled = true;
   el('previewEmailBtn').textContent = 'LOADING\u2026';
   try{
-    const [headerSrc, footerSrc] = await Promise.all([
+    const [headerSrc, footerSrc, advanceDays] = await Promise.all([
       ensurePreviewImage('header'),
-      ensurePreviewImage('footer')
+      ensurePreviewImage('footer'),
+      fetchAdvanceDays()
     ]);
+    const daysAhead = advanceDays || 0;
     const senderName = el('brandSenderName').value.trim() || '(sender name not set)';
-    const subjectDate = new Date().toLocaleDateString('en-US', {month:'long', day:'numeric'}).toUpperCase();
+    const sampleDueDate = new Date();
+    sampleDueDate.setDate(sampleDueDate.getDate() + daysAhead);
+    const subjectDate = sampleDueDate.toLocaleDateString('en-US', {month:'long', day:'numeric'}).toUpperCase();
+    const daysLabel = daysAhead === 0 ? '' : (daysAhead === 1 ? ' IN 1 DAY' : ' IN ' + daysAhead + ' DAYS');
     el('previewMeta').innerHTML =
       'From: ' + senderName + '<br>' +
-      'Subject: PREMIUM DUE REMINDER - ' + subjectDate;
-    el('previewEmailBody').innerHTML = buildPreviewEmailHtml(headerSrc, footerSrc);
+      'Subject: PREMIUM DUE REMINDER' + daysLabel + ' - ' + subjectDate;
+    el('previewEmailBody').innerHTML = buildPreviewEmailHtml(headerSrc, footerSrc, daysAhead);
     el('emailPreviewContainer').style.display = 'block';
   }finally{
     el('previewEmailBtn').disabled = false;
