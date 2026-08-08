@@ -1440,7 +1440,7 @@ input:checked + #studioSection .slider-toggle::before{transform:translateX(19px)
 
     <div class="card" id="dueTodayCard" data-section="duetracker">
       <div class="card-header-row" id="dueTodayHeader">
-        <h2 style="margin:0;">Due Today</h2>
+        <h2 style="margin:0;">Due Today &amp; Advance Reminders</h2>
         <button class="collapse-toggle" id="toggleDueToday" aria-label="Collapse">&#8943;</button>
       </div>
 
@@ -6309,16 +6309,31 @@ async function loadDueToday(){
       return;
     }
     if (rows.length === 0){
-      sub.textContent = 'Nothing due today.';
+      sub.textContent = 'Nothing due today or coming up for an advance reminder.';
       list.innerHTML = '<div class="due-empty">All clear — check back tomorrow.</div>';
       return;
     }
-    sub.textContent = rows.length + ' polic' + (rows.length===1?'y':'ies') + ' due today:';
+    // Split the combined list back into counts for the summary line —
+    // daysAhead === 0 means due today, anything else is the single
+    // advance-notice touchpoint (whatever Advance Days is set to).
+    const dueTodayCount = rows.filter(r => r.daysAhead === 0).length;
+    const advanceCount = rows.length - dueTodayCount;
+    const summaryParts = [];
+    if (dueTodayCount > 0) summaryParts.push(dueTodayCount + ' due today');
+    if (advanceCount > 0) summaryParts.push(advanceCount + ' coming up for an advance reminder');
+    sub.textContent = summaryParts.join(', ') + ':';
     list.innerHTML = rows.map(r => {
       const amt = 'PHP ' + Number(r.premiumAmount||0).toLocaleString('en-PH', {minimumFractionDigits:2});
       const sentBadge = r.lastReminderSent ? '<div class="sent-badge">EMAIL REMINDER SENT</div>' : '';
+      // Distinguishes the two touchpoints at a glance — previously this
+      // list only ever showed due-today items, so there was no visual
+      // difference needed; now that advance-day items appear alongside
+      // them, each row needs to say plainly which kind it is.
+      const timingBadge = r.daysAhead === 0
+        ? '<span style="display:inline-block;background:#0C447C;color:#fff;font-size:10.5px;font-weight:700;padding:2px 8px;border-radius:10px;margin-left:8px;vertical-align:middle;">DUE TODAY</span>'
+        : '<span style="display:inline-block;background:#C99A3B;color:#fff;font-size:10.5px;font-weight:700;padding:2px 8px;border-radius:10px;margin-left:8px;vertical-align:middle;">ADVANCE \u00b7 ' + r.daysAhead + (r.daysAhead === 1 ? ' DAY' : ' DAYS') + '</span>';
       return '<div class="due-item">'
-        + '<div class="due-field"><span class="label">NAME</span><span class="value">' + escapeHtml(r.clientName) + '</span></div>'
+        + '<div class="due-field"><span class="label">NAME</span><span class="value">' + escapeHtml(r.clientName) + timingBadge + '</span></div>'
         + '<div class="due-field"><span class="label">POLICY NUMBER</span><span class="value">' + escapeHtml(r.policyNumber) + '</span></div>'
         + '<div class="due-field"><span class="label">PLAN NAME</span><span class="value">' + escapeHtml(r.product) + '</span></div>'
         + '<div class="due-field"><span class="label">DUE DATE</span><span class="value">' + escapeHtml(r.dueDateFormatted) + '</span></div>'
