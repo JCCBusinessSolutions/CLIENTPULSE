@@ -1404,11 +1404,14 @@ function previewReminderEmail(){
   const myEmail = Session.getActiveUser().getEmail();
   const config = getBrandConfig();
   assertConfigured(config);
-  const sampleDueDate = new Date();
-  const htmlBody = buildReminderEmailHtml('Dela Cruz, Juan Miguel', '0123456789', 'Sample Insurance Plan', 50000, sampleDueDate, config, 0);
+  const daysAhead = getAdvanceDays().advanceDays;
   const tz = Session.getScriptTimeZone();
+  const sampleDueDate = new Date();
+  sampleDueDate.setDate(sampleDueDate.getDate() + daysAhead); // shows the due date the way an advance reminder actually would — X days out, matching your current setting
+  const htmlBody = buildReminderEmailHtml('Dela Cruz, Juan Miguel', '0123456789', 'Sample Insurance Plan', 50000, sampleDueDate, config, daysAhead);
   const subjectDate = Utilities.formatDate(sampleDueDate, tz, 'MMMM d');
-  GmailApp.sendEmail(myEmail, 'PREVIEW, PREMIUM DUE REMINDER - ' + subjectDate.toUpperCase(), '', {
+  const daysLabel = daysAhead === 0 ? '' : (daysAhead === 1 ? ' IN 1 DAY' : ' IN ' + daysAhead + ' DAYS');
+  GmailApp.sendEmail(myEmail, 'PREVIEW, PREMIUM DUE REMINDER' + daysLabel + ' - ' + subjectDate.toUpperCase(), '', {
     htmlBody: htmlBody,
     name: config.senderName,
     inlineImages: getEmailImages(config)
@@ -1426,11 +1429,14 @@ function sendDuesTestEmailToSelf(){
   // contactEmail directly sidesteps that scope entirely.
   const recipient = config.contactEmail;
   if (!recipient) throw new Error('Please set a Contact Email in Your Branding first, then try the test email again.');
-  const sampleDueDate = new Date();
-  const htmlBody = buildReminderEmailHtml('Dela Cruz, Juan Miguel', '0123456789', 'Sample Insurance Plan', 50000, sampleDueDate, config, 0);
+  const daysAhead = getAdvanceDays().advanceDays;
   const tz = Session.getScriptTimeZone();
+  const sampleDueDate = new Date();
+  sampleDueDate.setDate(sampleDueDate.getDate() + daysAhead); // shows the due date the way an advance reminder actually would — X days out, matching your current setting
+  const htmlBody = buildReminderEmailHtml('Dela Cruz, Juan Miguel', '0123456789', 'Sample Insurance Plan', 50000, sampleDueDate, config, daysAhead);
   const subjectDate = Utilities.formatDate(sampleDueDate, tz, 'MMMM d');
-  sendWithOptionalFromAlias(recipient, 'TEST, PREMIUM DUE REMINDER - ' + subjectDate.toUpperCase(), {
+  const daysLabel = daysAhead === 0 ? '' : (daysAhead === 1 ? ' IN 1 DAY' : ' IN ' + daysAhead + ' DAYS');
+  sendWithOptionalFromAlias(recipient, 'TEST, PREMIUM DUE REMINDER' + daysLabel + ' - ' + subjectDate.toUpperCase(), {
     htmlBody: htmlBody,
     name: config.senderName,
     inlineImages: getEmailImages(config)
