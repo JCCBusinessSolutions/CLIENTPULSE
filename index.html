@@ -3306,8 +3306,16 @@ async function callBackend(payload){
   if (!url) throw new Error('NO_SCRIPT_URL');
   console.log('[callBackend] action:', payload.action, '| URL:', url.slice(0, 80) + '...');
   const bodyStr = JSON.stringify(payload);
+  // Routed through the same Cloudflare Worker proxy pushRowsInBatches
+  // already uses — this function used to POST directly to Apps Script,
+  // which meant every action here (saving drafts, branding, schedules,
+  // preferences, images — everything except pushes) was still exposed
+  // to the exact same CORS/redirect-drops-the-body failure we already
+  // diagnosed and fixed for dues/birthday pushes. It had just been
+  // getting away with it on smaller payloads until now.
+  const proxyUrl = CORS_PROXY_URL + '?target=' + encodeURIComponent(url);
   try{
-    const res = await fetch(url, {
+    const res = await fetch(proxyUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
       body: bodyStr
