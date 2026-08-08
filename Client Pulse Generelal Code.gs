@@ -622,6 +622,24 @@ function getSendHour(){
   return { hour: val === null ? 6 : Number(val) };
 }
 
+// How many days before the actual due date to start sending advance
+// reminders (1 = only the day before, up to 7 = a full week of daily
+// nudges leading up to the due date). Default 1 preserves the original
+// "day-before" behavior for advisors who never touch this setting.
+function getAdvanceDays(){
+  const val = PropertiesService.getScriptProperties().getProperty('ADVANCE_DAYS');
+  return { advanceDays: val === null ? 1 : Number(val) };
+}
+
+function setAdvanceDays(n){
+  n = Number(n);
+  if (!(n >= 1 && n <= 7)){
+    throw new Error('Advance days must be between 1 and 7.');
+  }
+  PropertiesService.getScriptProperties().setProperty('ADVANCE_DAYS', String(n));
+  return { advanceDays: n };
+}
+
 function setSendHour(hour){
   hour = Number(hour);
   if (!(hour >= 6 && hour <= 16)){
@@ -873,6 +891,7 @@ function doGet(e){
   if (action === 'getAnniversaryDailyStats')  return jsonResponse(getAnniversaryDailyStats());
   if (action === 'getAnniversaryAutoSendStatus') return jsonResponse(getAnniversaryAutoSendStatus());
   if (action === 'getSendHour')               return jsonResponse(getSendHour());
+  if (action === 'getAdvanceDays')            return jsonResponse(getAdvanceDays());
   if (action === 'diagnoseTemplateSize')      return jsonResponse(diagnoseTemplateSize());
   if (action === 'getScheduledBroadcasts')    return jsonResponse({ schedules: getScheduledBroadcasts() });
   if (action === 'getSentEmailsForSubject')   return getSentEmailsForSubject(e.parameter.subject || '');
@@ -972,6 +991,7 @@ function doPost(e){
   if (body.action === 'setBirthdayAutoSendStatus') { setBirthdayAutoSendStatus(!!body.enabled); return jsonResponse({ success: true }); }
   if (body.action === 'setAnniversaryAutoSendStatus') { setAnniversaryAutoSendStatus(!!body.enabled); return jsonResponse({ success: true }); }
   if (body.action === 'setSendHour')            { const result = setSendHour(body.hour); return jsonResponse(Object.assign({ success: true }, result)); }
+  if (body.action === 'setAdvanceDays')         { try{ const result = setAdvanceDays(body.days); return jsonResponse(Object.assign({ success: true }, result)); }catch(err){ return jsonResponse({ success: false, error: toEnglishErrorMessage(err.message) }); } }
   if (body.action === 'sendDuesTestEmail')      { try{ return jsonResponse(sendDuesTestEmailToSelf()); }catch(err){ return jsonResponse({ success: false, error: toEnglishErrorMessage(err.message) }); } }
   if (body.action === 'sendBirthdayTestEmail')  { try{ return jsonResponse(sendBirthdayTestEmailToSelf()); }catch(err){ return jsonResponse({ success: false, error: toEnglishErrorMessage(err.message) }); } }
   if (body.action === 'sendAnniversaryTestEmail') { try{ return jsonResponse(sendAnniversaryTestEmailToSelf()); }catch(err){ return jsonResponse({ success: false, error: toEnglishErrorMessage(err.message) }); } }
@@ -1184,6 +1204,20 @@ function sendDailyReminders(){
   const col = name => headers.indexOf(name);
   const tz = Session.getScriptTimeZone();
   const todayStr = Utilities.formatDate(new Date(), tz, 'yyyy-MM-dd');
+
+  // Build a lookup of every date from today through today+advanceDays,
+  // mapping each date string to how many days ahead of the due date it
+  // represents (0 = due today, 1 = due tomorrow, etc.) — a row's Due
+  // Date only needs a single Map lookup instead of recomputing a date
+  // difference for every row.
+  const advanceDays = getAdvanceDays().advanceDays;
+  const dateToDaysAhead = {};
+  for (let d = 0; d <= advanceDays; d++){
+    const target = new Date();
+    target.setDate(target.getDate() + d);
+    dateToDaysAhead[Utilities.formatDate(target, tz, 'yyyy-MM-dd')] = d;
+  }
+
   for (let i = 1; i < data.length; i++){
     const row = data[i];
     const sendDues = row[col('Send Dues?')];
@@ -1198,21 +1232,31 @@ function sendDailyReminders(){
     const dueDate = row[col('Due Date')];
     if (!(dueDate instanceof Date)) continue;
     const dueDateStr = Utilities.formatDate(dueDate, tz, 'yyyy-MM-dd');
+    const daysAhead = dateToDaysAhead[dueDateStr];
+    if (daysAhead === undefined) continue; // due date isn't within today..today+advanceDays
+
     const lastSentStr = normalizeDateCellToYmd(row[col('Last Reminder Sent')], tz);
-    if (dueDateStr === todayStr && lastSentStr !== todayStr){
-      let sent = false;
-      try{ sent = sendReminderEmail(row, col); }
-      catch(err){ bumpDailyStat('STAT_FAILED'); continue; }
-      if (sent){
-        bumpDailyStat('STAT_SENT');
-        sheet.getRange(i + 1, col('Last Reminder Sent') + 1).setValue(todayStr);
+    if (lastSentStr === todayStr) continue; // already sent (of any kind) today — guards against the trigger firing twice same day
+
+    let sent = false;
+    try{ sent = sendReminderEmail(row, col, daysAhead); }
+    catch(err){ bumpDailyStat('STAT_FAILED'); continue; }
+    if (sent){
+      bumpDailyStat('STAT_SENT');
+      sheet.getRange(i + 1, col('Last Reminder Sent') + 1).setValue(todayStr);
+      // Cycling the due date forward to the next billing period only
+      // makes sense once the policy has actually reached its due date —
+      // an advance reminder (daysAhead > 0) is just a heads-up and must
+      // never move the due date early.
+      if (daysAhead === 0){
         advanceDueDate(sheet, i + 1, col, dueDate, row[col('Premium Mode')]);
       }
     }
   }
 }
 
-function sendReminderEmail(row, col){
+// daysAhead: 0 = due today, 1+ = that many days before the due date.
+function sendReminderEmail(row, col, daysAhead){
   const email = row[col('Email')];
   if (!email) return false;
   const config = getBrandConfig();
@@ -1225,8 +1269,15 @@ function sendReminderEmail(row, col){
   const policyNumber = row[col('Policy Number')];
   const tz = Session.getScriptTimeZone();
   const subjectDate = Utilities.formatDate(dueDate, tz, 'MMMM d');
-  const subject = 'PREMIUM DUE REMINDER - ' + subjectDate.toUpperCase();
-  const htmlBody = buildReminderEmailHtml(clientName, policyNumber, product, amount, dueDate, config);
+  let subject;
+  if (daysAhead === 0){
+    subject = 'PREMIUM DUE REMINDER - ' + subjectDate.toUpperCase();
+  } else if (daysAhead === 1){
+    subject = 'PREMIUM DUE REMINDER IN 1 DAY - ' + subjectDate.toUpperCase();
+  } else {
+    subject = 'PREMIUM DUE REMINDER IN ' + daysAhead + ' DAYS - ' + subjectDate.toUpperCase();
+  }
+  const htmlBody = buildReminderEmailHtml(clientName, policyNumber, product, amount, dueDate, config, daysAhead);
 
   // Build options — cc, replyTo, and from-alias are all optional
   const options = {
@@ -1294,24 +1345,37 @@ function firstNameOnly(rawName){
   return words[0];
 }
 
-function buildReminderEmailHtml(clientName, policyNumber, product, amount, dueDate, config){
+function buildReminderEmailHtml(clientName, policyNumber, product, amount, dueDate, config, daysAhead){
   const tz = Session.getScriptTimeZone();
   const formattedAmount = 'PHP ' + Number(amount).toLocaleString('en-PH', { minimumFractionDigits: 2 });
   const formattedDate = Utilities.formatDate(dueDate, tz, 'MMMM d, yyyy');
   const greetingName = firstNameOnly(clientName);
+
+  let openingLine;
+  if (daysAhead === 0){
+    openingLine = 'This is a friendly reminder that your premium payment is due <strong>today</strong>.';
+  } else if (daysAhead === 1){
+    openingLine = 'This is a friendly reminder that your premium payment is due <strong>tomorrow, ' + formattedDate + '</strong>.';
+  } else {
+    openingLine = 'This is a friendly reminder that your premium payment is due in <strong>' + daysAhead + ' days, on ' + formattedDate + '</strong>.';
+  }
+  const closingLine = daysAhead === 0
+    ? 'Please settle this at your earliest convenience to keep your policy in force. If you have already made this payment, kindly disregard this reminder.'
+    : 'Please prepare your payment in advance to keep your policy in force. If you have already made this payment, kindly disregard this reminder.';
+
   return ''
     + '<div style="font-family:Arial,sans-serif;max-width:480px;margin:0 auto;border:1px solid #E7DFCF;border-radius:10px;overflow:hidden;">'
     + '  <img src="cid:headerImg" alt="Header" style="width:100%;display:block;">'
     + '  <div style="padding:24px;background:#FDF8F0;color:#1C2A38;">'
     + '    <p>Hi ' + greetingName + ',</p>'
-    + '    <p>This is a friendly reminder that your premium payment is due <strong>today</strong>.</p>'
+    + '    <p>' + openingLine + '</p>'
     + '    <table style="width:100%;margin:16px 0;border-collapse:collapse;font-size:14px;">'
     + '      <tr><td style="padding:8px 0;color:#6B7280;">Policy Number</td><td style="text-align:right;font-weight:700;">' + policyNumber + '</td></tr>'
     + '      <tr><td style="padding:8px 0;color:#6B7280;">Product</td><td style="text-align:right;font-weight:700;">' + product + '</td></tr>'
     + '      <tr><td style="padding:8px 0;color:#6B7280;">Amount Due</td><td style="text-align:right;font-weight:700;color:#0C447C;">' + formattedAmount + '</td></tr>'
     + '      <tr><td style="padding:8px 0;color:#6B7280;">Due Date</td><td style="text-align:right;font-weight:700;">' + formattedDate + '</td></tr>'
     + '    </table>'
-    + '    <p>Please settle this at your earliest convenience to keep your policy in force. If you have already made this payment, kindly disregard this reminder.</p>'
+    + '    <p>' + closingLine + '</p>'
     + '    <div style="text-align:center;margin:22px 0;">'
     + '      <a href="' + config.payLink + '" style="display:inline-block;background:#0C447C;color:#FFFFFF;text-decoration:none;padding:14px 30px;border-radius:8px;font-weight:700;font-size:14px;letter-spacing:.5px;">PAY ONLINE NOW</a>'
     + '    </div>'
@@ -1341,7 +1405,7 @@ function previewReminderEmail(){
   const config = getBrandConfig();
   assertConfigured(config);
   const sampleDueDate = new Date();
-  const htmlBody = buildReminderEmailHtml('Dela Cruz, Juan Miguel', '0123456789', 'Sample Insurance Plan', 50000, sampleDueDate, config);
+  const htmlBody = buildReminderEmailHtml('Dela Cruz, Juan Miguel', '0123456789', 'Sample Insurance Plan', 50000, sampleDueDate, config, 0);
   const tz = Session.getScriptTimeZone();
   const subjectDate = Utilities.formatDate(sampleDueDate, tz, 'MMMM d');
   GmailApp.sendEmail(myEmail, 'PREVIEW, PREMIUM DUE REMINDER - ' + subjectDate.toUpperCase(), '', {
@@ -1363,7 +1427,7 @@ function sendDuesTestEmailToSelf(){
   const recipient = config.contactEmail;
   if (!recipient) throw new Error('Please set a Contact Email in Your Branding first, then try the test email again.');
   const sampleDueDate = new Date();
-  const htmlBody = buildReminderEmailHtml('Dela Cruz, Juan Miguel', '0123456789', 'Sample Insurance Plan', 50000, sampleDueDate, config);
+  const htmlBody = buildReminderEmailHtml('Dela Cruz, Juan Miguel', '0123456789', 'Sample Insurance Plan', 50000, sampleDueDate, config, 0);
   const tz = Session.getScriptTimeZone();
   const subjectDate = Utilities.formatDate(sampleDueDate, tz, 'MMMM d');
   sendWithOptionalFromAlias(recipient, 'TEST, PREMIUM DUE REMINDER - ' + subjectDate.toUpperCase(), {
