@@ -943,6 +943,20 @@ function getDueTodayRows(){
   const tz = Session.getScriptTimeZone();
   const todayStr = Utilities.formatDate(new Date(), tz, 'yyyy-MM-dd');
   const todayFormatted = Utilities.formatDate(new Date(), tz, 'MMMM d, yyyy');
+
+  // Combines BOTH reminder touchpoints into one list — due today, AND
+  // the single advance-notice day (today + Advance Days) — matching
+  // exactly what sendDailyReminders() itself checks. Previously this
+  // only ever showed the due-today half, so the dashboard never
+  // reflected the advance reminders that were actually about to go out.
+  // advanceDays is always >=1 (clamped in setAdvanceDays), so the two
+  // target dates can never land on the same day.
+  const advanceDays = getAdvanceDays().advanceDays;
+  const advanceTargetDate = new Date();
+  advanceTargetDate.setDate(advanceTargetDate.getDate() + advanceDays);
+  const advanceTargetStr = Utilities.formatDate(advanceTargetDate, tz, 'yyyy-MM-dd');
+  const advanceTargetFormatted = Utilities.formatDate(advanceTargetDate, tz, 'MMMM d, yyyy');
+
   const result = [];
   for (let i = 1; i < data.length; i++){
     const row = data[i];
@@ -951,17 +965,36 @@ function getDueTodayRows(){
     const wasSentToday = lastSentStr === todayStr;
     const dueDateStr = (dueDate instanceof Date) ? Utilities.formatDate(dueDate, tz, 'yyyy-MM-dd') : '';
     const isDueToday = dueDateStr === todayStr;
-    if (!isDueToday && !wasSentToday) continue;
+    const isAdvanceDay = dueDateStr === advanceTargetStr;
+    if (!isDueToday && !isAdvanceDay && !wasSentToday) continue;
+
+    let daysAhead, dueDateFormatted;
+    if (isDueToday){
+      daysAhead = 0;
+      dueDateFormatted = Utilities.formatDate(dueDate, tz, 'MMMM d, yyyy');
+    } else if (isAdvanceDay){
+      daysAhead = advanceDays;
+      dueDateFormatted = advanceTargetFormatted;
+    } else {
+      // Neither touchpoint matches anymore (e.g. already sent today and
+      // the due date has since advanced) — kept in the list so a just-sent
+      // reminder doesn't vanish mid-session, shown against today's date.
+      daysAhead = 0;
+      dueDateFormatted = todayFormatted;
+    }
+
     result.push({
       policyNumber: row[col('Policy Number')],
       clientName: row[col('Client Name')],
       product: row[col('Product')],
       premiumAmount: row[col('Premium Amount')],
       premiumMode: row[col('Premium Mode')],
-      dueDateFormatted: isDueToday ? Utilities.formatDate(dueDate, tz, 'MMMM d, yyyy') : todayFormatted,
+      dueDateFormatted: dueDateFormatted,
+      daysAhead: daysAhead,
       lastReminderSent: lastSentStr
     });
   }
+  result.sort((a, b) => a.daysAhead - b.daysAhead); // due-today first, then the advance-day items
   return result;
 }
 
@@ -1205,18 +1238,16 @@ function sendDailyReminders(){
   const tz = Session.getScriptTimeZone();
   const todayStr = Utilities.formatDate(new Date(), tz, 'yyyy-MM-dd');
 
-  // Build a lookup of every date from today through today+advanceDays,
-  // mapping each date string to how many days ahead of the due date it
-  // represents (0 = due today, 1 = due tomorrow, etc.) — a row's Due
-  // Date only needs a single Map lookup instead of recomputing a date
-  // difference for every row.
+  // Sends exactly TWO reminders per policy — one early heads-up on the
+  // single day that's exactly advanceDays before the due date, and one
+  // more on the actual due date itself. Nothing in between: a policy due
+  // in 3 days with advanceDays=3 gets one email today (daysAhead=3) and
+  // stays silent until the due date itself, when it gets the second and
+  // final email (daysAhead=0) — no daily countdown.
   const advanceDays = getAdvanceDays().advanceDays;
-  const dateToDaysAhead = {};
-  for (let d = 0; d <= advanceDays; d++){
-    const target = new Date();
-    target.setDate(target.getDate() + d);
-    dateToDaysAhead[Utilities.formatDate(target, tz, 'yyyy-MM-dd')] = d;
-  }
+  const advanceTargetDate = new Date();
+  advanceTargetDate.setDate(advanceTargetDate.getDate() + advanceDays);
+  const advanceTargetStr = Utilities.formatDate(advanceTargetDate, tz, 'yyyy-MM-dd');
 
   for (let i = 1; i < data.length; i++){
     const row = data[i];
@@ -1232,11 +1263,17 @@ function sendDailyReminders(){
     const dueDate = row[col('Due Date')];
     if (!(dueDate instanceof Date)) continue;
     const dueDateStr = Utilities.formatDate(dueDate, tz, 'yyyy-MM-dd');
-    const daysAhead = dateToDaysAhead[dueDateStr];
-    if (daysAhead === undefined) continue; // due date isn't within today..today+advanceDays
+
+    // advanceDays is always >=1 (clamped in setAdvanceDays), so these two
+    // target dates can never collide — a policy is never matched by both
+    // conditions on the same day.
+    let daysAhead;
+    if (dueDateStr === advanceTargetStr) daysAhead = advanceDays;
+    else if (dueDateStr === todayStr) daysAhead = 0;
+    else continue; // neither touchpoint applies today for this policy
 
     const lastSentStr = normalizeDateCellToYmd(row[col('Last Reminder Sent')], tz);
-    if (lastSentStr === todayStr) continue; // already sent (of any kind) today — guards against the trigger firing twice same day
+    if (lastSentStr === todayStr) continue; // guards against the trigger firing twice same day
 
     let sent = false;
     try{ sent = sendReminderEmail(row, col, daysAhead); }
@@ -1246,7 +1283,7 @@ function sendDailyReminders(){
       sheet.getRange(i + 1, col('Last Reminder Sent') + 1).setValue(todayStr);
       // Cycling the due date forward to the next billing period only
       // makes sense once the policy has actually reached its due date —
-      // an advance reminder (daysAhead > 0) is just a heads-up and must
+      // the advance reminder (daysAhead > 0) is just a heads-up and must
       // never move the due date early.
       if (daysAhead === 0){
         advanceDueDate(sheet, i + 1, col, dueDate, row[col('Premium Mode')]);
@@ -2401,7 +2438,14 @@ function getScheduledBroadcasts(){
       sentAt: row[col('Sent At')] instanceof Date ? row[col('Sent At')].toISOString() : String(row[col('Sent At')] || ''),
       error: row[col('Error')] || '',
       sentCount: Number(row[col('SentCount')]) || 0,
-      failedCount: Number(row[col('FailedCount')]) || 0
+      failedCount: Number(row[col('FailedCount')]) || 0,
+      // Lets a broadcast with failures be reloaded straight back into the
+      // composer (subject, body, attachments, template flag, original
+      // recipient list) instead of the advisor having to rebuild it from
+      // scratch — the frontend cross-checks the recipient list against
+      // the Broadcast Log to automatically exclude anyone who already
+      // received it, same mechanism drafts already use.
+      payload: JSON.parse(row[col('PayloadJSON')] || '{}')
     });
   }
   result.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
