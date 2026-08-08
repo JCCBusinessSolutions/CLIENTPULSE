@@ -4871,6 +4871,10 @@ async function refreshScheduledBroadcastsList(){
       completedContainer.innerHTML = '<div style="font-size:13px; color:#9CA3AF;">No completed broadcasts yet.</div>';
     } else {
       completed.sort((a, b) => new Date(b.sentAt || b.createdAt) - new Date(a.sentAt || a.createdAt));
+      // Kept so the Edit & Resend button below can look up the full
+      // payload (subject, body, attachments, recipients) for whichever
+      // scheduleId gets clicked, without a second round trip.
+      bcCompletedSchedules = completed;
       completedContainer.innerHTML = completed.slice(0, 20).map(s => {
         const when = s.sentAt ? new Date(s.sentAt).toLocaleString('en-PH', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true }) : '\u2014';
         const hasFailures = s.failedCount > 0;
@@ -4878,6 +4882,11 @@ async function refreshScheduledBroadcastsList(){
           ? '<span style="color:var(--bad,#EB5757); font-weight:700;">' + s.sentCount + ' sent, ' + s.failedCount + ' failed</span>'
           : '<span style="color:var(--good,#27AE60); font-weight:700;">' + s.sentCount + ' sent</span>';
         const errorLine = s.error ? '<div style="font-size:11px; color:#9CA3AF; margin-top:4px; word-break:break-word;">' + escapeHtml(s.error.length > 150 ? s.error.substring(0, 150) + '\u2026' : s.error) + '</div>' : '';
+        // Only offered when something actually failed — a fully successful
+        // broadcast has nothing left to resend to.
+        const resendBtn = hasFailures
+          ? '<button type="button" class="bc-resend-btn" data-resend-id="' + escapeHtml(s.scheduleId) + '" style="margin-top:8px; border:1px solid #C99A3B; background:#fff; color:#7A5C00; border-radius:6px; padding:6px 12px; font-size:12px; cursor:pointer;">\u21ba EDIT &amp; RESEND</button>'
+          : '';
         // Swipe-to-delete: bc-swipe-wrap clips a red delete action behind
         // the row, which bc-completed-row slides left to reveal via
         // touch/drag — see wireSwipeToDelete() for the gesture handling.
@@ -4887,10 +4896,18 @@ async function refreshScheduledBroadcastsList(){
           + '<strong>' + escapeHtml(s.subject || '(no subject)') + '</strong><br>'
           + '<span style="color:#9CA3AF;">' + when + '</span> \u2014 ' + resultLine
           + errorLine
+          + resendBtn
           + '</div>'
           + '</div>';
       }).join('');
       wireSwipeToDelete(completedContainer);
+      completedContainer.querySelectorAll('.bc-resend-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const schedule = bcCompletedSchedules.find(s => s.scheduleId === btn.dataset.resendId);
+          if (schedule) loadScheduleIntoEditor(schedule);
+        });
+      });
     }
   }catch(err){
     container.innerHTML = '<div style="font-size:13px; color:#9CA3AF;">Could not load scheduled broadcasts.</div>';
@@ -4990,6 +5007,7 @@ function wireSwipeToDelete(container){
    starting point.
    ============================================================ */
 let bcEditingDraftId = null;
+let bcCompletedSchedules = []; // holds the last-fetched completed-broadcasts list so Edit & Resend can look up a full payload by scheduleId
 
 el('bcSaveDraftBtn').addEventListener('click', async () => {
   const subject = el('broadcastSubject').value.trim();
@@ -5139,6 +5157,51 @@ async function loadDraftIntoEditor(draft){
 // whatever draft was loaded — previously the only way to do this was to
 // close and reopen the entire app, since bcEditingDraftId had no reset
 // path at all once a draft was loaded.
+// Reloads a completed (partially or fully failed) scheduled broadcast
+// back into the composer so it can be reviewed and resent, instead of
+// the advisor having to rebuild the message and recipient list from
+// scratch. Deliberately mirrors loadDraftIntoEditor's already-sent
+// filtering exactly — the Broadcast Log already knows who actually
+// received this exact subject, so the recipients who succeeded the
+// first time (the sentCount portion) get automatically excluded here,
+// leaving only the ones who need it resent selected by default.
+async function loadScheduleIntoEditor(schedule){
+  bcEditingDraftId = null; // this is a resend, not an existing draft — Save As Draft here creates a new one
+  el('bcEditingDraftBanner').style.display = 'none';
+  el('bcSaveDraftBtn').textContent = 'SAVE AS DRAFT';
+
+  const payload = schedule.payload || {};
+  el('broadcastSubject').value = payload.subject || '';
+  el('broadcastEditor').innerHTML = payload.htmlBody || '';
+  bcAttachments = payload.attachments || [];
+  renderBcAttachmentList();
+  bcUseTemplate = !!payload.useTemplate;
+  el('bcTemplateToggle').querySelector('.theme-switch-track').classList.toggle('is-on', bcUseTemplate);
+
+  await refreshAlreadySentForCurrentSubject();
+  const rows = payload.rows || [];
+  const alreadySentRows = rows.filter(r => bcAlreadySentEmails.has((r.email || '').trim().toLowerCase()));
+  const eligibleRows = rows.filter(r => !bcAlreadySentEmails.has((r.email || '').trim().toLowerCase()));
+
+  bcAllClients = deduplicateClientsByEmail(rows.map(r => ({ email: r.email, clientName: r.clientName })));
+  bcSelectedEmails = new Set(eligibleRows.map(r => r.email));
+
+  const n = bcSelectedEmails.size;
+  const excludedNote = alreadySentRows.length > 0
+    ? ' (' + alreadySentRows.length + ' already received this subject and ' + (alreadySentRows.length === 1 ? 'was' : 'were') + ' excluded)'
+    : '';
+  el('bcRecipientSummaryText').textContent = n === 0
+    ? 'No recipients selected yet' + excludedNote
+    : n + ' recipient' + (n === 1 ? '' : 's') + ' selected \u2014 ready to resend' + excludedNote;
+  el('bcSendNowBtn').click();
+  el('bcSendBtn').textContent = 'SEND BROADCAST';
+  showStatus('broadcastStatus', 'info',
+    'Loaded for resend \u2014 ' + n + ' recipient' + (n === 1 ? '' : 's') + ' who haven\u2019t received this yet' + excludedNote + '. Review, then send, schedule, or save as a draft.'
+  );
+  el('broadcastCard').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  updateSizeIndicator();
+}
+
 function resetComposeToNewMessage(){
   bcEditingDraftId = null;
   el('bcEditingDraftBanner').style.display = 'none';
