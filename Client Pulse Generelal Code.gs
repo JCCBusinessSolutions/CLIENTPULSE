@@ -480,6 +480,7 @@ function getProfileImagePreviewData(){
 function setupSheet(){
   createInactivityPurgeTrigger(); // self-installs once; cheap no-op after that
   ensureAnniversaryDailyTriggerExists(); // same reasoning — advisors from before this feature existed need this too
+  ensureDailyReminderTriggerExists(); // same fix, now for dues (due-today + advance reminders)
   const ss = getSpreadsheet();
   let sheet = ss.getSheetByName(SHEET_NAME);
   if (!sheet){
@@ -663,6 +664,23 @@ function createDailyTrigger(hour){
     .everyDays(1)
     .atHour(hour)
     .create();
+}
+
+// Cheap, idempotent self-install for advisors whose dues trigger never
+// got created — createDailyTrigger() was previously only ever called
+// from setSendHour(), meaning any advisor who never explicitly touched
+// the Send Hour dropdown had NO daily trigger at all, and
+// sendDailyReminders() simply never ran — including both the due-today
+// AND advance-reminder emails, since both fire from that same function.
+// This only ensures the TRIGGER exists (same idempotent pattern as
+// ensureAnniversaryDailyTriggerExists) — it does NOT enable auto-send
+// for anyone who hasn't already turned it on; getAutoSendStatus().enabled
+// still gates whether anything actually sends.
+function ensureDailyReminderTriggerExists(){
+  const alreadyInstalled = ScriptApp.getProjectTriggers()
+    .some(t => t.getHandlerFunction() === 'sendDailyReminders');
+  if (alreadyInstalled) return;
+  createDailyTrigger();
 }
 
 function createBirthdayDailyTrigger(hour){
