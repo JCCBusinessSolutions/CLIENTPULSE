@@ -5016,6 +5016,7 @@ function wireSwipeToDelete(container){
    ============================================================ */
 let bcEditingDraftId = null;
 let bcCompletedSchedules = []; // holds the last-fetched completed-broadcasts list so Edit & Resend can look up a full payload by scheduleId
+let bcResendingFromScheduleId = null; // set while composing via "Edit & Resend" — used to annotate the original schedule row once the resend actually completes
 
 el('bcSaveDraftBtn').addEventListener('click', async () => {
   const subject = el('broadcastSubject').value.trim();
@@ -5104,6 +5105,7 @@ async function refreshDraftsList(){
 
 async function loadDraftIntoEditor(draft){
   bcEditingDraftId = draft.draftId;
+  bcResendingFromScheduleId = null; // switching to a draft leaves any resend context behind
   const payload = draft.payload || {};
   el('broadcastSubject').value = payload.subject || '';
   el('broadcastEditor').innerHTML = payload.htmlBody || '';
@@ -5175,6 +5177,7 @@ async function loadDraftIntoEditor(draft){
 // leaving only the ones who need it resent selected by default.
 async function loadScheduleIntoEditor(schedule){
   bcEditingDraftId = null; // this is a resend, not an existing draft — Save As Draft here creates a new one
+  bcResendingFromScheduleId = schedule.scheduleId; // annotated back once this resend actually completes
   el('bcEditingDraftBanner').style.display = 'none';
   el('bcSaveDraftBtn').textContent = 'SAVE AS DRAFT';
 
@@ -5212,6 +5215,7 @@ async function loadScheduleIntoEditor(schedule){
 
 function resetComposeToNewMessage(){
   bcEditingDraftId = null;
+  bcResendingFromScheduleId = null;
   el('bcEditingDraftBanner').style.display = 'none';
   el('bcSaveDraftBtn').textContent = 'SAVE AS DRAFT';
   el('broadcastSubject').value = '';
@@ -5764,6 +5768,21 @@ async function runBroadcastSend(recipients, subject, body, useTemplate, resumeFr
       } else {
         showStatus('broadcastStatus', totalFailed > 0 ? 'error' : 'success', msg);
         bcResumableSend = null; // fully accounted for — nothing left to resume
+        // If this send was an "Edit & Resend" of a previously-failed
+        // schedule, and it's now genuinely finished (not stopped, not
+        // still waiting on quota to reset), leave a note on that
+        // ORIGINAL row saying these recipients were successfully
+        // followed up on — without touching its original sent/failed
+        // counts, which stay as an accurate record of that attempt.
+        if (bcResendingFromScheduleId){
+          callBackend({
+            action: 'annotateResendOnSchedule',
+            scheduleId: bcResendingFromScheduleId,
+            sentCount: totalSent,
+            failedCount: totalFailed
+          }).catch(e => { /* annotation failing shouldn't surface as if the resend itself failed */ });
+          bcResendingFromScheduleId = null; // one-time annotation per resend
+        }
       }
     }
   }catch(err){
@@ -5801,6 +5820,10 @@ async function runBroadcastSend(recipients, subject, body, useTemplate, resumeFr
     // Sending consumes the same quota the box up top is showing — refresh
     // it now so the number doesn't sit stale for the rest of the session.
     updateQuotaBox();
+    // Picks up the resend annotation on the original schedule row (if
+    // this send was one), so it's visible immediately without the
+    // advisor having to manually hit refresh on that list separately.
+    if (typeof refreshScheduledBroadcastsList === 'function') refreshScheduledBroadcastsList();
   }
 }
 
