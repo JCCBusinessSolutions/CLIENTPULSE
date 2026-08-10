@@ -1050,6 +1050,7 @@ function doPost(e){
   if (body.action === 'scheduleBroadcast')      { try{ return jsonResponse(scheduleBroadcast(body.scheduledFor, body.payload)); }catch(err){ return jsonResponse({ success: false, error: toEnglishErrorMessage(err.message) }); } }
   if (body.action === 'cancelScheduledBroadcast') { try{ return jsonResponse(cancelScheduledBroadcast(body.scheduleId)); }catch(err){ return jsonResponse({ success: false, error: toEnglishErrorMessage(err.message) }); } }
   if (body.action === 'deleteCompletedBroadcast') { try{ return jsonResponse(deleteCompletedBroadcast(body.scheduleId)); }catch(err){ return jsonResponse({ success: false, error: toEnglishErrorMessage(err.message) }); } }
+  if (body.action === 'annotateResendOnSchedule') { try{ return jsonResponse(annotateResendOnSchedule(body.scheduleId, body.sentCount, body.failedCount)); }catch(err){ return jsonResponse({ success: false, error: toEnglishErrorMessage(err.message) }); } }
   if (body.action === 'getScheduledBroadcasts') { try{ return jsonResponse({ schedules: getScheduledBroadcasts() }); }catch(err){ return jsonResponse({ success: false, error: toEnglishErrorMessage(err.message) }); } }
   if (body.action === 'saveDraft')              { try{ return jsonResponse(saveDraft(body.draftId, body.payload)); }catch(err){ return jsonResponse({ success: false, error: toEnglishErrorMessage(err.message) }); } }
   if (body.action === 'getDrafts')              { try{ return jsonResponse({ drafts: getDrafts() }); }catch(err){ return jsonResponse({ success: false, error: toEnglishErrorMessage(err.message) }); } }
@@ -1267,6 +1268,14 @@ function sendDailyReminders(){
   advanceTargetDate.setDate(advanceTargetDate.getDate() + advanceDays);
   const advanceTargetStr = Utilities.formatDate(advanceTargetDate, tz, 'yyyy-MM-dd');
 
+  // Permanent run log — every automatic (or manual) run leaves a record
+  // in Executions of exactly what it saw and did, instead of only being
+  // reconstructable after the fact via a separate diagnostic. Cheap to
+  // leave in permanently (Logger.log has generous quotas), and the only
+  // way to actually catch a future one-off miss red-handed if it recurs.
+  let matchedCount = 0, skippedAlreadySent = 0, sentCount = 0, failedCount = 0;
+  Logger.log('[sendDailyReminders] START — today=' + todayStr + ' advanceDays=' + advanceDays + ' advanceTarget=' + advanceTargetStr + ' totalRows=' + (data.length - 1));
+
   for (let i = 1; i < data.length; i++){
     const row = data[i];
     const sendDues = row[col('Send Dues?')];
@@ -1290,15 +1299,35 @@ function sendDailyReminders(){
     else if (dueDateStr === todayStr) daysAhead = 0;
     else continue; // neither touchpoint applies today for this policy
 
+    matchedCount++;
+    const policyNumber = row[col('Policy Number')];
     const lastSentStr = normalizeDateCellToYmd(row[col('Last Reminder Sent')], tz);
-    if (lastSentStr === todayStr) continue; // guards against the trigger firing twice same day
+    if (lastSentStr === todayStr){
+      // guards against the trigger firing twice same day
+      skippedAlreadySent++;
+      Logger.log('[sendDailyReminders] SKIP (already sent today) — policy=' + policyNumber + ' daysAhead=' + daysAhead + ' lastSent=' + lastSentStr);
+      continue;
+    }
 
     let sent = false;
     try{ sent = sendReminderEmail(row, col, daysAhead); }
-    catch(err){ bumpDailyStat('STAT_FAILED'); continue; }
+    catch(err){
+      failedCount++;
+      // Previously this error was swallowed entirely — only a counter
+      // incremented, with no record anywhere of WHAT actually went
+      // wrong for this specific row. Logging the real message here is
+      // what will make an intermittent failure like today's visible
+      // and diagnosable the next time it happens, instead of leaving
+      // only a "0 failed" stat that doesn't match reality.
+      Logger.log('[sendDailyReminders] ERROR — policy=' + policyNumber + ' daysAhead=' + daysAhead + ' error=' + (err && err.message ? err.message : String(err)));
+      bumpDailyStat('STAT_FAILED');
+      continue;
+    }
     if (sent){
+      sentCount++;
       bumpDailyStat('STAT_SENT');
       sheet.getRange(i + 1, col('Last Reminder Sent') + 1).setValue(todayStr);
+      Logger.log('[sendDailyReminders] SENT — policy=' + policyNumber + ' daysAhead=' + daysAhead);
       // Cycling the due date forward to the next billing period only
       // makes sense once the policy has actually reached its due date —
       // the advance reminder (daysAhead > 0) is just a heads-up and must
@@ -1306,8 +1335,12 @@ function sendDailyReminders(){
       if (daysAhead === 0){
         advanceDueDate(sheet, i + 1, col, dueDate, row[col('Premium Mode')]);
       }
+    } else {
+      Logger.log('[sendDailyReminders] NOT SENT (sendReminderEmail returned false, no email on file?) — policy=' + policyNumber + ' daysAhead=' + daysAhead);
     }
   }
+
+  Logger.log('[sendDailyReminders] END — matched=' + matchedCount + ' sent=' + sentCount + ' failed=' + failedCount + ' skippedAlreadySent=' + skippedAlreadySent);
 }
 
 // daysAhead: 0 = due today, 1+ = that many days before the due date.
@@ -2137,8 +2170,12 @@ function sendBroadcastEmailBatch(rows, subject, htmlBody, attachments, useTempla
       // batch — unlike a bad email address or an isolated failure,
       // every subsequent send would fail for the exact same reason
       // until the quota resets, which the daily limit does NOT do
-      // mid-batch.
-      if (/quota|invoked too many times|masyadong madaming beses.*araw/i.test(err.message || '')){
+      // mid-batch. Checked against the RAW message (not the translated
+      // one) since this only needs to detect the pattern, not display
+      // it — but that raw message's language depends on the deploying
+      // Google account's locale, which can be Chinese (調用次數過多 =
+      // "too many invocations") just as easily as English or Tagalog.
+      if (/quota|invoked too many times|masyadong madaming beses.*araw|調用次數過多|调用次数过多/i.test(err.message || '')){
         quotaExhausted = true;
       }
     }
@@ -2519,6 +2556,36 @@ function deleteCompletedBroadcast(scheduleId){
   return { success: false, error: 'Broadcast not found.' };
 }
 
+// Called after an "Edit & Resend" completes — leaves a note on the
+// ORIGINAL broadcast row saying the failed recipients were successfully
+// resent, without touching its original SentCount/FailedCount. Those
+// numbers stay exactly as they were as an accurate historical record of
+// that specific attempt; this just appends context so a glance at
+// Completed Broadcasts doesn't wrongly suggest 21 people never actually
+// got the message, when the Broadcast Log shows they did (just via a
+// second, separate send rather than a correction to the first).
+function annotateResendOnSchedule(scheduleId, resendSentCount, resendFailedCount){
+  const sheet = setupScheduleSheet();
+  const data = sheet.getDataRange().getValues();
+  const headers = data[0];
+  const col = name => headers.indexOf(name);
+
+  for (let i = 1; i < data.length; i++){
+    if (String(data[i][col('Schedule ID')]) === String(scheduleId)){
+      const tz = Session.getScriptTimeZone();
+      const todayStr = Utilities.formatDate(new Date(), tz, 'MMMM d, yyyy');
+      const note = 'Resent on ' + todayStr + ' via Edit & Resend \u2014 ' + resendSentCount + ' sent' +
+        (resendFailedCount > 0 ? ', ' + resendFailedCount + ' still failed' : '') +
+        ' (see Broadcast Log for exact recipients).';
+      const existingError = String(data[i][col('Error')] || '');
+      const newError = existingError ? existingError + ' | ' + note : note;
+      sheet.getRange(i + 1, col('Error') + 1).setValue(newError);
+      return { success: true };
+    }
+  }
+  return { success: false, error: 'Original schedule not found (it may have been deleted).' };
+}
+
 /* ============================================================
    BROADCAST DRAFTS — lets an advisor save a message (subject,
    body, recipients, attachments, template flag) without sending
@@ -2616,7 +2683,7 @@ function toEnglishErrorMessage(rawMessage){
       english: 'Invalid email address.' },
 
     // ── Daily quota / sending limit ─────────────────────────────────────
-    { match: /quota|limitasyon.*araw|daily.*limit|invoked too many times|masyadong madaming beses.*araw|naabot.*limitasyon|Service.*invoked.*many/i,
+    { match: /quota|limitasyon.*araw|daily.*limit|invoked too many times|masyadong madaming beses.*araw|naabot.*limitasyon|Service.*invoked.*many|調用次數過多|调用次数过多|單日.*過多|单日.*过多/i,
       english: 'Daily sending limit reached for this Google account (personal Gmail accounts get 100 emails/day; Google Workspace accounts get up to 1,500/day) — try again after the quota resets, or send the rest tomorrow.' },
 
     // ── Rate limiting ───────────────────────────────────────────────────
@@ -2727,4 +2794,65 @@ function checkEmailQuota() {
   const remaining = MailApp.getRemainingDailyQuota();
 
   Logger.log("Remaining recipient quota today: " + remaining);
+}
+// TEMPORARY DIAGNOSTIC — paste this into Code.gs, run it directly from
+// the Apps Script editor (select this function in the dropdown, click
+// Run), then check View -> Logs (or the Execution log) for the output.
+// Shows exactly what sendDailyReminders() sees for a specific policy —
+// the raw Due Date cell, its computed date string, today's advance
+// target string, and whether they actually match — so we can see the
+// real values instead of guessing. Safe to delete after we're done.
+function diagnoseAdvanceDayMatch(){
+  const policyNumbersToCheck = ['0817593993', '0850328560']; // Lobo, Villena
+
+  const sheet = getSpreadsheet().getSheetByName(SHEET_NAME);
+  const data = sheet.getDataRange().getValues();
+  const headers = data[0];
+  const col = name => headers.indexOf(name);
+  const tz = Session.getScriptTimeZone();
+  const todayStr = Utilities.formatDate(new Date(), tz, 'yyyy-MM-dd');
+
+  const advanceDays = getAdvanceDays().advanceDays;
+  const advanceTargetDate = new Date();
+  advanceTargetDate.setDate(advanceTargetDate.getDate() + advanceDays);
+  const advanceTargetStr = Utilities.formatDate(advanceTargetDate, tz, 'yyyy-MM-dd');
+
+  Logger.log('=== DIAGNOSTIC ===');
+  Logger.log('Today: ' + todayStr + ' | Advance Days setting: ' + advanceDays + ' | Advance target date: ' + advanceTargetStr);
+  Logger.log('');
+
+  let foundAny = false;
+  for (let i = 1; i < data.length; i++){
+    const row = data[i];
+    const policyNumber = String(row[col('Policy Number')] || '').trim();
+    if (!policyNumbersToCheck.includes(policyNumber)) continue;
+    foundAny = true;
+
+    const sendDues = row[col('Send Dues?')];
+    const policyStatus = row[col('Policy Status')];
+    const dueDateRaw = row[col('Due Date')];
+    const lastReminderRaw = row[col('Last Reminder Sent')];
+
+    Logger.log('--- Policy ' + policyNumber + ' (row ' + (i + 1) + ') ---');
+    Logger.log('Client Name: ' + row[col('Client Name')]);
+    Logger.log('Send Dues? raw value: ' + JSON.stringify(sendDues) + ' (type: ' + typeof sendDues + ')');
+    Logger.log('Policy Status: ' + JSON.stringify(policyStatus));
+    Logger.log('isLapsedStatus() result: ' + isLapsedStatus(policyStatus));
+    Logger.log('Due Date raw value: ' + JSON.stringify(dueDateRaw) + ' (type: ' + typeof dueDateRaw + ', instanceof Date: ' + (dueDateRaw instanceof Date) + ')');
+    if (dueDateRaw instanceof Date){
+      const dueDateStr = Utilities.formatDate(dueDateRaw, tz, 'yyyy-MM-dd');
+      Logger.log('Due Date formatted: ' + dueDateStr);
+      Logger.log('Matches advance target (' + advanceTargetStr + ')? ' + (dueDateStr === advanceTargetStr));
+      Logger.log('Matches today (' + todayStr + ')? ' + (dueDateStr === todayStr));
+    }
+    Logger.log('Last Reminder Sent raw value: ' + JSON.stringify(lastReminderRaw));
+    Logger.log('Last Reminder Sent normalized: ' + normalizeDateCellToYmd(lastReminderRaw, tz));
+    Logger.log('Already sent today? ' + (normalizeDateCellToYmd(lastReminderRaw, tz) === todayStr));
+    Logger.log('');
+  }
+
+  if (!foundAny){
+    Logger.log('NONE of the specified policy numbers were found in the sheet at all — check for typos or extra whitespace in the Policy Number column.');
+  }
+  Logger.log('=== END DIAGNOSTIC ===');
 }
