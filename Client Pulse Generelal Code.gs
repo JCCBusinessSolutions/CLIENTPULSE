@@ -899,6 +899,7 @@ function doGet(e){
     }catch(err){ return jsonResponse({ success: false, error: toEnglishErrorMessage(err.message) }); }
   }
   if (action === 'getDailyStats')             return jsonResponse(getDailyStats());
+  if (action === 'getLastReminderRunLog')     return jsonResponse(getLastReminderRunLog());
   if (action === 'getAdvisorProfile')         return jsonResponse(getAdvisorProfile());
   if (action === 'getProfileImagePreview')    return jsonResponse(getProfileImagePreviewData());
   if (action === 'getAutoSendStatus')         return jsonResponse(getAutoSendStatus());
@@ -1247,100 +1248,173 @@ function getDailyStats(){
 }
 
 function sendDailyReminders(){
-  if (!getAutoSendStatus().enabled) return;
-  if (!isAdvisorActive()) return; // hard stop: past the inactivity deadline
-  const sheet = getSpreadsheet().getSheetByName(SHEET_NAME);
-  if (!sheet) return;
-  const data = sheet.getDataRange().getValues();
-  const headers = data[0];
-  const col = name => headers.indexOf(name);
-  const tz = Session.getScriptTimeZone();
-  const todayStr = Utilities.formatDate(new Date(), tz, 'yyyy-MM-dd');
-
-  // Sends exactly TWO reminders per policy — one early heads-up on the
-  // single day that's exactly advanceDays before the due date, and one
-  // more on the actual due date itself. Nothing in between: a policy due
-  // in 3 days with advanceDays=3 gets one email today (daysAhead=3) and
-  // stays silent until the due date itself, when it gets the second and
-  // final email (daysAhead=0) — no daily countdown.
-  const advanceDays = getAdvanceDays().advanceDays;
-  const advanceTargetDate = new Date();
-  advanceTargetDate.setDate(advanceTargetDate.getDate() + advanceDays);
-  const advanceTargetStr = Utilities.formatDate(advanceTargetDate, tz, 'yyyy-MM-dd');
-
-  // Permanent run log — every automatic (or manual) run leaves a record
-  // in Executions of exactly what it saw and did, instead of only being
-  // reconstructable after the fact via a separate diagnostic. Cheap to
-  // leave in permanently (Logger.log has generous quotas), and the only
-  // way to actually catch a future one-off miss red-handed if it recurs.
+  // Two real gaps fixed here, not just more visibility:
+  // 1. The log write was only ever called at specific points inside the
+  //    function — if ANYTHING threw an uncaught error anywhere else
+  //    (e.g. the sheet write below, or advanceDueDate()), the whole
+  //    function would crash and the log would never get saved at all,
+  //    even though some rows may have already sent successfully before
+  //    the crash. Wrapping the entire body in try/finally guarantees
+  //    the log is written no matter what happens or where it happens.
+  // 2. Each row's post-send work (writing Last Reminder Sent, advancing
+  //    the due date) is now its OWN try/catch — previously an error
+  //    there would crash the entire loop, silently ending the run and
+  //    leaving every row positioned after it in the sheet completely
+  //    unprocessed, with no record of why. Isolating it means one bad
+  //    row can never take down everyone who comes after it.
+  const runLog = [];
   let matchedCount = 0, skippedAlreadySent = 0, sentCount = 0, failedCount = 0;
-  Logger.log('[sendDailyReminders] START — today=' + todayStr + ' advanceDays=' + advanceDays + ' advanceTarget=' + advanceTargetStr + ' totalRows=' + (data.length - 1));
 
-  for (let i = 1; i < data.length; i++){
-    const row = data[i];
-    const sendDues = row[col('Send Dues?')];
-    if (sendDues === false || sendDues === 'FALSE' || sendDues === 0 || sendDues === '0') continue;
-    // Second layer of defense: the frontend now nulls Due Date for
-    // lapsed rows before pushing, but this check protects against a
-    // lapsed policy ever getting a due-date reminder even if it slips
-    // through with a real Due Date some other way (a manual sheet edit,
-    // a future upload-path change, etc.) — same isLapsedStatus() guard
-    // the Policy Anniversary Greeter already uses for the same reason.
-    if (isLapsedStatus(row[col('Policy Status')])) continue;
-    const dueDate = row[col('Due Date')];
-    if (!(dueDate instanceof Date)) continue;
-    const dueDateStr = Utilities.formatDate(dueDate, tz, 'yyyy-MM-dd');
+  try{
+    if (!getAutoSendStatus().enabled){ runLog.push('EXIT: auto-send is OFF'); return; }
+    if (!isAdvisorActive()){ runLog.push('EXIT: advisor inactive (hard-stop)'); return; }
+    const sheet = getSpreadsheet().getSheetByName(SHEET_NAME);
+    if (!sheet){ runLog.push('EXIT: Dues Tracker sheet not found'); return; }
+    const data = sheet.getDataRange().getValues();
+    const headers = data[0];
+    const col = name => headers.indexOf(name);
+    const tz = Session.getScriptTimeZone();
+    const todayStr = Utilities.formatDate(new Date(), tz, 'yyyy-MM-dd');
 
-    // advanceDays is always >=1 (clamped in setAdvanceDays), so these two
-    // target dates can never collide — a policy is never matched by both
-    // conditions on the same day.
-    let daysAhead;
-    if (dueDateStr === advanceTargetStr) daysAhead = advanceDays;
-    else if (dueDateStr === todayStr) daysAhead = 0;
-    else continue; // neither touchpoint applies today for this policy
+    // Sends exactly TWO reminders per policy — one early heads-up on the
+    // single day that's exactly advanceDays before the due date, and one
+    // more on the actual due date itself. Nothing in between: a policy due
+    // in 3 days with advanceDays=3 gets one email today (daysAhead=3) and
+    // stays silent until the due date itself, when it gets the second and
+    // final email (daysAhead=0) — no daily countdown.
+    const advanceDays = getAdvanceDays().advanceDays;
+    const advanceTargetDate = new Date();
+    advanceTargetDate.setDate(advanceTargetDate.getDate() + advanceDays);
+    const advanceTargetStr = Utilities.formatDate(advanceTargetDate, tz, 'yyyy-MM-dd');
 
-    matchedCount++;
-    const policyNumber = row[col('Policy Number')];
-    const lastSentStr = normalizeDateCellToYmd(row[col('Last Reminder Sent')], tz);
-    if (lastSentStr === todayStr){
-      // guards against the trigger firing twice same day
-      skippedAlreadySent++;
-      Logger.log('[sendDailyReminders] SKIP (already sent today) — policy=' + policyNumber + ' daysAhead=' + daysAhead + ' lastSent=' + lastSentStr);
-      continue;
-    }
+    const startMsg = 'START — today=' + todayStr + ' advanceDays=' + advanceDays + ' advanceTarget=' + advanceTargetStr + ' totalRows=' + (data.length - 1);
+    Logger.log('[sendDailyReminders] ' + startMsg);
+    runLog.push(startMsg);
 
-    let sent = false;
-    try{ sent = sendReminderEmail(row, col, daysAhead); }
-    catch(err){
-      failedCount++;
-      // Previously this error was swallowed entirely — only a counter
-      // incremented, with no record anywhere of WHAT actually went
-      // wrong for this specific row. Logging the real message here is
-      // what will make an intermittent failure like today's visible
-      // and diagnosable the next time it happens, instead of leaving
-      // only a "0 failed" stat that doesn't match reality.
-      Logger.log('[sendDailyReminders] ERROR — policy=' + policyNumber + ' daysAhead=' + daysAhead + ' error=' + (err && err.message ? err.message : String(err)));
-      bumpDailyStat('STAT_FAILED');
-      continue;
-    }
-    if (sent){
-      sentCount++;
-      bumpDailyStat('STAT_SENT');
-      sheet.getRange(i + 1, col('Last Reminder Sent') + 1).setValue(todayStr);
-      Logger.log('[sendDailyReminders] SENT — policy=' + policyNumber + ' daysAhead=' + daysAhead);
-      // Cycling the due date forward to the next billing period only
-      // makes sense once the policy has actually reached its due date —
-      // the advance reminder (daysAhead > 0) is just a heads-up and must
-      // never move the due date early.
-      if (daysAhead === 0){
-        advanceDueDate(sheet, i + 1, col, dueDate, row[col('Premium Mode')]);
+    for (let i = 1; i < data.length; i++){
+      const row = data[i];
+      const sendDues = row[col('Send Dues?')];
+      if (sendDues === false || sendDues === 'FALSE' || sendDues === 0 || sendDues === '0') continue;
+      // Second layer of defense: the frontend now nulls Due Date for
+      // lapsed rows before pushing, but this check protects against a
+      // lapsed policy ever getting a due-date reminder even if it slips
+      // through with a real Due Date some other way (a manual sheet edit,
+      // a future upload-path change, etc.) — same isLapsedStatus() guard
+      // the Policy Anniversary Greeter already uses for the same reason.
+      if (isLapsedStatus(row[col('Policy Status')])) continue;
+      const dueDate = row[col('Due Date')];
+      if (!(dueDate instanceof Date)) continue;
+      const dueDateStr = Utilities.formatDate(dueDate, tz, 'yyyy-MM-dd');
+
+      // advanceDays is always >=1 (clamped in setAdvanceDays), so these
+      // two target dates can never collide — a policy is never matched
+      // by both conditions on the same day.
+      let daysAhead;
+      if (dueDateStr === advanceTargetStr) daysAhead = advanceDays;
+      else if (dueDateStr === todayStr) daysAhead = 0;
+      else continue; // neither touchpoint applies today for this policy
+
+      matchedCount++;
+      const policyNumber = row[col('Policy Number')];
+      const lastSentStr = normalizeDateCellToYmd(row[col('Last Reminder Sent')], tz);
+      if (lastSentStr === todayStr){
+        // guards against the trigger firing twice same day
+        skippedAlreadySent++;
+        const msg = 'SKIP (already sent today) — policy=' + policyNumber + ' daysAhead=' + daysAhead + ' lastSent=' + lastSentStr;
+        Logger.log('[sendDailyReminders] ' + msg);
+        runLog.push(msg);
+        continue;
       }
-    } else {
-      Logger.log('[sendDailyReminders] NOT SENT (sendReminderEmail returned false, no email on file?) — policy=' + policyNumber + ' daysAhead=' + daysAhead);
-    }
-  }
 
-  Logger.log('[sendDailyReminders] END — matched=' + matchedCount + ' sent=' + sentCount + ' failed=' + failedCount + ' skippedAlreadySent=' + skippedAlreadySent);
+      // Everything for this one row — the send itself, marking it sent,
+      // and advancing its due date — is now inside a single try/catch,
+      // so a failure at ANY step here only affects this one row and
+      // logs exactly what broke, instead of silently ending the entire
+      // run and leaving every subsequent row unprocessed.
+      try{
+        const sent = sendReminderEmail(row, col, daysAhead);
+        if (sent){
+          sentCount++;
+          bumpDailyStat('STAT_SENT');
+          sheet.getRange(i + 1, col('Last Reminder Sent') + 1).setValue(todayStr);
+          const msg = 'SENT — policy=' + policyNumber + ' daysAhead=' + daysAhead;
+          Logger.log('[sendDailyReminders] ' + msg);
+          runLog.push(msg);
+          // Cycling the due date forward to the next billing period only
+          // makes sense once the policy has actually reached its due
+          // date — the advance reminder (daysAhead > 0) is just a
+          // heads-up and must never move the due date early.
+          if (daysAhead === 0){
+            advanceDueDate(sheet, i + 1, col, dueDate, row[col('Premium Mode')]);
+          }
+        } else {
+          const msg = 'NOT SENT (sendReminderEmail returned false, no email on file?) — policy=' + policyNumber + ' daysAhead=' + daysAhead;
+          Logger.log('[sendDailyReminders] ' + msg);
+          runLog.push(msg);
+        }
+      }catch(err){
+        failedCount++;
+        // Previously this class of error was either swallowed with only
+        // a counter bump, or — worse, for errors outside the narrow
+        // original try/catch — could crash the entire remaining loop.
+        // Now it's fully contained to this one row and fully logged.
+        const msg = 'ERROR — policy=' + policyNumber + ' daysAhead=' + daysAhead + ' error=' + (err && err.message ? err.message : String(err));
+        Logger.log('[sendDailyReminders] ' + msg);
+        runLog.push(msg);
+        bumpDailyStat('STAT_FAILED');
+      }
+    }
+
+    const endMsg = 'END — matched=' + matchedCount + ' sent=' + sentCount + ' failed=' + failedCount + ' skippedAlreadySent=' + skippedAlreadySent;
+    Logger.log('[sendDailyReminders] ' + endMsg);
+    runLog.push(endMsg);
+
+  }catch(err){
+    // Catches anything unexpected outside the per-row protection above
+    // (e.g. a problem reading the sheet itself, or in getAdvanceDays())
+    // — still guarantees a log entry instead of a silent, traceless crash.
+    const msg = 'FATAL ERROR — run did not complete: ' + (err && err.message ? err.message : String(err));
+    Logger.log('[sendDailyReminders] ' + msg);
+    runLog.push(msg);
+  }finally{
+    saveReminderRunLog(runLog);
+  }
+}
+
+// Persists the run log to Script Properties (survives regardless of
+// whether Cloud Logs captured this particular run), capped well under
+// the 9KB-per-property limit by keeping only the most recent lines if
+// an unusually large day's run would otherwise overflow it.
+function saveReminderRunLog(runLog){
+  try{
+    const tz = Session.getScriptTimeZone();
+    const timestamp = Utilities.formatDate(new Date(), tz, "yyyy-MM-dd'T'HH:mm:ss");
+    let entries = runLog;
+    // Rough safety margin: each line averages well under 200 bytes, so
+    // 40 lines keeps this comfortably inside the property size limit
+    // even for a verbose run — keeping the START/END summary lines plus
+    // the most recent detail lines if trimming is ever needed.
+    if (entries.length > 40){
+      entries = [entries[0]].concat(entries.slice(-39));
+    }
+    PropertiesService.getScriptProperties().setProperty('LAST_REMINDER_RUN_LOG', JSON.stringify({ timestamp: timestamp, entries: entries }));
+  }catch(e){
+    // Logging failing should never surface as if the actual send run failed.
+  }
+}
+
+// Retrieves whatever sendDailyReminders() last recorded — the one
+// reliable way to see what an AUTOMATIC (time-driven trigger) run
+// actually did, since Cloud Logs have repeatedly not been available
+// for those specifically, only for manual runs from the editor.
+function getLastReminderRunLog(){
+  const raw = PropertiesService.getScriptProperties().getProperty('LAST_REMINDER_RUN_LOG');
+  if (!raw) return { timestamp: null, entries: [] };
+  try{
+    return JSON.parse(raw);
+  }catch(e){
+    return { timestamp: null, entries: [] };
+  }
 }
 
 // daysAhead: 0 = due today, 1+ = that many days before the due date.
