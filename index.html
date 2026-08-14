@@ -7426,6 +7426,23 @@ async function fetchAccessList() {
   }
 }
 
+// Lightweight replacement for fetchAccessList() + a manual liveAccessList
+// lookup — hits the new cache-backed checksession endpoint instead of
+// downloading every buyer's row just to check ONE person's session.
+// Used both to restore an existing session on app open and by the
+// 30-second polling watch, both of which previously re-fetched the
+// entire buyer list on every single check.
+async function checkSessionFast(email, token) {
+  try {
+    const url = CLIENT_PULSE_SHEET_API + '?action=checksession&email=' + encodeURIComponent(email) + '&token=' + encodeURIComponent(token);
+    const res = await fetch(url);
+    const data = await res.json();
+    return !!(data && data.valid);
+  } catch (e) {
+    return null; // network failure — caller decides how to treat "unknown" vs "definitely invalid"
+  }
+}
+
 function isPaidEmail(email) {
   const emailLower = String(email).trim().toLowerCase();
   if (liveAccessList.some(row => row.email === emailLower && row.status === 'PAID')) {
@@ -7444,21 +7461,32 @@ function isValidEmail(email) {
 // Check if user is already logged in (sessionStorage) AND that session
 // is still the current one on the server — handles the case where the
 // account was logged into elsewhere while this tab/device was closed.
-function checkAuth() {
+// Previously this depended on liveAccessList already being fully
+// loaded (the entire buyer list) before it could decide anything —
+// now it's a single cached lookup for just this one email, so the app
+// doesn't have to wait on everyone else's data just to restore this
+// one person's session.
+async function checkAuthFast() {
   const storedEmail = sessionStorage.getItem('clientPulseAuth');
   const storedToken = sessionStorage.getItem('clientPulseSessionToken');
   if (storedEmail && isValidEmail(storedEmail) && storedToken) {
-    const row = liveAccessList.find(r => r.email === storedEmail);
-    if (row && row.sessionToken === storedToken) {
+    const valid = await checkSessionFast(storedEmail, storedToken);
+    if (valid === true) {
       currentEmail = storedEmail;
       currentSessionToken = storedToken;
       hideGate();
       startSessionWatch();
       return true;
     }
-    // Stale or superseded session — clear it and fall through to the gate
-    sessionStorage.removeItem('clientPulseAuth');
-    sessionStorage.removeItem('clientPulseSessionToken');
+    if (valid === false) {
+      // Definitively stale or superseded — clear it and fall through to the gate.
+      sessionStorage.removeItem('clientPulseAuth');
+      sessionStorage.removeItem('clientPulseSessionToken');
+    }
+    // valid === null (network failure): deliberately leaves the stored
+    // session untouched rather than logging someone out over a
+    // transient connection blip — the next 30-second poll will get
+    // another chance to confirm one way or the other.
   }
   return false;
 }
@@ -7551,11 +7579,13 @@ async function accessGate() {
     return;
   }
 
-  if (!isPaidEmail(email)) {
-    emailError.textContent = 'This email does not have access. Please check and try again.';
-    return;
-  }
-
+  // The isPaidEmail() pre-check that used to live here has been removed —
+  // it depended on the full buyer list already being loaded client-side
+  // (a real cost on every app open) purely to show the exact same "This
+  // email does not have access" message the backend's DENIED response
+  // already produces below. The backend is the actual authority on this
+  // either way, so this was a redundant local check adding a dependency
+  // without adding any real coverage.
   const btn = document.getElementById('accessBtn');
   btn.disabled = true;
   btn.textContent = 'CHECKING...';
@@ -7745,15 +7775,16 @@ function startSessionWatch() {
 
 async function checkSessionStillValid() {
   if (!currentEmail) return;
-  try {
-    await fetchAccessList();
-    const row = liveAccessList.find(r => r.email === currentEmail);
-    if (!row || row.sessionToken !== currentSessionToken) {
-      logoutUser('You were logged out because this account was used on another device.');
-    }
-  } catch (e) {
-    // Transient network blip — don't log someone out over that
+  // This runs every 30 seconds for the entire time someone stays logged
+  // in — previously that meant re-fetching every buyer's row, forever,
+  // just to check one person's token. Now it's a single cached lookup.
+  const valid = await checkSessionFast(currentEmail, currentSessionToken);
+  if (valid === false) {
+    logoutUser('You were logged out because this account was used on another device.');
   }
+  // valid === null (network failure): deliberately does nothing, same
+  // as the original's catch block — a transient blip shouldn't log
+  // anyone out; the next poll 30 seconds later gets another chance.
 }
 
 function hideGate() {
@@ -9023,23 +9054,22 @@ function setupClientsTab(){
 (async function() {
   setupPasswordHandling();
   setupClientsTab();
-  // Only fetchAccessList actually gates what the person sees next (it's
-  // the access-control check the login gate itself depends on) — dues
-  // and birthday client data are NOT needed to show the gate or the
-  // dashboard shell, so blocking on them here was adding two full
-  // Apps Script round-trips (each 1-3+ seconds in practice) to every
-  // single app open before the person could even see the login screen,
-  // even though refreshDuesClientList/refreshBirthdayClientList already
+  // The gate/dashboard decision now runs on a single cached, single-user
+  // check (checkAuthFast) instead of downloading every buyer's row just
+  // to look up this one person — this used to be the one genuinely
+  // blocking step every app open had to wait on (previously a full
+  // Apps Script round-trip reading the whole buyer list). Dues/birthday
+  // client data still isn't needed here either way — those already
   // render cached data instantly on their own and only need their live
-  // refresh to happen at some point, not necessarily before first paint.
-  await fetchAccessList();
+  // refresh to happen at some point, not before first paint.
+  const alreadyAuthed = await checkAuthFast();
   // Fire and forget — these run in the background. Each one shows its
   // own cached data immediately (useCache=true) and updates in place
   // once the live fetch resolves, so there's nothing for the boot
   // sequence to wait on here.
   refreshDuesClientList(true);
   refreshBirthdayClientList(true);
-  if (!checkAuth()) {
+  if (!alreadyAuthed) {
     // Show gate with proper z-index and show class
     const gate = document.getElementById('gateScreen');
     gate.classList.add('show');
