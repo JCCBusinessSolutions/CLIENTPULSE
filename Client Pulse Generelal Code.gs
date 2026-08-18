@@ -29,7 +29,56 @@ function setSpreadsheetId(id){
 }
 
 const SHEET_NAME = 'Dues Tracker';
-const HEADERS = ['Policy Number','Client Name','Email','Product','Premium Mode','Premium Amount','Fund Value','Due Date','Policy Status','Last Reminder Sent','Send Dues?','Lapse Date','Issued Date','Last Anniversary Sent (Year)','Send Anniversary?'];
+const HEADERS = ['Policy Number','Client Name','Email','Product','Premium Mode','Premium Amount','Fund Value','Due Date','Policy Status','Last Reminder Sent','Send Dues?','Lapse Date','Issued Date','Last Anniversary Sent (Year)','Send Anniversary?','Advance Reminder Sent'];
+
+// ============================================================
+// TRIGGER VERSION MARKER
+// ------------------------------------------------------------
+// Bump this string every time you push an update that touches
+// sendDailyReminders, sendDailyAnniversaryGreetings,
+// dailyInactivityCheck, or watchdogEnsureTriggers — anything that
+// changes what the automatic triggers actually DO. A time-driven
+// trigger stays permanently bound to whatever deployment version was
+// active the moment it was created; simply deploying a new version
+// does NOT make existing triggers pick up the new code, only a fresh
+// trigger does. Without this marker, every buyer would need the
+// exact same manual "delete every trigger, reopen the app" cleanup
+// after every single future update, forever.
+//
+// With it: the self-heal functions below compare this value against
+// what's stored in each buyer's own Script Properties. A mismatch
+// means their triggers were built under older code, so they get
+// automatically deleted and recreated — picking up whatever's
+// current — the next time anything touches the app (or within an
+// hour via the watchdog). No manual steps needed for buyers ever
+// again after this point; you only ever touch this one line, here,
+// in the one master copy you distribute.
+// ============================================================
+const TRIGGER_CODE_VERSION = '2026-08-18-v1';
+
+// Shared by every trigger self-heal below. Deletes any existing
+// trigger(s) for the given handler function if the stored version
+// marker doesn't match TRIGGER_CODE_VERSION (stale — rebuild), or if
+// no trigger exists at all yet (first-time install). Returns true if
+// a (re)create actually happened, false if the existing trigger was
+// already current and nothing needed to change.
+function _rebuildTriggerIfStale(handlerFunctionName, createFn){
+  const props = PropertiesService.getScriptProperties();
+  const versionKey = 'TRIGGER_VERSION_' + handlerFunctionName;
+  const storedVersion = props.getProperty(versionKey);
+  const existing = ScriptApp.getProjectTriggers().filter(t => t.getHandlerFunction() === handlerFunctionName);
+
+  if (existing.length > 0 && storedVersion === TRIGGER_CODE_VERSION){
+    return false; // already current, nothing to do
+  }
+
+  // Either stale (version mismatch) or missing entirely — clear out
+  // any existing trigger(s) for this handler and build fresh.
+  existing.forEach(t => ScriptApp.deleteTrigger(t));
+  createFn();
+  props.setProperty(versionKey, TRIGGER_CODE_VERSION);
+  return true;
+}
 
 const BIRTHDAY_SHEET_NAME = 'Birthday Tracker';
 const BIRTHDAY_HEADERS = ['Full Name','Email','Contact Number','Location','Date of Birth','Last Greeting Sent (Year)','Send Birthday?'];
@@ -538,6 +587,15 @@ function setupSheet(){
         sheet.getRange(i, lastCol).setValue(true);
       }
     }
+    const headersAfterSendAnniversary = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+    if (!headersAfterSendAnniversary.includes('Advance Reminder Sent')){
+      const lastCol = sheet.getLastColumn() + 1;
+      sheet.getRange(1, lastCol).setValue('Advance Reminder Sent');
+      // Left blank for existing rows — blank means "never sent", same
+      // convention as Last Reminder Sent. Tracks the advance touchpoint
+      // completely separately from the due-today touchpoint, so neither
+      // can ever affect the other's "already sent today" check.
+    }
   }
   const policyColIndex = HEADERS.indexOf('Policy Number') + 1;
   sheet.getRange(1, policyColIndex, sheet.getMaxRows(), 1).setNumberFormat('@');
@@ -676,11 +734,31 @@ function createDailyTrigger(hour){
 // ensureAnniversaryDailyTriggerExists) — it does NOT enable auto-send
 // for anyone who hasn't already turned it on; getAutoSendStatus().enabled
 // still gates whether anything actually sends.
+//
+// LockService-protected: this runs on EVERY request now (see doGet/
+// doPost), and a single app page load fires several requests nearly
+// simultaneously. Without a lock, multiple concurrent calls could each
+// see "not installed yet" before any of them finished creating one,
+// and each go on to create their own — which is exactly what produced
+// a pile of duplicate triggers in practice. The lock fully serializes
+// the check-then-create sequence so only one can ever win.
+//
+// Also now version-aware via _rebuildTriggerIfStale — createDailyTrigger()
+// is passed in as the builder, so a version mismatch (or a missing
+// trigger) both result in a correct, fresh trigger bound to whatever
+// is currently deployed, with no manual cleanup ever needed again.
 function ensureDailyReminderTriggerExists(){
-  const alreadyInstalled = ScriptApp.getProjectTriggers()
-    .some(t => t.getHandlerFunction() === 'sendDailyReminders');
-  if (alreadyInstalled) return;
-  createDailyTrigger();
+  const lock = LockService.getScriptLock();
+  try{
+    lock.waitLock(3000);
+  }catch(e){
+    return; // couldn't get the lock in time — safe to skip this cycle, the next request (or the hourly watchdog) will try again
+  }
+  try{
+    _rebuildTriggerIfStale('sendDailyReminders', createDailyTrigger);
+  }finally{
+    lock.releaseLock();
+  }
 }
 
 function createBirthdayDailyTrigger(hour){
@@ -703,21 +781,77 @@ function createBirthdayDailyTrigger(hour){
 // keeps it cheap and lets it self-install for advisors who were
 // already using the app before this feature existed, without needing
 // them to touch Send Hour settings.
+// Same lock protection as ensureDailyReminderTriggerExists and the
+// other self-heal functions — this one runs from setupSheet() (called
+// during uploads) and was missed in the first pass, which is exactly
+// why dailyInactivityCheck showed up duplicated when the others didn't.
+// Also now version-aware via _rebuildTriggerIfStale, same as the others.
 function createInactivityPurgeTrigger(){
-  // Clean up the old direct-purge trigger from before the 5-day
-  // reminder existed, so it isn't left running alongside the new
-  // combined check.
-  ScriptApp.getProjectTriggers().forEach(t => {
-    if (t.getHandlerFunction() === 'purgeInactiveClientData') ScriptApp.deleteTrigger(t);
-  });
-  const alreadyInstalled = ScriptApp.getProjectTriggers()
-    .some(t => t.getHandlerFunction() === 'dailyInactivityCheck');
-  if (alreadyInstalled) return;
-  ScriptApp.newTrigger('dailyInactivityCheck')
-    .timeBased()
-    .everyDays(1)
-    .atHour(3)
-    .create();
+  const lock = LockService.getScriptLock();
+  try{
+    lock.waitLock(3000);
+  }catch(e){
+    return;
+  }
+  try{
+    // Clean up the old direct-purge trigger from before the 5-day
+    // reminder existed, so it isn't left running alongside the new
+    // combined check.
+    ScriptApp.getProjectTriggers().forEach(t => {
+      if (t.getHandlerFunction() === 'purgeInactiveClientData') ScriptApp.deleteTrigger(t);
+    });
+    _rebuildTriggerIfStale('dailyInactivityCheck', () => {
+      ScriptApp.newTrigger('dailyInactivityCheck')
+        .timeBased()
+        .everyDays(1)
+        .atHour(3)
+        .create();
+    });
+  }finally{
+    lock.releaseLock();
+  }
+}
+
+/* ============================================================
+   TRIGGER WATCHDOG
+   ------------------------------------------------------------
+   The self-heal in doGet/doPost (ensureDailyReminderTriggerExists,
+   ensureAnniversaryDailyTriggerExists) only ever runs when someone
+   actually interacts with the app. Real evidence (Aug 16) showed a
+   trigger genuinely missing at its scheduled morning fire time, then
+   getting self-healed later that same day once the app was opened —
+   correctly fixed for the NEXT day, but too late to catch that day's
+   window. This hourly watchdog is a second, independent layer that
+   doesn't depend on anyone opening anything: even on a day nobody
+   touches the app at all, a missing trigger gets caught and repaired
+   within an hour instead of silently persisting indefinitely.
+   ============================================================ */
+function watchdogEnsureTriggers(){
+  ensureDailyReminderTriggerExists();
+  ensureAnniversaryDailyTriggerExists();
+}
+
+// Self-installs once, same idempotent pattern as every other trigger
+// installer in this file — safe to call repeatedly, cheap no-op once
+// the watchdog itself already exists and is current. Same lock
+// protection and version-awareness as the others.
+function ensureWatchdogTriggerExists(){
+  const lock = LockService.getScriptLock();
+  try{
+    lock.waitLock(3000);
+  }catch(e){
+    return;
+  }
+  try{
+    _rebuildTriggerIfStale('watchdogEnsureTriggers', () => {
+      ScriptApp.newTrigger('watchdogEnsureTriggers')
+        .timeBased()
+        .everyHours(1)
+        .create();
+    });
+  }finally{
+    lock.releaseLock();
+  }
 }
 
 /* ============================================================
@@ -760,6 +894,7 @@ function getDuesClientList(){
     const lapseDateRaw = lapseDateCol !== -1 ? row[lapseDateCol] : null;
     const issuedDateCol = col('Issued Date');
     const issuedDateRaw = issuedDateCol !== -1 ? row[issuedDateCol] : null;
+    const advanceReminderCol = col('Advance Reminder Sent');
     result.push({
       policyNumber: policyNum,
       clientName: row[col('Client Name')],
@@ -772,7 +907,9 @@ function getDuesClientList(){
       lapseDate: lapseDateRaw instanceof Date ? Utilities.formatDate(lapseDateRaw, Session.getScriptTimeZone(), 'yyyy-MM-dd') : '',
       issuedDate: issuedDateRaw instanceof Date ? Utilities.formatDate(issuedDateRaw, Session.getScriptTimeZone(), 'yyyy-MM-dd') : '',
       policyStatus: row[col('Policy Status')],
-      sendDues: row[col('Send Dues?')] === true || row[col('Send Dues?')] === 'TRUE' || row[col('Send Dues?')] === 1 || row[col('Send Dues?')] === '1'
+      sendDues: row[col('Send Dues?')] === true || row[col('Send Dues?')] === 'TRUE' || row[col('Send Dues?')] === 1 || row[col('Send Dues?')] === '1',
+      lastReminderSent: normalizeDateCellToYmd(row[col('Last Reminder Sent')], Session.getScriptTimeZone()),
+      advanceReminderSent: advanceReminderCol !== -1 ? normalizeDateCellToYmd(row[advanceReminderCol], Session.getScriptTimeZone()) : ''
     });
   }
   return result;
@@ -847,6 +984,18 @@ function doGet(e){
   if (!PropertiesService.getScriptProperties().getProperty('SPREADSHEET_ID')){
     return jsonResponse({ error: 'SHEET_NOT_CONFIGURED', message: 'Run ?action=setSpreadsheetId&id=YOUR_SHEET_ID first.' });
   }
+  // Self-heals the dues + anniversary triggers on EVERY single request,
+  // not just ones that happen to call setupSheet() — previously a
+  // missing/silently-deleted trigger could sit broken for days until
+  // something specific (like an upload) happened to touch it. This has
+  // been the recurring root cause behind several days of "advance
+  // reminders didn't fire" investigations, none of which ever found a
+  // logic bug — because the trigger simply wasn't there to run. This
+  // check is cheap (just enumerating triggers, no Sheet access), so
+  // running it unconditionally here is worth the guarantee.
+  ensureDailyReminderTriggerExists();
+  ensureAnniversaryDailyTriggerExists();
+  ensureWatchdogTriggerExists(); // second, independent layer — catches a missing trigger within an hour even on a day nobody opens the app
   if (!ACTIONS_EXEMPT_FROM_HARD_STOP.includes(action) && !isAdvisorActive()){
     return jsonResponse(Object.assign({ error: 'ADVISOR_INACTIVE' }, getAdvisorActiveStatus()));
   }
@@ -900,6 +1049,7 @@ function doGet(e){
   }
   if (action === 'getDailyStats')             return jsonResponse(getDailyStats());
   if (action === 'getLastReminderRunLog')     return jsonResponse(getLastReminderRunLog());
+  if (action === 'getLastAnniversaryRunLog')  return jsonResponse(getLastAnniversaryRunLog());
   if (action === 'getAdvisorProfile')         return jsonResponse(getAdvisorProfile());
   if (action === 'getProfileImagePreview')    return jsonResponse(getProfileImagePreviewData());
   if (action === 'getAutoSendStatus')         return jsonResponse(getAutoSendStatus());
@@ -980,11 +1130,23 @@ function getDueTodayRows(){
   for (let i = 1; i < data.length; i++){
     const row = data[i];
     const dueDate = row[col('Due Date')];
-    const lastSentStr = normalizeDateCellToYmd(row[col('Last Reminder Sent')], tz);
-    const wasSentToday = lastSentStr === todayStr;
     const dueDateStr = (dueDate instanceof Date) ? Utilities.formatDate(dueDate, tz, 'yyyy-MM-dd') : '';
     const isDueToday = dueDateStr === todayStr;
     const isAdvanceDay = dueDateStr === advanceTargetStr;
+
+    // Bug fix: this used to check ONLY "Last Reminder Sent" regardless of
+    // which touchpoint applied — but sendDailyReminders() now writes
+    // advance sends to a completely separate "Advance Reminder Sent"
+    // column. Checking the wrong column here meant an advance-day row
+    // could show a stale/misleading "sent" badge from leftover due-today
+    // data, or fail to show a real advance send that actually happened —
+    // this now checks whichever column actually matches the touchpoint.
+    const advanceReminderColIdx = col('Advance Reminder Sent');
+    const relevantSentStr = isAdvanceDay && advanceReminderColIdx !== -1
+      ? normalizeDateCellToYmd(row[advanceReminderColIdx], tz)
+      : normalizeDateCellToYmd(row[col('Last Reminder Sent')], tz);
+    const wasSentToday = relevantSentStr === todayStr;
+
     if (!isDueToday && !isAdvanceDay && !wasSentToday) continue;
 
     let daysAhead, dueDateFormatted;
@@ -1010,7 +1172,7 @@ function getDueTodayRows(){
       premiumMode: row[col('Premium Mode')],
       dueDateFormatted: dueDateFormatted,
       daysAhead: daysAhead,
-      lastReminderSent: lastSentStr
+      lastReminderSent: relevantSentStr
     });
   }
   result.sort((a, b) => a.daysAhead - b.daysAhead); // due-today first, then the advance-day items
@@ -1025,6 +1187,12 @@ function doPost(e){
   if (!ACTIONS_EXEMPT_FROM_HARD_STOP.includes(body.action) && !PropertiesService.getScriptProperties().getProperty('SPREADSHEET_ID')){
     return jsonResponse({ error: 'SHEET_NOT_CONFIGURED', message: 'Run ?action=setSpreadsheetId&id=YOUR_SHEET_ID first.' });
   }
+
+  // Same self-heal as doGet — every POST request also re-verifies these
+  // triggers exist, not just ones that happen to call setupSheet().
+  ensureDailyReminderTriggerExists();
+  ensureAnniversaryDailyTriggerExists();
+  ensureWatchdogTriggerExists();
 
   if (!ACTIONS_EXEMPT_FROM_HARD_STOP.includes(body.action) && !isAdvisorActive()){
     return jsonResponse(Object.assign({ error: 'ADVISOR_INACTIVE' }, getAdvisorActiveStatus()));
@@ -1093,6 +1261,7 @@ if (!sheet) {
   const policyCol = HEADERS.indexOf('Policy Number');
   const lastReminderCol = HEADERS.indexOf('Last Reminder Sent');
   const sendDuesCol = HEADERS.indexOf('Send Dues?');
+  const advanceReminderCol = HEADERS.indexOf('Advance Reminder Sent');
   const existingRowByPolicy = {};
   for (let i = 1; i < data.length; i++){
     existingRowByPolicy[String(data[i][policyCol])] = i;
@@ -1114,14 +1283,17 @@ if (!sheet) {
     const issuedDateValue = r.issuedDate ? new Date(r.issuedDate) : '';
     // Row order must exactly match HEADERS: Policy Number, Client Name,
     // Email, Product, Premium Mode, Premium Amount, Fund Value, Due Date,
-    // Policy Status, Last Reminder Sent, Send Dues?, Lapse Date, Issued Date
-    const rowValues = [r.policyNumber, r.clientName, r.email, r.product, r.premiumMode, r.premiumAmount, (r.fundValue || 0), dueDateValue, r.policyStatus, '', true, lapseDateValue, issuedDateValue, '', true];
+    // Policy Status, Last Reminder Sent, Send Dues?, Lapse Date, Issued Date,
+    // Last Anniversary Sent (Year), Send Anniversary?, Advance Reminder Sent
+    const rowValues = [r.policyNumber, r.clientName, r.email, r.product, r.premiumMode, r.premiumAmount, (r.fundValue || 0), dueDateValue, r.policyStatus, '', true, lapseDateValue, issuedDateValue, '', true, ''];
     const idx = existingRowByPolicy[String(r.policyNumber)];
     if (idx !== undefined){
       const lastReminderSent = data[idx][lastReminderCol];
       const sendDues = data[idx][sendDuesCol];
+      const advanceReminderSent = advanceReminderCol !== -1 ? data[idx][advanceReminderCol] : '';
       rowValues[lastReminderCol] = lastReminderSent;
       rowValues[sendDuesCol] = sendDues;
+      rowValues[advanceReminderCol] = advanceReminderSent;
       updatedRowWrites.push({ rowNumber: idx + 1, values: rowValues });
       updated++;
     } else {
@@ -1268,6 +1440,7 @@ function sendDailyReminders(){
   try{
     if (!getAutoSendStatus().enabled){ runLog.push('EXIT: auto-send is OFF'); return; }
     if (!isAdvisorActive()){ runLog.push('EXIT: advisor inactive (hard-stop)'); return; }
+    setupSheet(); // ensures the Advance Reminder Sent column exists before the loop below reads/writes it, same convention sendDailyAnniversaryGreetings already uses
     const sheet = getSpreadsheet().getSheetByName(SHEET_NAME);
     if (!sheet){ runLog.push('EXIT: Dues Tracker sheet not found'); return; }
     const data = sheet.getDataRange().getValues();
@@ -1290,6 +1463,7 @@ function sendDailyReminders(){
     const startMsg = 'START — today=' + todayStr + ' advanceDays=' + advanceDays + ' advanceTarget=' + advanceTargetStr + ' totalRows=' + (data.length - 1);
     Logger.log('[sendDailyReminders] ' + startMsg);
     runLog.push(startMsg);
+    saveReminderRunLog(runLog); // saved immediately, not just at the end — see note below on why
 
     for (let i = 1; i < data.length; i++){
       const row = data[i];
@@ -1316,11 +1490,23 @@ function sendDailyReminders(){
 
       matchedCount++;
       const policyNumber = row[col('Policy Number')];
-      const lastSentStr = normalizeDateCellToYmd(row[col('Last Reminder Sent')], tz);
+
+      // Due-today and advance are tracked in two completely separate
+      // columns now — 'Last Reminder Sent' for the due-today touchpoint,
+      // 'Advance Reminder Sent' for the advance one. Previously both
+      // shared the same column, which worked correctly in practice (the
+      // two dates can never land on the same calendar day), but kept
+      // them tangled together with no independent record of which
+      // touchpoint actually fired. Splitting them removes any chance of
+      // one touchpoint's write ever being misread by the other's check,
+      // and gives a clean, separate audit trail for each in the sheet.
+      const trackingColName = daysAhead === 0 ? 'Last Reminder Sent' : 'Advance Reminder Sent';
+      const trackingCol = col(trackingColName);
+      const lastSentStr = normalizeDateCellToYmd(row[trackingCol], tz);
       if (lastSentStr === todayStr){
         // guards against the trigger firing twice same day
         skippedAlreadySent++;
-        const msg = 'SKIP (already sent today) — policy=' + policyNumber + ' daysAhead=' + daysAhead + ' lastSent=' + lastSentStr;
+        const msg = 'SKIP (already sent today, ' + trackingColName + ') — policy=' + policyNumber + ' daysAhead=' + daysAhead + ' lastSent=' + lastSentStr;
         Logger.log('[sendDailyReminders] ' + msg);
         runLog.push(msg);
         continue;
@@ -1336,8 +1522,8 @@ function sendDailyReminders(){
         if (sent){
           sentCount++;
           bumpDailyStat('STAT_SENT');
-          sheet.getRange(i + 1, col('Last Reminder Sent') + 1).setValue(todayStr);
-          const msg = 'SENT — policy=' + policyNumber + ' daysAhead=' + daysAhead;
+          sheet.getRange(i + 1, trackingCol + 1).setValue(todayStr);
+          const msg = 'SENT (' + trackingColName + ') — policy=' + policyNumber + ' daysAhead=' + daysAhead;
           Logger.log('[sendDailyReminders] ' + msg);
           runLog.push(msg);
           // Cycling the due date forward to the next billing period only
@@ -1363,6 +1549,16 @@ function sendDailyReminders(){
         runLog.push(msg);
         bumpDailyStat('STAT_FAILED');
       }
+      // Saved after EVERY matched row, not just once at the very end.
+      // A plain try/finally only protects against a catchable JS
+      // exception — it does NOT protect against Apps Script's own
+      // platform-level hard kill when a script exceeds its maximum
+      // execution time, which terminates the script outright without
+      // running any cleanup code, finally block included. If that's
+      // what happened on a slow run, saving progressively here means
+      // whatever got through before the kill is still on record,
+      // instead of the whole run vanishing without a trace.
+      saveReminderRunLog(runLog);
     }
 
     const endMsg = 'END — matched=' + matchedCount + ' sent=' + sentCount + ' failed=' + failedCount + ' skippedAlreadySent=' + skippedAlreadySent;
@@ -1847,37 +2043,120 @@ function getAnniversaryDailyStats(){
 }
 
 function sendDailyAnniversaryGreetings(){
-  if (!getAnniversaryAutoSendStatus().enabled) return;
-  if (!isAdvisorActive()) return; // hard stop: past the inactivity deadline
-  setupSheet();
-  const sheet = getSpreadsheet().getSheetByName(SHEET_NAME);
-  if (!sheet) return;
-  const data = sheet.getDataRange().getValues();
-  const headers = data[0];
-  const col = name => headers.indexOf(name);
-  const today = new Date();
-  const todayMonth = today.getMonth(), todayDay = today.getDate();
-  const currentYear = today.getFullYear();
-  const currentYearStr = String(currentYear);
-  for (let i = 1; i < data.length; i++){
-    const row = data[i];
-    const sendAnniv = row[col('Send Anniversary?')];
-    if (sendAnniv === false || sendAnniv === 'FALSE' || sendAnniv === 0 || sendAnniv === '0') continue;
-    const issuedDate = row[col('Issued Date')];
-    if (!(issuedDate instanceof Date)) continue;
-    if (issuedDate.getMonth() !== todayMonth || issuedDate.getDate() !== todayDay) continue;
-    if (isLapsedStatus(row[col('Policy Status')])) continue; // same rule as the display list — no greeting for a lapsed policy
-    const yearsCount = currentYear - issuedDate.getFullYear();
-    if (yearsCount <= 0) continue;
-    const lastSentYear = String(row[col('Last Anniversary Sent (Year)')] || '');
-    if (lastSentYear === currentYearStr) continue;
-    let sent = false;
-    try{ sent = sendAnniversaryEmail(row, col, yearsCount); }
-    catch(err){ bumpDailyStat('ANNIV_STAT_FAILED'); continue; }
-    if (sent){
-      bumpDailyStat('ANNIV_STAT_SENT');
-      sheet.getRange(i + 1, col('Last Anniversary Sent (Year)') + 1).setValue(currentYearStr);
+  // Same reliability hardening as sendDailyReminders — per-row isolation
+  // (one bad row can't crash the rest of the loop) and a progressive,
+  // persisted run log (survives even if Apps Script's own execution
+  // timeout kills the script mid-run, which try/finally alone can't
+  // protect against). Anniversary greetings never had either of these
+  // until now, despite being exposed to the exact same failure classes.
+  const runLog = [];
+  let sentCount = 0, failedCount = 0, matchedCount = 0;
+
+  try{
+    if (!getAnniversaryAutoSendStatus().enabled){ runLog.push('EXIT: auto-send is OFF'); return; }
+    if (!isAdvisorActive()){ runLog.push('EXIT: advisor inactive (hard-stop)'); return; }
+    setupSheet();
+    const sheet = getSpreadsheet().getSheetByName(SHEET_NAME);
+    if (!sheet){ runLog.push('EXIT: Dues Tracker sheet not found'); return; }
+    const data = sheet.getDataRange().getValues();
+    const headers = data[0];
+    const col = name => headers.indexOf(name);
+    const today = new Date();
+    const todayMonth = today.getMonth(), todayDay = today.getDate();
+    const currentYear = today.getFullYear();
+    const currentYearStr = String(currentYear);
+
+    const startMsg = 'START — today=' + Utilities.formatDate(today, Session.getScriptTimeZone(), 'yyyy-MM-dd') + ' totalRows=' + (data.length - 1);
+    Logger.log('[sendDailyAnniversaryGreetings] ' + startMsg);
+    runLog.push(startMsg);
+    saveAnniversaryRunLog(runLog);
+
+    for (let i = 1; i < data.length; i++){
+      const row = data[i];
+      const sendAnniv = row[col('Send Anniversary?')];
+      if (sendAnniv === false || sendAnniv === 'FALSE' || sendAnniv === 0 || sendAnniv === '0') continue;
+      const issuedDate = row[col('Issued Date')];
+      if (!(issuedDate instanceof Date)) continue;
+      if (issuedDate.getMonth() !== todayMonth || issuedDate.getDate() !== todayDay) continue;
+      if (isLapsedStatus(row[col('Policy Status')])) continue; // same rule as the display list — no greeting for a lapsed policy
+      const yearsCount = currentYear - issuedDate.getFullYear();
+      if (yearsCount <= 0) continue;
+      const lastSentYear = String(row[col('Last Anniversary Sent (Year)')] || '');
+      if (lastSentYear === currentYearStr) continue;
+
+      matchedCount++;
+      const policyNumber = row[col('Policy Number')];
+
+      // Sending AND marking it sent are now both inside one try/catch —
+      // previously only the send itself was protected, so a failure
+      // writing the sheet afterward could crash every remaining row
+      // in the loop, exactly the bug class that caused the dues
+      // reminder investigation this whole week.
+      try{
+        const sent = sendAnniversaryEmail(row, col, yearsCount);
+        if (sent){
+          sentCount++;
+          bumpDailyStat('ANNIV_STAT_SENT');
+          sheet.getRange(i + 1, col('Last Anniversary Sent (Year)') + 1).setValue(currentYearStr);
+          const msg = 'SENT — policy=' + policyNumber + ' years=' + yearsCount;
+          Logger.log('[sendDailyAnniversaryGreetings] ' + msg);
+          runLog.push(msg);
+        } else {
+          const msg = 'NOT SENT (no email on file?) — policy=' + policyNumber;
+          Logger.log('[sendDailyAnniversaryGreetings] ' + msg);
+          runLog.push(msg);
+        }
+      }catch(err){
+        failedCount++;
+        bumpDailyStat('ANNIV_STAT_FAILED');
+        const msg = 'ERROR — policy=' + policyNumber + ' error=' + (err && err.message ? err.message : String(err));
+        Logger.log('[sendDailyAnniversaryGreetings] ' + msg);
+        runLog.push(msg);
+      }
+      // Saved after every matched row, not just once at the end — same
+      // reason as sendDailyReminders: a hard platform timeout kill
+      // bypasses try/finally entirely, so whatever ran before the kill
+      // needs to already be on record.
+      saveAnniversaryRunLog(runLog);
     }
+
+    const endMsg = 'END — matched=' + matchedCount + ' sent=' + sentCount + ' failed=' + failedCount;
+    Logger.log('[sendDailyAnniversaryGreetings] ' + endMsg);
+    runLog.push(endMsg);
+
+  }catch(err){
+    const msg = 'FATAL ERROR — run did not complete: ' + (err && err.message ? err.message : String(err));
+    Logger.log('[sendDailyAnniversaryGreetings] ' + msg);
+    runLog.push(msg);
+  }finally{
+    saveAnniversaryRunLog(runLog);
+  }
+}
+
+// Same persistence pattern as saveReminderRunLog/getLastReminderRunLog,
+// under a separate Script Property so the two features' diagnostics
+// never overwrite each other.
+function saveAnniversaryRunLog(runLog){
+  try{
+    const tz = Session.getScriptTimeZone();
+    const timestamp = Utilities.formatDate(new Date(), tz, "yyyy-MM-dd'T'HH:mm:ss");
+    let entries = runLog;
+    if (entries.length > 40){
+      entries = [entries[0]].concat(entries.slice(-39));
+    }
+    PropertiesService.getScriptProperties().setProperty('LAST_ANNIVERSARY_RUN_LOG', JSON.stringify({ timestamp: timestamp, entries: entries }));
+  }catch(e){
+    // Logging failing should never surface as if the actual send run failed.
+  }
+}
+
+function getLastAnniversaryRunLog(){
+  const raw = PropertiesService.getScriptProperties().getProperty('LAST_ANNIVERSARY_RUN_LOG');
+  if (!raw) return { timestamp: null, entries: [] };
+  try{
+    return JSON.parse(raw);
+  }catch(e){
+    return { timestamp: null, entries: [] };
   }
 }
 
@@ -1991,14 +2270,22 @@ function createAnniversaryDailyTrigger(hour){
 // touched their Send Hour setting since — createAnniversaryDailyTrigger()
 // above always deletes-and-recreates, which is fine for the rare
 // "advisor changed their send hour" case it's built for, but far too
-// expensive to call on every single upload. This only creates the
-// trigger if one doesn't already exist at all, same pattern as
-// createInactivityPurgeTrigger.
+// expensive to call on every single upload. Same lock protection as
+// ensureDailyReminderTriggerExists — this also runs on every request
+// now, and was exposed to the identical concurrent-duplicate race.
+// Also now version-aware via _rebuildTriggerIfStale.
 function ensureAnniversaryDailyTriggerExists(){
-  const alreadyInstalled = ScriptApp.getProjectTriggers()
-    .some(t => t.getHandlerFunction() === 'sendDailyAnniversaryGreetings');
-  if (alreadyInstalled) return;
-  createAnniversaryDailyTrigger();
+  const lock = LockService.getScriptLock();
+  try{
+    lock.waitLock(3000);
+  }catch(e){
+    return;
+  }
+  try{
+    _rebuildTriggerIfStale('sendDailyAnniversaryGreetings', createAnniversaryDailyTrigger);
+  }finally{
+    lock.releaseLock();
+  }
 }
 
 function setAnniversaryPreference(policyNumber, enabled){
@@ -2906,6 +3193,8 @@ function diagnoseAdvanceDayMatch(){
     const policyStatus = row[col('Policy Status')];
     const dueDateRaw = row[col('Due Date')];
     const lastReminderRaw = row[col('Last Reminder Sent')];
+    const advanceReminderColIdx = col('Advance Reminder Sent');
+    const advanceReminderRaw = advanceReminderColIdx !== -1 ? row[advanceReminderColIdx] : '(column not found)';
 
     Logger.log('--- Policy ' + policyNumber + ' (row ' + (i + 1) + ') ---');
     Logger.log('Client Name: ' + row[col('Client Name')]);
@@ -2919,9 +3208,10 @@ function diagnoseAdvanceDayMatch(){
       Logger.log('Matches advance target (' + advanceTargetStr + ')? ' + (dueDateStr === advanceTargetStr));
       Logger.log('Matches today (' + todayStr + ')? ' + (dueDateStr === todayStr));
     }
-    Logger.log('Last Reminder Sent raw value: ' + JSON.stringify(lastReminderRaw));
+    Logger.log('Last Reminder Sent (due-today column) raw value: ' + JSON.stringify(lastReminderRaw));
     Logger.log('Last Reminder Sent normalized: ' + normalizeDateCellToYmd(lastReminderRaw, tz));
-    Logger.log('Already sent today? ' + (normalizeDateCellToYmd(lastReminderRaw, tz) === todayStr));
+    Logger.log('Advance Reminder Sent (advance-day column) raw value: ' + JSON.stringify(advanceReminderRaw));
+    Logger.log('Advance Reminder Sent normalized: ' + (advanceReminderColIdx !== -1 ? normalizeDateCellToYmd(advanceReminderRaw, tz) : '(column not found)'));
     Logger.log('');
   }
 
@@ -2929,4 +3219,342 @@ function diagnoseAdvanceDayMatch(){
     Logger.log('NONE of the specified policy numbers were found in the sheet at all — check for typos or extra whitespace in the Policy Number column.');
   }
   Logger.log('=== END DIAGNOSTIC ===');
+}
+
+/* ============================================================
+   COMPREHENSIVE ADVANCE REMINDER DIAGNOSTIC SUITE
+   ------------------------------------------------------------
+   Four new, purely diagnostic/test functions — none of these send
+   real reminder emails or modify Advance Reminder Sent / Last Reminder
+   Sent / Due Date. Built to make it possible to conclusively answer
+   "why didn't this policy get its advance reminder" without guessing,
+   run directly from the Apps Script editor (select the function,
+   click Run, then View -> Logs).
+   ============================================================ */
+
+// Run directly from the editor. Analyzes every row in the Dues
+// Tracker against the current Advance Days setting and prints a full
+// eligibility breakdown for every policy matching today's advance
+// target date — no emails sent, nothing written to the sheet.
+function diagnoseAdvanceReminders(){
+  const tz = Session.getScriptTimeZone();
+  const todayStr = Utilities.formatDate(new Date(), tz, 'yyyy-MM-dd');
+  const advanceDays = getAdvanceDays().advanceDays;
+  const advanceTargetDate = new Date();
+  advanceTargetDate.setDate(advanceTargetDate.getDate() + advanceDays);
+  const advanceTargetStr = Utilities.formatDate(advanceTargetDate, tz, 'yyyy-MM-dd');
+  const autoSend = getAutoSendStatus().enabled;
+  const advisorActive = isAdvisorActive();
+  const sendHour = getSendHour().hour;
+  const triggerFound = ScriptApp.getProjectTriggers().some(t => t.getHandlerFunction() === 'sendDailyReminders');
+
+  Logger.log('========================================');
+  Logger.log('CLIENT PULSE ADVANCE REMINDER DIAGNOSTIC');
+  Logger.log('========================================');
+  Logger.log('');
+  Logger.log('Today:');
+  Logger.log(todayStr);
+  Logger.log('');
+  Logger.log('Script Timezone:');
+  Logger.log(tz);
+  Logger.log('');
+  Logger.log('Advance Days:');
+  Logger.log(String(advanceDays));
+  Logger.log('');
+  Logger.log('Advance Target:');
+  Logger.log(advanceTargetStr);
+  Logger.log('');
+  Logger.log('Auto Send:');
+  Logger.log(autoSend ? 'ON' : 'OFF');
+  Logger.log('');
+  Logger.log('Advisor Active:');
+  Logger.log(advisorActive ? 'YES' : 'NO (hard-stopped)');
+  Logger.log('');
+  Logger.log('Daily Trigger:');
+  Logger.log(triggerFound ? 'FOUND' : 'MISSING');
+  Logger.log('');
+  Logger.log('Send Hour:');
+  Logger.log(String(sendHour));
+  Logger.log('');
+  Logger.log('Remaining Email Quota:');
+  Logger.log(String(MailApp.getRemainingDailyQuota()));
+  Logger.log('========================================');
+  Logger.log('');
+
+  const sheet = getSpreadsheet().getSheetByName(SHEET_NAME);
+  if (!sheet){
+    Logger.log('SHEET NOT FOUND — cannot continue diagnostic.');
+    return;
+  }
+  const data = sheet.getDataRange().getValues();
+  const headers = data[0];
+  const col = name => headers.indexOf(name);
+  const advanceReminderColIdx = col('Advance Reminder Sent');
+
+  let totalRows = 0, advanceTargetMatches = 0, eligibleToSend = 0, alreadySent = 0,
+      missingEmail = 0, sendDuesDisabled = 0, lapsed = 0, invalidDueDate = 0;
+
+  for (let i = 1; i < data.length; i++){
+    const row = data[i];
+    const policyNumber = row[col('Policy Number')];
+    if (!policyNumber) continue;
+    totalRows++;
+
+    const dueDateRaw = row[col('Due Date')];
+    if (!(dueDateRaw instanceof Date)){
+      invalidDueDate++;
+      continue;
+    }
+    const dueDateStr = Utilities.formatDate(dueDateRaw, tz, 'yyyy-MM-dd');
+    if (dueDateStr !== advanceTargetStr) continue; // only reporting advance-target matches in detail, per spec
+
+    advanceTargetMatches++;
+    const clientName = row[col('Client Name')];
+    const sendDues = row[col('Send Dues?')];
+    const sendDuesBool = !(sendDues === false || sendDues === 'FALSE' || sendDues === 0 || sendDues === '0');
+    const policyStatus = row[col('Policy Status')];
+    const isLapsed = isLapsedStatus(policyStatus);
+    const email = row[col('Email')];
+    const advanceReminderRaw = advanceReminderColIdx !== -1 ? row[advanceReminderColIdx] : '';
+    const advanceReminderSentStr = normalizeDateCellToYmd(advanceReminderRaw, tz);
+    const wasAlreadySent = advanceReminderSentStr === todayStr;
+
+    let expectedAction = 'SHOULD SEND';
+    if (!sendDuesBool){ expectedAction = 'SKIP (Send Dues? is off)'; sendDuesDisabled++; }
+    else if (isLapsed){ expectedAction = 'SKIP (lapsed)'; lapsed++; }
+    else if (!email){ expectedAction = 'SKIP (no email on file)'; missingEmail++; }
+    else if (wasAlreadySent){ expectedAction = 'SKIP (already sent today)'; alreadySent++; }
+    else { eligibleToSend++; }
+
+    Logger.log('Policy:');
+    Logger.log(String(policyNumber));
+    Logger.log('');
+    Logger.log('Client:');
+    Logger.log(String(clientName));
+    Logger.log('');
+    Logger.log('Due Date:');
+    Logger.log(dueDateStr);
+    Logger.log('');
+    Logger.log('Send Dues?:');
+    Logger.log(sendDuesBool ? 'TRUE' : 'FALSE');
+    Logger.log('');
+    Logger.log('Policy Status:');
+    Logger.log(String(policyStatus) + (isLapsed ? ' (LAPSED)' : ''));
+    Logger.log('');
+    Logger.log('Email:');
+    Logger.log(email ? String(email) : '(BLANK)');
+    Logger.log('');
+    Logger.log('Advance Reminder Sent:');
+    Logger.log(advanceReminderSentStr || 'BLANK');
+    Logger.log('');
+    Logger.log('Matches Advance Target:');
+    Logger.log('YES');
+    Logger.log('');
+    Logger.log('Expected Action:');
+    Logger.log(expectedAction);
+    Logger.log('----------------------------------------');
+  }
+
+  Logger.log('');
+  Logger.log('========================================');
+  Logger.log('Total Rows:');
+  Logger.log(String(totalRows));
+  Logger.log('');
+  Logger.log('Advance Target Matches:');
+  Logger.log(String(advanceTargetMatches));
+  Logger.log('');
+  Logger.log('Eligible To Send:');
+  Logger.log(String(eligibleToSend));
+  Logger.log('');
+  Logger.log('Already Sent:');
+  Logger.log(String(alreadySent));
+  Logger.log('');
+  Logger.log('Missing Email:');
+  Logger.log(String(missingEmail));
+  Logger.log('');
+  Logger.log('Send Dues Disabled:');
+  Logger.log(String(sendDuesDisabled));
+  Logger.log('');
+  Logger.log('Lapsed:');
+  Logger.log(String(lapsed));
+  Logger.log('');
+  Logger.log('Invalid Due Date:');
+  Logger.log(String(invalidDueDate));
+  Logger.log('========================================');
+}
+
+// Diagnostic-only check for ONE specific policy — does NOT send any
+// email and does NOT touch Due Date, Advance Reminder Sent, or Last
+// Reminder Sent. Run from the editor after setting policyNumber below,
+// or call it programmatically with a policy number string.
+function testAdvanceReminderForPolicy(policyNumber){
+  const tz = Session.getScriptTimeZone();
+  const todayStr = Utilities.formatDate(new Date(), tz, 'yyyy-MM-dd');
+  const advanceDays = getAdvanceDays().advanceDays;
+  const advanceTargetDate = new Date();
+  advanceTargetDate.setDate(advanceTargetDate.getDate() + advanceDays);
+  const advanceTargetStr = Utilities.formatDate(advanceTargetDate, tz, 'yyyy-MM-dd');
+
+  const sheet = getSpreadsheet().getSheetByName(SHEET_NAME);
+  if (!sheet){ Logger.log('Dues Tracker sheet not found.'); return; }
+  const data = sheet.getDataRange().getValues();
+  const headers = data[0];
+  const col = name => headers.indexOf(name);
+
+  let found = false;
+  for (let i = 1; i < data.length; i++){
+    const row = data[i];
+    if (String(row[col('Policy Number')]).trim() !== String(policyNumber).trim()) continue;
+    found = true;
+
+    const dueDateRaw = row[col('Due Date')];
+    const dueDateStr = (dueDateRaw instanceof Date) ? Utilities.formatDate(dueDateRaw, tz, 'yyyy-MM-dd') : null;
+    const isAdvanceMatch = dueDateStr === advanceTargetStr;
+    const isDueTodayMatch = dueDateStr === todayStr;
+    const sendDues = row[col('Send Dues?')];
+    const sendDuesBool = !(sendDues === false || sendDues === 'FALSE' || sendDues === 0 || sendDues === '0');
+    const policyStatus = row[col('Policy Status')];
+    const isLapsed = isLapsedStatus(policyStatus);
+    const email = row[col('Email')];
+    const advanceReminderColIdx = col('Advance Reminder Sent');
+    const advanceReminderSentStr = advanceReminderColIdx !== -1 ? normalizeDateCellToYmd(row[advanceReminderColIdx], tz) : '';
+    const lastReminderSentStr = normalizeDateCellToYmd(row[col('Last Reminder Sent')], tz);
+
+    Logger.log('=== testAdvanceReminderForPolicy: ' + policyNumber + ' ===');
+    Logger.log('Today: ' + todayStr + ' | Advance Days: ' + advanceDays + ' | Advance Target: ' + advanceTargetStr);
+    Logger.log('Client Name: ' + row[col('Client Name')]);
+    Logger.log('Due Date: ' + (dueDateStr || 'INVALID/NOT A DATE'));
+    Logger.log('Is Advance-Target Match: ' + isAdvanceMatch);
+    Logger.log('Is Due-Today Match: ' + isDueTodayMatch);
+    Logger.log('Send Dues?: ' + sendDuesBool);
+    Logger.log('Policy Status: ' + policyStatus + (isLapsed ? ' (LAPSED)' : ''));
+    Logger.log('Email: ' + (email || '(BLANK)'));
+    Logger.log('Advance Reminder Sent: ' + (advanceReminderSentStr || 'BLANK'));
+    Logger.log('Last Reminder Sent: ' + (lastReminderSentStr || 'BLANK'));
+
+    let verdict;
+    if (!isAdvanceMatch && !isDueTodayMatch) verdict = 'NOT ELIGIBLE TODAY — due date matches neither touchpoint';
+    else if (!sendDuesBool) verdict = 'WOULD SKIP — Send Dues? is off';
+    else if (isLapsed) verdict = 'WOULD SKIP — policy is lapsed';
+    else if (!email) verdict = 'WOULD SKIP — no email on file';
+    else if (isAdvanceMatch && advanceReminderSentStr === todayStr) verdict = 'WOULD SKIP — advance reminder already sent today';
+    else if (isDueTodayMatch && lastReminderSentStr === todayStr) verdict = 'WOULD SKIP — due-today reminder already sent today';
+    else verdict = 'WOULD SEND (daysAhead=' + (isDueTodayMatch ? 0 : advanceDays) + ')';
+
+    Logger.log('VERDICT: ' + verdict);
+    break;
+  }
+  if (!found) Logger.log('Policy ' + policyNumber + ' not found in Dues Tracker.');
+}
+
+// Sends a REAL advance-style email using this policy's actual client
+// name, due date, and daysAhead — but to the advisor's own Contact
+// Email, not the client, and clearly marked as a TEST in the subject.
+// Deliberately does NOT touch Advance Reminder Sent, matching the
+// same "test emails never affect real tracking" rule the existing
+// due-today test email already follows.
+function sendAdvanceReminderTestEmail(policyNumber){
+  const tz = Session.getScriptTimeZone();
+  const advanceDays = getAdvanceDays().advanceDays;
+
+  const sheet = getSpreadsheet().getSheetByName(SHEET_NAME);
+  if (!sheet) throw new Error('Dues Tracker sheet not found.');
+  const data = sheet.getDataRange().getValues();
+  const headers = data[0];
+  const col = name => headers.indexOf(name);
+
+  let targetRow = null;
+  for (let i = 1; i < data.length; i++){
+    if (String(data[i][col('Policy Number')]).trim() === String(policyNumber).trim()){
+      targetRow = data[i];
+      break;
+    }
+  }
+  if (!targetRow) throw new Error('Policy ' + policyNumber + ' not found in Dues Tracker.');
+
+  const config = getBrandConfig();
+  assertConfigured(config);
+  const recipient = config.contactEmail;
+  if (!recipient) throw new Error('Please set a Contact Email in Your Branding first.');
+
+  const clientName = targetRow[col('Client Name')];
+  const product = targetRow[col('Product')];
+  const amount = targetRow[col('Premium Amount')];
+  const dueDateRaw = targetRow[col('Due Date')];
+  const dueDate = (dueDateRaw instanceof Date) ? dueDateRaw : new Date();
+
+  const subjectDate = Utilities.formatDate(dueDate, tz, 'MMMM d').toUpperCase();
+  const daysLabel = advanceDays === 1 ? ' IN 1 DAY' : ' IN ' + advanceDays + ' DAYS';
+  const subject = 'TEST - PREMIUM DUE REMINDER' + daysLabel + ' - ' + subjectDate;
+  const htmlBody = buildReminderEmailHtml(clientName, policyNumber, product, amount, dueDate, config, advanceDays);
+
+  sendWithOptionalFromAlias(recipient, subject, {
+    htmlBody: htmlBody,
+    name: config.senderName,
+    inlineImages: getEmailImages(config)
+  }, config.contactEmail);
+
+  return { success: true, sentTo: recipient, policyNumber: policyNumber, daysAhead: advanceDays };
+}
+
+// High-level troubleshooting summary — no emails sent, nothing written
+// to the sheet. Run directly from the editor.
+function runReminderDiagnosticNow(){
+  const tz = Session.getScriptTimeZone();
+  const todayStr = Utilities.formatDate(new Date(), tz, 'yyyy-MM-dd');
+  const advanceDays = getAdvanceDays().advanceDays;
+  const advanceTargetDate = new Date();
+  advanceTargetDate.setDate(advanceTargetDate.getDate() + advanceDays);
+  const advanceTargetStr = Utilities.formatDate(advanceTargetDate, tz, 'yyyy-MM-dd');
+  const autoSend = getAutoSendStatus().enabled;
+  const advisorActive = isAdvisorActive();
+  const triggerFound = ScriptApp.getProjectTriggers().some(t => t.getHandlerFunction() === 'sendDailyReminders');
+  const quota = MailApp.getRemainingDailyQuota();
+
+  const sheet = getSpreadsheet().getSheetByName(SHEET_NAME);
+  let dueTodayMatches = 0, advanceMatches = 0, alreadySent = 0, eligible = 0, skipped = 0;
+
+  if (sheet){
+    const data = sheet.getDataRange().getValues();
+    const headers = data[0];
+    const col = name => headers.indexOf(name);
+    const advanceReminderColIdx = col('Advance Reminder Sent');
+
+    for (let i = 1; i < data.length; i++){
+      const row = data[i];
+      const dueDateRaw = row[col('Due Date')];
+      if (!(dueDateRaw instanceof Date)) continue;
+      const dueDateStr = Utilities.formatDate(dueDateRaw, tz, 'yyyy-MM-dd');
+      const isDueToday = dueDateStr === todayStr;
+      const isAdvanceMatch = dueDateStr === advanceTargetStr;
+      if (!isDueToday && !isAdvanceMatch) continue;
+      if (isDueToday) dueTodayMatches++;
+      if (isAdvanceMatch) advanceMatches++;
+
+      const sendDues = row[col('Send Dues?')];
+      const sendDuesBool = !(sendDues === false || sendDues === 'FALSE' || sendDues === 0 || sendDues === '0');
+      const isLapsed = isLapsedStatus(row[col('Policy Status')]);
+      const email = row[col('Email')];
+
+      if (!sendDuesBool || isLapsed || !email){ skipped++; continue; }
+
+      const trackingColIdx = isDueToday ? col('Last Reminder Sent') : advanceReminderColIdx;
+      const sentStr = trackingColIdx !== -1 ? normalizeDateCellToYmd(row[trackingColIdx], tz) : '';
+      if (sentStr === todayStr){ alreadySent++; } else { eligible++; }
+    }
+  }
+
+  Logger.log('=== runReminderDiagnosticNow ===');
+  Logger.log('Current Date: ' + todayStr);
+  Logger.log('Advance Days Setting: ' + advanceDays);
+  Logger.log('Advance Target Date: ' + advanceTargetStr);
+  Logger.log('Due-Today Matches: ' + dueTodayMatches);
+  Logger.log('Advance-Day Matches: ' + advanceMatches);
+  Logger.log('Already Sent Today: ' + alreadySent);
+  Logger.log('Eligible To Send: ' + eligible);
+  Logger.log('Skipped (Send Dues off / lapsed / no email): ' + skipped);
+  Logger.log('Remaining Email Quota: ' + quota);
+  Logger.log('Auto-Send Status: ' + (autoSend ? 'ON' : 'OFF'));
+  Logger.log('Daily Trigger Status: ' + (triggerFound ? 'FOUND' : 'MISSING'));
+  Logger.log('Advisor Active: ' + (advisorActive ? 'YES' : 'NO (hard-stopped)'));
 }
