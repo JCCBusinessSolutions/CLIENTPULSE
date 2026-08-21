@@ -54,7 +54,7 @@ const HEADERS = ['Policy Number','Client Name','Email','Product','Premium Mode',
 // again after this point; you only ever touch this one line, here,
 // in the one master copy you distribute.
 // ============================================================
-const TRIGGER_CODE_VERSION = '2026-08-18-v1';
+const TRIGGER_CODE_VERSION = '2026-08-18-v2';
 
 // Shared by every trigger self-heal below. Deletes any existing
 // trigger(s) for the given handler function if the stored version
@@ -773,6 +773,29 @@ function createBirthdayDailyTrigger(hour){
     .create();
 }
 
+// This was the real gap: createBirthdayDailyTrigger() above was
+// previously only ever called from setSendHour(), meaning an advisor
+// who never touched that dropdown had no self-heal at all for their
+// birthday trigger — unlike sendDailyReminders and
+// sendDailyAnniversaryGreetings, which both got this exact protection
+// already. If the birthday trigger ever silently disappeared (the
+// same unexplained pattern chased all week for dues), nothing would
+// ever have caught or repaired it. Same lock protection and
+// version-awareness as every other trigger installer in this file.
+function ensureBirthdayDailyTriggerExists(){
+  const lock = LockService.getScriptLock();
+  try{
+    lock.waitLock(3000);
+  }catch(e){
+    return;
+  }
+  try{
+    _rebuildTriggerIfStale('sendDailyBirthdayGreetings', () => createBirthdayDailyTrigger());
+  }finally{
+    lock.releaseLock();
+  }
+}
+
 // Runs independently of the advisor's chosen send hour — fixed at 3AM
 // so it never competes with, or gets skipped alongside, the reminder/
 // birthday sends if the advisor later disables those. Checks for an
@@ -829,6 +852,7 @@ function createInactivityPurgeTrigger(){
 function watchdogEnsureTriggers(){
   ensureDailyReminderTriggerExists();
   ensureAnniversaryDailyTriggerExists();
+  ensureBirthdayDailyTriggerExists();
 }
 
 // Self-installs once, same idempotent pattern as every other trigger
@@ -995,6 +1019,7 @@ function doGet(e){
   // running it unconditionally here is worth the guarantee.
   ensureDailyReminderTriggerExists();
   ensureAnniversaryDailyTriggerExists();
+  ensureBirthdayDailyTriggerExists();
   ensureWatchdogTriggerExists(); // second, independent layer — catches a missing trigger within an hour even on a day nobody opens the app
   if (!ACTIONS_EXEMPT_FROM_HARD_STOP.includes(action) && !isAdvisorActive()){
     return jsonResponse(Object.assign({ error: 'ADVISOR_INACTIVE' }, getAdvisorActiveStatus()));
@@ -1050,6 +1075,7 @@ function doGet(e){
   if (action === 'getDailyStats')             return jsonResponse(getDailyStats());
   if (action === 'getLastReminderRunLog')     return jsonResponse(getLastReminderRunLog());
   if (action === 'getLastAnniversaryRunLog')  return jsonResponse(getLastAnniversaryRunLog());
+  if (action === 'getLastBirthdayRunLog')     return jsonResponse(getLastBirthdayRunLog());
   if (action === 'getAdvisorProfile')         return jsonResponse(getAdvisorProfile());
   if (action === 'getProfileImagePreview')    return jsonResponse(getProfileImagePreviewData());
   if (action === 'getAutoSendStatus')         return jsonResponse(getAutoSendStatus());
@@ -1192,6 +1218,7 @@ function doPost(e){
   // triggers exist, not just ones that happen to call setupSheet().
   ensureDailyReminderTriggerExists();
   ensureAnniversaryDailyTriggerExists();
+  ensureBirthdayDailyTriggerExists();
   ensureWatchdogTriggerExists();
 
   if (!ACTIONS_EXEMPT_FROM_HARD_STOP.includes(body.action) && !isAdvisorActive()){
@@ -1868,32 +1895,112 @@ function getBirthdayDailyStats(){
 }
 
 function sendDailyBirthdayGreetings(){
-  if (!getBirthdayAutoSendStatus().enabled) return;
-  if (!isAdvisorActive()) return; // hard stop: past the inactivity deadline
-  const sheet = getSpreadsheet().getSheetByName(BIRTHDAY_SHEET_NAME);
-  if (!sheet) return;
-  const data = sheet.getDataRange().getValues();
-  const headers = data[0];
-  const col = name => headers.indexOf(name);
-  const today = new Date();
-  const todayMonth = today.getMonth(), todayDay = today.getDate();
-  const currentYearStr = String(today.getFullYear());
-  for (let i = 1; i < data.length; i++){
-    const row = data[i];
-    const sendBday = row[col('Send Birthday?')];
-    if (sendBday === false || sendBday === 'FALSE' || sendBday === 0 || sendBday === '0') continue;
-    const dob = row[col('Date of Birth')];
-    if (!(dob instanceof Date)) continue;
-    if (dob.getMonth() !== todayMonth || dob.getDate() !== todayDay) continue;
-    const lastSentYear = String(row[col('Last Greeting Sent (Year)')] || '');
-    if (lastSentYear === currentYearStr) continue;
-    let sent = false;
-    try{ sent = sendBirthdayEmail(row, col); }
-    catch(err){ bumpDailyStat('BDAY_STAT_FAILED'); continue; }
-    if (sent){
-      bumpDailyStat('BDAY_STAT_SENT');
-      sheet.getRange(i + 1, col('Last Greeting Sent (Year)') + 1).setValue(currentYearStr);
+  // Same reliability hardening as sendDailyReminders/sendDailyAnniversaryGreetings
+  // — per-row isolation (one bad row can't crash the rest of the loop)
+  // and a progressive, persisted run log (survives even a hard
+  // execution-timeout kill, which try/finally alone can't protect
+  // against). Birthday greetings never had either of these until now.
+  const runLog = [];
+  let sentCount = 0, failedCount = 0, matchedCount = 0;
+
+  try{
+    if (!getBirthdayAutoSendStatus().enabled){ runLog.push('EXIT: auto-send is OFF'); return; }
+    if (!isAdvisorActive()){ runLog.push('EXIT: advisor inactive (hard-stop)'); return; }
+    const sheet = getSpreadsheet().getSheetByName(BIRTHDAY_SHEET_NAME);
+    if (!sheet){ runLog.push('EXIT: Birthday Tracker sheet not found'); return; }
+    const data = sheet.getDataRange().getValues();
+    const headers = data[0];
+    const col = name => headers.indexOf(name);
+    const today = new Date();
+    const todayMonth = today.getMonth(), todayDay = today.getDate();
+    const currentYearStr = String(today.getFullYear());
+
+    const startMsg = 'START — today=' + Utilities.formatDate(today, Session.getScriptTimeZone(), 'yyyy-MM-dd') + ' totalRows=' + (data.length - 1);
+    Logger.log('[sendDailyBirthdayGreetings] ' + startMsg);
+    runLog.push(startMsg);
+    saveBirthdayRunLog(runLog);
+
+    for (let i = 1; i < data.length; i++){
+      const row = data[i];
+      const sendBday = row[col('Send Birthday?')];
+      if (sendBday === false || sendBday === 'FALSE' || sendBday === 0 || sendBday === '0') continue;
+      const dob = row[col('Date of Birth')];
+      if (!(dob instanceof Date)) continue;
+      if (dob.getMonth() !== todayMonth || dob.getDate() !== todayDay) continue;
+      const lastSentYear = String(row[col('Last Greeting Sent (Year)')] || '');
+      if (lastSentYear === currentYearStr) continue;
+
+      matchedCount++;
+      const fullName = row[col('Full Name')];
+
+      // Sending AND marking it sent are now both inside one try/catch —
+      // previously only the send itself was protected, so a failure
+      // writing the sheet afterward could crash every remaining row
+      // in the loop.
+      try{
+        const sent = sendBirthdayEmail(row, col);
+        if (sent){
+          sentCount++;
+          bumpDailyStat('BDAY_STAT_SENT');
+          sheet.getRange(i + 1, col('Last Greeting Sent (Year)') + 1).setValue(currentYearStr);
+          const msg = 'SENT — name=' + fullName;
+          Logger.log('[sendDailyBirthdayGreetings] ' + msg);
+          runLog.push(msg);
+        } else {
+          const msg = 'NOT SENT (no email on file?) — name=' + fullName;
+          Logger.log('[sendDailyBirthdayGreetings] ' + msg);
+          runLog.push(msg);
+        }
+      }catch(err){
+        failedCount++;
+        bumpDailyStat('BDAY_STAT_FAILED');
+        const msg = 'ERROR — name=' + fullName + ' error=' + (err && err.message ? err.message : String(err));
+        Logger.log('[sendDailyBirthdayGreetings] ' + msg);
+        runLog.push(msg);
+      }
+      // Saved after every matched row, not just once at the end — same
+      // reason as the other two reminder functions: a hard platform
+      // timeout kill bypasses try/finally entirely.
+      saveBirthdayRunLog(runLog);
     }
+
+    const endMsg = 'END — matched=' + matchedCount + ' sent=' + sentCount + ' failed=' + failedCount;
+    Logger.log('[sendDailyBirthdayGreetings] ' + endMsg);
+    runLog.push(endMsg);
+
+  }catch(err){
+    const msg = 'FATAL ERROR — run did not complete: ' + (err && err.message ? err.message : String(err));
+    Logger.log('[sendDailyBirthdayGreetings] ' + msg);
+    runLog.push(msg);
+  }finally{
+    saveBirthdayRunLog(runLog);
+  }
+}
+
+// Same persistence pattern as saveReminderRunLog/saveAnniversaryRunLog,
+// under its own separate Script Property so all three features' logs
+// stay independent.
+function saveBirthdayRunLog(runLog){
+  try{
+    const tz = Session.getScriptTimeZone();
+    const timestamp = Utilities.formatDate(new Date(), tz, "yyyy-MM-dd'T'HH:mm:ss");
+    let entries = runLog;
+    if (entries.length > 40){
+      entries = [entries[0]].concat(entries.slice(-39));
+    }
+    PropertiesService.getScriptProperties().setProperty('LAST_BIRTHDAY_RUN_LOG', JSON.stringify({ timestamp: timestamp, entries: entries }));
+  }catch(e){
+    // Logging failing should never surface as if the actual send run failed.
+  }
+}
+
+function getLastBirthdayRunLog(){
+  const raw = PropertiesService.getScriptProperties().getProperty('LAST_BIRTHDAY_RUN_LOG');
+  if (!raw) return { timestamp: null, entries: [] };
+  try{
+    return JSON.parse(raw);
+  }catch(e){
+    return { timestamp: null, entries: [] };
   }
 }
 
