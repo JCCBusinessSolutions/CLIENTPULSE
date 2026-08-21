@@ -1305,6 +1305,21 @@ input:checked + #studioSection .slider-toggle::before{transform:translateX(19px)
   </div>
 </div>
 
+<!-- Subscription expiration notice — unlike the inactivity lock above,
+     this is dismissible and never blocks the dashboard. Shown once per
+     session start (fresh login or a restored session on app open),
+     not on every 30-second session-check poll. -->
+<div id="expirationNoticeOverlay" style="display:none; position:fixed; inset:0; z-index:9997; background:rgba(12,68,124,0.85); backdrop-filter:blur(3px); align-items:center; justify-content:center; padding:24px;" onclick="if(event.target===this) closeExpirationNotice();">
+  <div style="max-width:420px; width:100%; background:#fff; border-radius:16px; padding:32px 28px; text-align:center; box-shadow:0 20px 60px rgba(0,0,0,0.35); position:relative;">
+    <button onclick="closeExpirationNotice()" style="position:absolute; top:14px; right:14px; background:none; border:none; font-size:20px; color:#999; cursor:pointer; line-height:1; padding:4px;" aria-label="Close">✕</button>
+    <div id="expirationNoticeIcon" style="font-size:40px; margin-bottom:10px;">⏳</div>
+    <div id="expirationNoticeTitle" style="font-family:'Playfair Display',serif; font-size:20px; font-weight:700; color:#0C447C; margin-bottom:10px;">Subscription Renewal</div>
+    <div id="expirationNoticeMessage" style="font-size:14px; color:#444; line-height:1.6; margin-bottom:22px;"></div>
+    <button class="gate-btn gate-btn-gold" style="width:100%;" onclick="renewSubscriptionClicked()">RENEW SUBSCRIPTION</button>
+    <div style="font-size:11px; color:#999; margin-top:14px;">Questions about renewing? Email Jccbusinesssolutions16@gmail.com</div>
+  </div>
+</div>
+
 <!-- ============================================================
      DESKTOP SIDEBAR
      ============================================================ -->
@@ -7437,7 +7452,7 @@ async function checkSessionFast(email, token) {
     const url = CLIENT_PULSE_SHEET_API + '?action=checksession&email=' + encodeURIComponent(email) + '&token=' + encodeURIComponent(token);
     const res = await fetch(url);
     const data = await res.json();
-    return !!(data && data.valid);
+    return data || null; // full response object now — callers read .valid and .daysUntilExpiration as needed
   } catch (e) {
     return null; // network failure — caller decides how to treat "unknown" vs "definitely invalid"
   }
@@ -7470,26 +7485,72 @@ async function checkAuthFast() {
   const storedEmail = sessionStorage.getItem('clientPulseAuth');
   const storedToken = sessionStorage.getItem('clientPulseSessionToken');
   if (storedEmail && isValidEmail(storedEmail) && storedToken) {
-    const valid = await checkSessionFast(storedEmail, storedToken);
-    if (valid === true) {
+    const result = await checkSessionFast(storedEmail, storedToken);
+    if (result && result.valid === true) {
       currentEmail = storedEmail;
       currentSessionToken = storedToken;
       hideGate();
       startSessionWatch();
+      maybeShowExpirationNotice(result.daysUntilExpiration);
       return true;
     }
-    if (valid === false) {
+    if (result && result.valid === false) {
       // Definitively stale or superseded — clear it and fall through to the gate.
       sessionStorage.removeItem('clientPulseAuth');
       sessionStorage.removeItem('clientPulseSessionToken');
     }
-    // valid === null (network failure): deliberately leaves the stored
+    // result === null (network failure): deliberately leaves the stored
     // session untouched rather than logging someone out over a
     // transient connection blip — the next 30-second poll will get
     // another chance to confirm one way or the other.
   }
   return false;
 }
+
+// Shows a dismissible renewal notice when the subscription is within
+// 30 days of its Expiration date (or already past it) — unlike the
+// inactivity lock screen, this never blocks the dashboard, and only
+// shows once per browser session (not on every 30-second poll) so it
+// doesn't nag repeatedly during a single sitting.
+function maybeShowExpirationNotice(daysUntilExpiration) {
+  if (daysUntilExpiration === null || daysUntilExpiration === undefined) return; // no Expiration date on file at all
+  if (daysUntilExpiration > 30) return; // not close enough yet
+  if (sessionStorage.getItem('cpExpirationNoticeDismissed') === 'true') return;
+
+  const icon = document.getElementById('expirationNoticeIcon');
+  const title = document.getElementById('expirationNoticeTitle');
+  const message = document.getElementById('expirationNoticeMessage');
+
+  if (daysUntilExpiration < 0) {
+    const daysAgo = Math.abs(daysUntilExpiration);
+    icon.textContent = '⚠️';
+    title.textContent = 'Subscription Expired';
+    message.textContent = 'Your Client Pulse subscription expired ' + daysAgo + ' day' + (daysAgo === 1 ? '' : 's') + ' ago. Please renew to keep your reminders sending without interruption.';
+  } else if (daysUntilExpiration === 0) {
+    icon.textContent = '⏳';
+    title.textContent = 'Subscription Expires Today';
+    message.textContent = 'Your Client Pulse subscription expires today. Renew now to avoid any interruption to your reminders.';
+  } else {
+    icon.textContent = '⏳';
+    title.textContent = 'Subscription Renewal';
+    message.textContent = 'Your Client Pulse subscription expires in ' + daysUntilExpiration + ' day' + (daysUntilExpiration === 1 ? '' : 's') + '. Please renew soon to keep everything running smoothly.';
+  }
+
+  document.getElementById('expirationNoticeOverlay').style.display = 'flex';
+}
+
+function closeExpirationNotice() {
+  document.getElementById('expirationNoticeOverlay').style.display = 'none';
+  sessionStorage.setItem('cpExpirationNoticeDismissed', 'true');
+}
+
+const JCC_PAYMENT_URL = 'https://jccbusinesssolutions.github.io/JCCPAYMENTS/';
+
+function renewSubscriptionClicked() {
+  window.open(JCC_PAYMENT_URL, '_blank', 'noopener');
+  closeExpirationNotice(); // same dismiss behavior as the X — don't re-nag for the rest of this session once they've headed to pay
+}
+
 
 // Tracks which email is currently mid-flow (setup / forgot / reset),
 // so each step's submit function knows who it's acting on without
@@ -7617,6 +7678,7 @@ async function accessGate() {
 
       hideGate();
       startSessionWatch();
+      maybeShowExpirationNotice(data.daysUntilExpiration);
     } else if (status === 'NEEDS_SETUP') {
       // First time this email is logging in — no password on file yet.
       showSetupPasswordStep(email);
@@ -7778,13 +7840,13 @@ async function checkSessionStillValid() {
   // This runs every 30 seconds for the entire time someone stays logged
   // in — previously that meant re-fetching every buyer's row, forever,
   // just to check one person's token. Now it's a single cached lookup.
-  const valid = await checkSessionFast(currentEmail, currentSessionToken);
-  if (valid === false) {
+  const result = await checkSessionFast(currentEmail, currentSessionToken);
+  if (result && result.valid === false) {
     logoutUser('You were logged out because this account was used on another device.');
   }
-  // valid === null (network failure): deliberately does nothing, same
-  // as the original's catch block — a transient blip shouldn't log
-  // anyone out; the next poll 30 seconds later gets another chance.
+  // result === null (network failure): deliberately does nothing, same
+  // as before — a transient blip shouldn't log anyone out; the next
+  // poll 30 seconds later gets another chance.
 }
 
 function hideGate() {
