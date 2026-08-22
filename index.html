@@ -7826,7 +7826,7 @@ function wireRefreshFeedback(buttonId){
    longer matches what the server has, it auto-logs-out, because
    that means the account was used somewhere else more recently.
    ============================================================ */
-const CLIENT_PULSE_SHEET_API = 'https://script.google.com/macros/s/AKfycbxEleKyoOgcsFZxOH7Dib-QLedLmnaDo65WoqO-dwF_dMEHjIHIpKokxohinSD6ZxtT3A/exec';
+const CLIENT_PULSE_SHEET_API = 'https://script.google.com/macros/s/AKfycbxTGKBksRBKOpmoLVZ6EcMwL-eM8q5PuE4KcMHq0on-TbFWKalbdiAJjzhhRteGswtrwg/exec';
 const ADMIN_EMAIL = 'castrojaymar0916@gmail.com';
 const HARDCODED_PAID = [ADMIN_EMAIL];
 const SESSION_CHECK_INTERVAL_MS = 30000;
@@ -8028,8 +8028,9 @@ let pendingAgreementEmail = '';
 let pendingAgreementToken = '';
 let pendingAgreementVersion = '';
 let pendingAgreementName = '';
+let pendingAgreementOrg = '';
 
-function showPolicyAgreementStep(email, token, agreementVersion, agreementEffectiveDate, advisorName) {
+function showPolicyAgreementStep(email, token, agreementVersion, agreementEffectiveDate, advisorName, advisorOrg) {
   pendingAgreementEmail = email;
   pendingAgreementToken = token;
   pendingAgreementVersion = agreementVersion;
@@ -8038,6 +8039,11 @@ function showPolicyAgreementStep(email, token, agreementVersion, agreementEffect
   // Agreement page does the same fallback, so this is just belt and
   // suspenders in case the backend ever returns a blank name.
   pendingAgreementName = (advisorName || '').trim();
+  // Organization / Agency on the standalone page is prefilled from the
+  // Advisor's Branch (Buyers sheet BRANCH column), not typed manually —
+  // stays blank if the Advisor has no branch on file, same fallback
+  // pattern as the name above.
+  pendingAgreementOrg = (advisorOrg || '').trim();
   clearAllGateErrors();
   hideAllGateSteps();
   document.getElementById('paVersionLabel').textContent = agreementVersion || '—';
@@ -8128,6 +8134,7 @@ async function submitPolicyAgreement() {
         const pdfPageUrl = 'https://jccbusinesssolutions.github.io/POLICYAGREEMENTS/'
           + '?advisorEmail=' + encodeURIComponent(pendingAgreementEmail)
           + '&advisorName=' + encodeURIComponent(pendingAgreementName || pendingAgreementEmail)
+          + '&advisorOrg=' + encodeURIComponent(pendingAgreementOrg)
           + '&auto=1';
         window.open(pdfPageUrl, '_blank', 'noopener');
       } catch (popupErr) {
@@ -8139,7 +8146,7 @@ async function submitPolicyAgreement() {
       // with the new version/date rather than silently record acceptance
       // of a now-outdated one.
       errEl.textContent = 'The Policy Agreement was just updated. Please review the new version below.';
-      showPolicyAgreementStep(pendingAgreementEmail, pendingAgreementToken, data.agreementVersion, data.agreementEffectiveDate, pendingAgreementName);
+      showPolicyAgreementStep(pendingAgreementEmail, pendingAgreementToken, data.agreementVersion, data.agreementEffectiveDate, pendingAgreementName, pendingAgreementOrg);
     } else if (data && data.status === 'DENIED') {
       errEl.textContent = (data && data.message) || 'Your session has expired. Please log in again.';
       setTimeout(showEmailStep, 1800);
@@ -8238,7 +8245,7 @@ async function accessGate() {
         localStorage.removeItem('cpRememberedEmail');
         localStorage.removeItem('cpRememberedPassword');
       }
-      showPolicyAgreementStep(email, data.token, data.agreementVersion, data.agreementEffectiveDate, data.advisorName);
+      showPolicyAgreementStep(email, data.token, data.agreementVersion, data.agreementEffectiveDate, data.advisorName, data.advisorOrg);
     } else if (status === 'NEEDS_SETUP') {
       // First time this email is logging in — no password on file yet.
       showSetupPasswordStep(email);
@@ -8283,7 +8290,7 @@ async function submitSetupPassword() {
     if (data && data.status === 'PAID' && data.token) {
       finalizeLoginSuccess(pendingFlowEmail, data.token, data.daysUntilExpiration);
     } else if (data && data.status === 'AGREEMENT_REQUIRED' && data.token) {
-      showPolicyAgreementStep(pendingFlowEmail, data.token, data.agreementVersion, data.agreementEffectiveDate, data.advisorName);
+      showPolicyAgreementStep(pendingFlowEmail, data.token, data.agreementVersion, data.agreementEffectiveDate, data.advisorName, data.advisorOrg);
     } else if (data && data.status === 'ALREADY_SET') {
       errEl.textContent = 'A password is already set for this account. Please log in instead.';
       setTimeout(showEmailStep, 1800);
@@ -8368,7 +8375,7 @@ async function submitResetPassword() {
     if (data && data.status === 'ok' && data.token) {
       finalizeLoginSuccess(pendingFlowEmail, data.token);
     } else if (data && data.status === 'AGREEMENT_REQUIRED' && data.token) {
-      showPolicyAgreementStep(pendingFlowEmail, data.token, data.agreementVersion, data.agreementEffectiveDate, data.advisorName);
+      showPolicyAgreementStep(pendingFlowEmail, data.token, data.agreementVersion, data.agreementEffectiveDate, data.advisorName, data.advisorOrg);
     } else if (data && data.status === 'EXPIRED_CODE') {
       errEl.textContent = 'That code has expired. Please request a new one.';
     } else if (data && data.status === 'INVALID_CODE') {
