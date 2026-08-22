@@ -8112,10 +8112,22 @@ async function _generatePolicyAgreementPdf(){
   const timeStr = now.toLocaleTimeString();
   const policyBodyHtml = document.getElementById('policyAgreementScrollBox').innerHTML;
 
+  // IMPORTANT: html2canvas (which html2pdf uses internally) frequently
+  // produces a BLANK capture for elements pushed off-screen via
+  // `position:fixed; left:-99999px` — it loses track of the correct
+  // capture bounds. The reliable fix is to keep the snapshot in normal
+  // document flow (so it has real, correctly-computed layout) but wrap
+  // it in a zero-height, overflow:hidden container so it never actually
+  // shows on screen. html2canvas captures the INNER element directly,
+  // so its own real width/height still render correctly even though
+  // the outer wrapper visually clips it to nothing.
+  const clipWrapper = document.createElement('div');
+  clipWrapper.style.height = '0';
+  clipWrapper.style.overflow = 'hidden';
+  clipWrapper.style.margin = '0';
+  clipWrapper.style.padding = '0';
+
   const snapshot = document.createElement('div');
-  snapshot.style.position = 'fixed';
-  snapshot.style.top = '0';
-  snapshot.style.left = '-99999px'; // off-screen, but NOT display:none — html2pdf needs real layout
   snapshot.style.width = '760px';
   snapshot.style.background = '#fff';
   snapshot.style.padding = '40px 36px';
@@ -8136,20 +8148,37 @@ async function _generatePolicyAgreementPdf(){
       This is a system-generated record of electronic acceptance, not a substitute for independent legal advice.
     </div>
   `;
-  document.body.appendChild(snapshot);
+  clipWrapper.appendChild(snapshot);
+  document.body.appendChild(clipWrapper);
+
+  // Give the browser one paint cycle to actually lay out the snapshot
+  // before html2canvas measures it — appending and immediately
+  // capturing in the same tick can occasionally race ahead of layout
+  // on slower devices, which is another known cause of blank output.
+  await new Promise(resolve => requestAnimationFrame(resolve));
 
   try {
     const opt = {
       margin: 8,
       image: { type: 'jpeg', quality: 0.7 },
-      html2canvas: { scale: 1.2, useCORS: true },
+      html2canvas: {
+        scale: 1.2,
+        useCORS: true,
+        // Explicit window size + zero scroll offset makes html2canvas
+        // capture exactly the snapshot element's own box, regardless of
+        // where the actual page happens to be scrolled to.
+        windowWidth: snapshot.scrollWidth,
+        windowHeight: snapshot.scrollHeight,
+        scrollX: 0,
+        scrollY: 0
+      },
       jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
       pagebreak: { mode: ['css'] }
     };
     const blob = await html2pdf().set(opt).from(snapshot).outputPdf('blob');
     return await _blobToBase64(blob);
   } finally {
-    document.body.removeChild(snapshot);
+    document.body.removeChild(clipWrapper);
   }
 }
 
