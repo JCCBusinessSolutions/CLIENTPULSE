@@ -8127,25 +8127,31 @@ async function _generatePolicyAgreementPdf(){
   clipWrapper.style.margin = '0';
   clipWrapper.style.padding = '0';
 
+  // 794px ≈ A4 width at 96dpi — matches the actual printed page width
+  // rather than an arbitrary narrow column, so the PDF reads like a
+  // real full-width document, not a mobile-app screenshot stretched
+  // onto a page.
+  const SNAPSHOT_WIDTH = 794;
+
   const snapshot = document.createElement('div');
-  snapshot.style.width = '760px';
+  snapshot.style.width = SNAPSHOT_WIDTH + 'px';
   snapshot.style.background = '#fff';
-  snapshot.style.padding = '40px 36px';
+  snapshot.style.padding = '48px 56px';
   snapshot.style.fontFamily = 'Arial, sans-serif';
+  snapshot.style.boxSizing = 'border-box';
   snapshot.innerHTML = `
-    <div style="text-align:center;margin-bottom:24px;padding-bottom:16px;border-bottom:1px solid #e7dfcf;">
-      <div style="font-family:Georgia,serif;font-size:22px;font-weight:700;color:#0C447C;">Client Pulse</div>
-      <div style="font-size:11px;letter-spacing:1px;color:#C99A3B;font-weight:700;margin-top:4px;">CLIENT PULSE POLICY AGREEMENT — ELECTRONIC ACCEPTANCE</div>
+    <div style="text-align:center;margin-bottom:28px;padding-bottom:18px;border-bottom:2px solid #C99A3B;">
+      <div style="font-family:Georgia,serif;font-size:26px;font-weight:700;color:#0C447C;">Client Pulse</div>
+      <div style="font-size:12px;letter-spacing:1.5px;color:#C99A3B;font-weight:700;margin-top:6px;">POLICY AGREEMENT — ELECTRONIC ACCEPTANCE</div>
     </div>
-    <table style="width:100%;margin:0 0 20px;border-collapse:collapse;font-size:13px;color:#333;">
-      <tr><td style="padding:4px 0;color:#6B7280;width:160px;">Advisor Email</td><td style="padding:4px 0;font-weight:700;">${pendingAgreementEmail}</td></tr>
-      <tr><td style="padding:4px 0;color:#6B7280;">Agreement Version</td><td style="padding:4px 0;font-weight:700;">${pendingAgreementVersion}</td></tr>
-      <tr><td style="padding:4px 0;color:#6B7280;">Date Accepted</td><td style="padding:4px 0;font-weight:700;">${dateStr} &middot; ${timeStr}</td></tr>
+    <table style="width:100%;margin:0 0 24px;border-collapse:collapse;font-size:14px;color:#333;">
+      <tr><td style="padding:5px 0;color:#6B7280;width:180px;">Advisor Email</td><td style="padding:5px 0;font-weight:700;">${pendingAgreementEmail}</td></tr>
+      <tr><td style="padding:5px 0;color:#6B7280;">Agreement Version</td><td style="padding:5px 0;font-weight:700;">${pendingAgreementVersion}</td></tr>
+      <tr><td style="padding:5px 0;color:#6B7280;">Date Accepted</td><td style="padding:5px 0;font-weight:700;">${dateStr} &middot; ${timeStr}</td></tr>
     </table>
-    <div style="font-size:12px;line-height:1.6;color:#333;">${policyBodyHtml}</div>
-    <div style="margin-top:28px;padding-top:14px;border-top:1px solid #e7dfcf;text-align:center;font-size:11px;color:#6B7280;">
-      JCC Business Solutions, Intellectual Property of Jaymar Castro, CPA, CIS, CEP<br>
-      This is a system-generated record of electronic acceptance, not a substitute for independent legal advice.
+    <div style="font-size:13px;line-height:1.65;color:#333;">${policyBodyHtml}</div>
+    <div style="margin-top:32px;padding-top:16px;border-top:1px solid #e7dfcf;text-align:center;font-size:11px;color:#6B7280;font-weight:700;letter-spacing:.3px;">
+      JCC BUSINESS SOLUTIONS | All Rights Reserved 2026
     </div>
   `;
   clipWrapper.appendChild(snapshot);
@@ -8159,15 +8165,23 @@ async function _generatePolicyAgreementPdf(){
 
   try {
     const opt = {
-      margin: 8,
-      image: { type: 'jpeg', quality: 0.7 },
+      margin: 10,
+      image: { type: 'jpeg', quality: 0.92 },
       html2canvas: {
-        scale: 1.2,
+        // 2x scale renders crisp, non-blurry text in the final PDF —
+        // 1.2 previously left text visibly soft/pixelated.
+        scale: 2,
         useCORS: true,
-        // Explicit window size + zero scroll offset makes html2canvas
-        // capture exactly the snapshot element's own box, regardless of
-        // where the actual page happens to be scrolled to.
-        windowWidth: snapshot.scrollWidth,
+        // `width`/`height` are what actually crop the capture area —
+        // `windowWidth`/`windowHeight` alone only affects responsive
+        // layout, NOT the capture bounds, which was the real cause of
+        // the previous PDF being clipped to a narrow left column.
+        // Setting all four together guarantees the FULL snapshot,
+        // 794px wide, gets captured rather than whatever the live
+        // browser viewport happened to be.
+        width: SNAPSHOT_WIDTH,
+        height: snapshot.scrollHeight,
+        windowWidth: SNAPSHOT_WIDTH,
         windowHeight: snapshot.scrollHeight,
         scrollX: 0,
         scrollY: 0
