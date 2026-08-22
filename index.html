@@ -8468,6 +8468,24 @@ document.getElementById('gateEmail').addEventListener('keydown', (e) => {
   if (e.key === 'Enter') accessGate();
 });
 
+// SAFEGUARD: "Remember Me" pre-fills BOTH the email and password fields
+// from localStorage, which is shared across the entire browser profile
+// (every tab, indefinitely) — not scoped to any one account. If someone
+// then edits the email field to a DIFFERENT address without also
+// clearing the password, the old remembered password could get
+// silently submitted alongside the new email. This clears the password
+// field the moment the email is changed away from whatever was
+// remembered, so a stale credential can never ride along with an
+// intentionally different email — the person is forced to type a
+// fresh password for the new account instead.
+document.getElementById('gateEmail').addEventListener('input', () => {
+  const rememberedEmail = (localStorage.getItem('cpRememberedEmail') || '').toLowerCase();
+  const typedEmail = document.getElementById('gateEmail').value.trim().toLowerCase();
+  if (rememberedEmail && typedEmail !== rememberedEmail) {
+    document.getElementById('gatePassword').value = '';
+  }
+});
+
 // ============================================================
 // CLIENT PREFERENCE MANAGEMENT & SEARCH FILTER
 // ============================================================
