@@ -8027,11 +8027,17 @@ function hideAllGateSteps() {
 let pendingAgreementEmail = '';
 let pendingAgreementToken = '';
 let pendingAgreementVersion = '';
+let pendingAgreementName = '';
 
-function showPolicyAgreementStep(email, token, agreementVersion, agreementEffectiveDate) {
+function showPolicyAgreementStep(email, token, agreementVersion, agreementEffectiveDate, advisorName) {
   pendingAgreementEmail = email;
   pendingAgreementToken = token;
   pendingAgreementVersion = agreementVersion;
+  // Falls back to the email address only if the Buyers sheet has no
+  // NAME column value for this Advisor — the standalone Policy
+  // Agreement page does the same fallback, so this is just belt and
+  // suspenders in case the backend ever returns a blank name.
+  pendingAgreementName = (advisorName || '').trim();
   clearAllGateErrors();
   hideAllGateSteps();
   document.getElementById('paVersionLabel').textContent = agreementVersion || '—';
@@ -8121,6 +8127,7 @@ async function submitPolicyAgreement() {
       try {
         const pdfPageUrl = 'https://jccbusinesssolutions.github.io/POLICYAGREEMENTS/'
           + '?advisorEmail=' + encodeURIComponent(pendingAgreementEmail)
+          + '&advisorName=' + encodeURIComponent(pendingAgreementName || pendingAgreementEmail)
           + '&auto=1';
         window.open(pdfPageUrl, '_blank', 'noopener');
       } catch (popupErr) {
@@ -8132,7 +8139,7 @@ async function submitPolicyAgreement() {
       // with the new version/date rather than silently record acceptance
       // of a now-outdated one.
       errEl.textContent = 'The Policy Agreement was just updated. Please review the new version below.';
-      showPolicyAgreementStep(pendingAgreementEmail, pendingAgreementToken, data.agreementVersion, data.agreementEffectiveDate);
+      showPolicyAgreementStep(pendingAgreementEmail, pendingAgreementToken, data.agreementVersion, data.agreementEffectiveDate, pendingAgreementName);
     } else if (data && data.status === 'DENIED') {
       errEl.textContent = (data && data.message) || 'Your session has expired. Please log in again.';
       setTimeout(showEmailStep, 1800);
@@ -8231,7 +8238,7 @@ async function accessGate() {
         localStorage.removeItem('cpRememberedEmail');
         localStorage.removeItem('cpRememberedPassword');
       }
-      showPolicyAgreementStep(email, data.token, data.agreementVersion, data.agreementEffectiveDate);
+      showPolicyAgreementStep(email, data.token, data.agreementVersion, data.agreementEffectiveDate, data.advisorName);
     } else if (status === 'NEEDS_SETUP') {
       // First time this email is logging in — no password on file yet.
       showSetupPasswordStep(email);
@@ -8276,7 +8283,7 @@ async function submitSetupPassword() {
     if (data && data.status === 'PAID' && data.token) {
       finalizeLoginSuccess(pendingFlowEmail, data.token, data.daysUntilExpiration);
     } else if (data && data.status === 'AGREEMENT_REQUIRED' && data.token) {
-      showPolicyAgreementStep(pendingFlowEmail, data.token, data.agreementVersion, data.agreementEffectiveDate);
+      showPolicyAgreementStep(pendingFlowEmail, data.token, data.agreementVersion, data.agreementEffectiveDate, data.advisorName);
     } else if (data && data.status === 'ALREADY_SET') {
       errEl.textContent = 'A password is already set for this account. Please log in instead.';
       setTimeout(showEmailStep, 1800);
@@ -8361,7 +8368,7 @@ async function submitResetPassword() {
     if (data && data.status === 'ok' && data.token) {
       finalizeLoginSuccess(pendingFlowEmail, data.token);
     } else if (data && data.status === 'AGREEMENT_REQUIRED' && data.token) {
-      showPolicyAgreementStep(pendingFlowEmail, data.token, data.agreementVersion, data.agreementEffectiveDate);
+      showPolicyAgreementStep(pendingFlowEmail, data.token, data.agreementVersion, data.agreementEffectiveDate, data.advisorName);
     } else if (data && data.status === 'EXPIRED_CODE') {
       errEl.textContent = 'That code has expired. Please request a new one.';
     } else if (data && data.status === 'INVALID_CODE') {
