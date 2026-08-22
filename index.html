@@ -1280,6 +1280,419 @@ input:checked + #studioSection .slider-toggle::before{transform:translateX(19px)
       <button type="button" class="gate-link" onclick="showEmailStep()">Back to login</button>
       <div class="gate-footer">JCC BUSINESS SOLUTIONS&trade;<br>All Rights Reserved 2026</div>
     </div>
+
+    <!-- Step 5: Policy Agreement acceptance — hard block shown when the
+         backend's login response is AGREEMENT_REQUIRED. There is no
+         dismiss/skip; the Advisor cannot proceed to the dashboard until
+         they check the box and click Accept. Text is intentionally
+         hardcoded here (not fetched from a config sheet) — only the
+         VERSION and EFFECTIVE DATE shown below come from the backend
+         (set from the Admin Command Center's Policy Agreement panel);
+         wording changes are a code change, same as the standalone
+         JCC_POLICY_AGREEMENTS.html page. -->
+    <div id="policyAgreementStep" style="display:none;">
+      <div class="gate-hint" style="margin-bottom:10px;">
+        Please review and accept the current CLIENT PULSE Policy Agreement to continue.
+        <span style="display:block;margin-top:4px;font-weight:700;color:#0C447C;">Version <span id="paVersionLabel">—</span> &middot; Effective <span id="paEffectiveDateLabel">—</span></span>
+      </div>
+      <div id="policyAgreementScrollBox" onscroll="_checkPolicyAgreementScrolled()" style="max-height:260px;overflow-y:auto;border:1px solid #ddd;border-radius:8px;padding:14px;font-size:12.5px;line-height:1.6;color:#333;background:#fff;margin-bottom:8px;">
+<p style="font-weight:700;color:#0C447C;font-size:13.5px;margin:0 0 8px;">Part 1: 15-Day Limited Warranty</p>
+<p style="font-weight:700;color:#0C447C;margin:14px 0 6px;">1. Overview</p>
+  <p>
+    JCC Business Solutions ("JCC," "we," "us") provides a 15-calendar-day limited warranty
+    on each one-time purchase of its digital tools (the "App"). Under this warranty, JCC's
+    first commitment is to <strong>fix confirmed software defects ("Bugs") free of charge</strong>.
+    If, after a genuine good-faith attempt, a confirmed Bug cannot reasonably be fixed, the
+    Buyer becomes eligible for a <strong>full refund</strong> of the purchase price for that
+    App, subject to the exceptions in Section 5(c) below, which mainly cover situations where
+    the issue was caused by the Buyer's own changes to the Google Sheet or the App itself.
+  </p>
+
+  <p style="font-weight:700;color:#0C447C;margin:14px 0 6px;">2. Warranty Period</p>
+  <p>
+    The warranty period begins on the date the App (or access to it) is delivered to the
+    Buyer, whether by file transfer, shared link, or successful first setup, and ends
+    fifteen (15) calendar days after that date. The Buyer must <strong>report</strong> the
+    issue within this 15-day period for it to be covered. Once a report is timely received,
+    JCC will continue working toward a resolution (fix, or refund if unfixable) even if that
+    process extends a few days beyond the 15-day window. Requests first reported after the
+    15-day period are not covered, though JCC may, at its sole discretion, still choose to
+    assist.
+  </p>
+
+  <p style="font-weight:700;color:#0C447C;margin:14px 0 6px;">3. What Is Covered</p>
+  <p>During the warranty period, JCC will investigate and, where confirmed, correct at no cost any Bug that:</p>
+  <ol>
+    <li>Causes a core, advertised feature of the App to fail to work as demonstrated or described at the time of purchase;</li>
+    <li>Is reproducible by JCC using the App in its standard, supported configuration (hosted on GitHub Pages or an equivalent static host, connected to a correctly configured Google Sheets + Apps Script backend matching the setup guide provided); and</li>
+    <li>Is reported by the Buyer with enough detail (see Section 6) for JCC to identify and reproduce the issue.</li>
+  </ol>
+
+  <div style="background:#FDF8F0;border-left:3px solid #C99A3B;border-radius:6px;padding:10px 12px;margin:10px 0;">
+    <strong>In short:</strong> if a feature that was working at delivery breaks due to an
+    error in JCC's code, that's covered. If it's something the Buyer's setup, sheet, or
+    third-party service is doing, that's outside this warranty.
+  </div>
+
+  <p style="font-weight:700;color:#0C447C;margin:14px 0 6px;">4. What Is Not Covered</p>
+  <p>This warranty does not cover the items below, and they are not eligible for either a free fix or a refund:</p>
+  <div style="background:#FDECEC;border-left:3px solid #C0392B;border-radius:6px;padding:10px 12px;margin:10px 0;">
+    <ul >
+      <li>Issues caused by the Buyer's own configuration, such as incorrect Apps Script deployment settings, mismatched or renamed Google Sheet column headers, missing sheet permissions, or expired or revoked Google account access;</li>
+      <li>Changes, outages, or policy updates made by third-party platforms outside JCC's control (Google Sheets, Google Apps Script, GitHub Pages, EmailJS, the Buyer's browser, etc.);</li>
+      <li>Modifications made to the App's source code by the Buyer or any third party after delivery;</li>
+      <li>New feature requests, design changes, or enhancements not part of the App's advertised functionality at the time of purchase. These are not Bugs;</li>
+      <li>Compatibility issues from unsupported browsers or devices (supported: current Chrome, Safari, and Edge, desktop and mobile);</li>
+      <li>Data loss or formatting issues originating from the Buyer's own Google Sheet (deleted rows, changed headers, manual edits);</li>
+      <li>Problems caused by the Buyer's internet connection, device, or hosting account; or</li>
+      <li>Unauthorized resale, redistribution, or use of the App beyond the single-buyer license granted at purchase.</li>
+    </ul>
+  </div>
+
+  <p style="font-weight:700;color:#0C447C;margin:14px 0 6px;">5. Remedy</p>
+
+  <p><strong>(a) Primary Remedy: Repair.</strong> JCC's first obligation under this warranty
+  is to use commercially reasonable, good-faith efforts to fix confirmed Bugs (as defined in
+  Section 3) and deliver a corrected version of the App to the Buyer within a reasonable
+  time, generally within five (5) to seven (7) business days of confirming the defect,
+  depending on complexity.</p>
+
+  <p><strong>(b) Fallback Remedy: Refund for Unfixable Defects.</strong> If, after a genuine
+  good-faith effort, JCC determines that a confirmed Bug cannot reasonably be resolved, the
+  Buyer is entitled to a full refund of the purchase price paid for that App, provided none
+  of the exceptions in Section 5(c) apply.</p>
+
+  <div style="background:#FDF8F0;border-left:3px solid #C99A3B;border-radius:6px;padding:10px 12px;margin:10px 0;">
+    <strong>In short:</strong> JCC will always try to fix a genuine Bug first. If it truly
+    can't be fixed, the Buyer gets their money back, unless the reason it can't be fixed
+    traces back to changes the Buyer (or someone on the Buyer's behalf) made to the Google
+    Sheet or the App itself.
+  </div>
+
+  <p><strong>(c) Exceptions: When the Refund in Section 5(b) Does Not Apply.</strong>
+  The Buyer is not entitled to a refund under Section 5(b) if the unresolved issue is caused
+  by, or traceable to, any of the following:</p>
+  <div style="background:#FDECEC;border-left:3px solid #C0392B;border-radius:6px;padding:10px 12px;margin:10px 0;">
+    <ul >
+      <li>Any modification, alteration, or customization the Buyer (or a third party on the Buyer's behalf) made to the Google Sheet(s) used by the App, including renamed or deleted columns, changed headers, altered formulas, or restructured tabs;</li>
+      <li>Any modification, alteration, or customization the Buyer (or a third party on the Buyer's behalf) made to the App's source code or files after delivery; or</li>
+      <li>Any of the circumstances already listed in Section 4 (e.g., third-party platform changes, unsupported browsers, the Buyer's own configuration errors, internet or device issues). Since these do not qualify as a confirmed Bug in the first place, they are not eligible for a fix or a refund under this warranty.</li>
+    </ul>
+  </div>
+  <p>
+    In these cases, JCC may still choose, at its sole discretion, to assist the Buyer.
+    For example, JCC may offer guidance on restoring the original Sheet structure, but is
+    under no obligation to do so.
+  </p>
+
+  <p><strong>(d) How a Refund Is Processed.</strong> Where a refund applies under Section
+  5(b), JCC will process it to the original payment method or channel used by the Buyer
+  within a reasonable time after confirming the defect is unfixable. JCC reserves the right
+  to request that the Buyer confirm removal or discontinued use of the App as a condition
+  of the refund.</p>
+
+  <p style="font-weight:700;color:#0C447C;margin:14px 0 6px;">6. How to Request Warranty Support</p>
+  <p>To request a warranty fix (and, if applicable, a refund under Section 5(b)), the Buyer must, within the 15-day period:</p>
+  <ol>
+    <li>Contact JCC through <strong>jccbusinesssolutions@gmail.com</strong>;</li>
+    <li>Provide proof of purchase (invoice number, receipt, or payment confirmation);</li>
+    <li>Describe the issue in detail, including the steps to reproduce it; and</li>
+    <li>If possible, provide a screenshot or screen recording of the issue.</li>
+  </ol>
+
+  <p style="font-weight:700;color:#0C447C;margin:14px 0 6px;">7. Limitation of Liability</p>
+  <p>
+    To the fullest extent permitted by law, JCC's total liability for any claim relating to
+    the App, whether under this warranty, contract, or otherwise, is limited to the
+    purchase price actually paid by the Buyer for that App. JCC is not liable for indirect,
+    incidental, consequential, or special damages, including lost income, lost data, or
+    business interruption.
+  </p>
+
+  <p style="font-weight:700;color:#0C447C;margin:14px 0 6px;">8. Single License, No Resale</p>
+  <p>
+    The App is licensed for use by the individual or business that purchased it. This
+    warranty is personal to the original Buyer and does not transfer if the App is resold,
+    shared, or distributed to a third party.
+  </p>
+
+  <p style="font-weight:700;color:#0C447C;margin:14px 0 6px;">9. Changes to This Policy</p>
+  <p>
+    JCC may update this warranty policy for future purchases. Changes will not apply
+    retroactively to purchases already made before the update.
+  </p>
+
+  <p style="font-weight:700;color:#0C447C;margin:14px 0 6px;">10. Governing Law</p>
+  <p>
+    This warranty is governed by the laws of the Republic of the Philippines. Nothing in
+    this policy is intended to waive any right that cannot be waived under Philippine law,
+    including applicable provisions of the Civil Code and the Consumer Act of the
+    Philippines (Republic Act No. 7394), to the extent such laws apply to the transaction.
+  </p>
+<p style="font-weight:700;color:#0C447C;font-size:13.5px;margin:20px 0 8px;border-top:1px solid #e7dfcf;padding-top:16px;">Part 2: Data Privacy Policy</p>
+<p style="font-weight:700;color:#0C447C;margin:14px 0 6px;">1. Who This Policy Is For</p>
+  <p>
+    Client Pulse is a software application developed and licensed by JCC Business Solutions
+    ("JCC," "we," "us") for financial advisors ("Advisor," "you") to help manage client
+    premium due reminders, birthday greetings, and related client-servicing activities. This
+    policy applies to Advisors who use Client Pulse and explains how personal information may
+    be handled in connection with the application. For purposes of this policy, "Client Data"
+    means personal information relating to the Advisor's own clients that the Advisor chooses
+    to enter into or use with Client Pulse.
+  </p>
+
+  <p style="font-weight:700;color:#0C447C;margin:14px 0 6px;">2. Roles and Responsibilities Under the Data Privacy Act</p>
+  <p>
+    The Advisor generally determines which clients are entered into Client Pulse, what
+    information is used, why the information is processed, and how the Advisor communicates
+    with those clients. Accordingly, the Advisor is generally responsible for determining and
+    maintaining the appropriate lawful basis for processing Client Data and for complying with
+    applicable privacy laws, company policies, contractual obligations, and client-facing
+    requirements.
+  </p>
+  <p>
+    JCC is primarily a software provider. Client Pulse is designed so that JCC does not
+    ordinarily receive, store, or directly access the Advisor's Client Data during normal
+    operation. However, the legal classification of a party under the Data Privacy Act
+    depends on the actual nature of the processing activity. If JCC actually receives or
+    processes personal information in a particular circumstance, JCC will handle that
+    information only for the legitimate purpose for which it was provided and in accordance
+    with applicable data privacy requirements.
+  </p>
+
+  <p style="font-weight:700;color:#0C447C;margin:14px 0 6px;">3. How Client Pulse Actually Handles Data</p>
+  <p>This is the part most Advisors want to understand clearly, so here it is in plain terms:</p>
+  <ol>
+    <li>Client Pulse runs as a web application inside the Advisor's own browser.</li>
+    <li>The Advisor creates and controls their own Google Sheet, using their own Google account, as the application's client database.</li>
+    <li>The Advisor deploys their own Google Apps Script (a small backend program) under their own Google account. This is what actually stores and retrieves Client Data such as names, policy numbers, premium amounts, due dates, contact numbers, and birthdays.</li>
+    <li>The Client Pulse frontend communicates directly with the Advisor's own Apps Script deployment and Google Sheet, rather than routing the Advisor's Client Data through a JCC-operated central database.</li>
+    <li>JCC does not maintain a central database containing the Advisor's Client Data as part of normal operation, does not require the Advisor to upload their complete client database to JCC, and does not require the Advisor's Google password.</li>
+  </ol>
+
+  <div style="background:#EAF4EC;border-left:3px solid #27AE60;border-radius:6px;padding:10px 12px;margin:10px 0;">
+    <strong>The key point:</strong> Client Pulse is designed so that the Advisor does not need
+    to upload their client database to JCC Business Solutions. JCC does not ordinarily
+    receive, store, or directly access the Advisor's Client Data during normal operation.
+    During normal operation, Client Data remains within the Advisor's Google environment,
+    subject to Google's own services, infrastructure, and policies, and the Advisor's own
+    account and security settings. This does not mean Client Data can never leave the
+    Advisor's Google account — third-party services and communication tools the Advisor
+    configures may process certain information depending on the Advisor's own setup.
+  </div>
+
+  <p style="font-weight:700;color:#0C447C;margin:14px 0 6px;">4. What JCC Does Not Ordinarily Collect or Access</p>
+  <p>During normal operation, JCC does not ordinarily receive or maintain a copy of the Advisor's:</p>
+  <ul>
+    <li>Client names</li>
+    <li>Policy numbers</li>
+    <li>Premium or amount due information</li>
+    <li>Client contact numbers, email addresses, or home addresses</li>
+    <li>Birthdates or other Client Data entered into the Advisor's own Google Sheet</li>
+  </ul>
+  <p>
+    These types of Client Data are not ordinarily collected or stored by JCC as part of the
+    normal operation of Client Pulse. This section describes how the app ordinarily operates;
+    Section 6 explains the limited circumstances in which incidental access may occur.
+  </p>
+
+  <p style="font-weight:700;color:#0C447C;margin:14px 0 6px;">5. What JCC May Collect</p>
+  <p>JCC may collect limited information about the Advisor as a customer or user of the software, such as:</p>
+  <ul>
+    <li>Advisor name, email address, and contact details;</li>
+    <li>Purchase or subscription information and payment confirmation or transaction reference details, which the Advisor provides directly;</li>
+    <li>Information voluntarily provided in customer support communications;</li>
+    <li>Information reasonably necessary to provide technical support or administer the software license.</li>
+  </ul>
+  <p>
+    JCC will not intentionally use Advisor information or Client Data for unrelated purposes,
+    including selling personal information, profiling clients, or marketing to the Advisor's
+    clients.
+  </p>
+
+  <p style="font-weight:700;color:#0C447C;margin:14px 0 6px;">6. Data Minimization</p>
+  <p>
+    Client Pulse is designed around data minimization. Advisors should only enter information
+    reasonably necessary for the intended client-servicing functions of the application, and
+    should avoid entering unnecessary sensitive or unrelated information.
+  </p>
+  <div style="background:#FDECEC;border-left:3px solid #C0392B;border-radius:6px;padding:10px 12px;margin:10px 0;">
+    <ul >
+      <li>Advisors should NOT enter passwords, authentication credentials, security codes, or other authentication secrets into Client Pulse;</li>
+      <li>Advisors should avoid entering unnecessary health information, financial information, government identification numbers, or other sensitive information unless genuinely necessary for the Advisor's legitimate workflow and permitted by applicable law and organizational policy.</li>
+    </ul>
+  </div>
+
+  <p style="font-weight:700;color:#0C447C;margin:14px 0 6px;">7. Technical Support and Incidental Access</p>
+  <p>
+    JCC does not ordinarily require access to an Advisor's Client Data in order to provide
+    Client Pulse. If an Advisor voluntarily provides a screenshot, screen recording, sample
+    export, error message, log, or other material for technical support, that material may
+    incidentally contain limited Client Data. Advisors are strongly encouraged to remove
+    client names, mask policy numbers and contact numbers, remove unnecessary financial
+    information, redact sensitive personal information, and use test or anonymized data
+    whenever reasonably practicable when sharing material for support.
+  </p>
+  <p>JCC will use any Client Data voluntarily provided during technical support only for the specific support, troubleshooting, security, or maintenance purpose for which it was provided. JCC will not:</p>
+  <ul>
+    <li>sell the information;</li>
+    <li>use it for advertising or profiling;</li>
+    <li>use it to build a separate client database;</li>
+    <li>disclose it to unrelated third parties; or</li>
+    <li>use it for a purpose unrelated to the support request.</li>
+  </ul>
+  <p>
+    JCC will restrict access to voluntarily provided support information to persons who
+    reasonably need it for the relevant support or security purpose, and will retain it only
+    for as long as reasonably necessary, subject to legitimate legal, contractual, or
+    recordkeeping requirements.
+  </p>
+
+  <p style="font-weight:700;color:#0C447C;margin:14px 0 6px;">8. Data Security</p>
+  <p>
+    Client Pulse is designed to minimize JCC's direct exposure to Client Data. JCC maintains
+    reasonable and appropriate technical and organizational safeguards for the systems and
+    information under JCC's control, which may include HTTPS/TLS connections, controlled
+    access to JCC systems, reasonable source-code access controls, secure coding practices,
+    minimizing unnecessary collection of personal information, avoiding intentional storage of
+    Client Data on JCC-controlled infrastructure, avoiding unnecessary inclusion of personal
+    information in application logs, and reasonable vulnerability identification, remediation,
+    and incident response procedures.
+  </p>
+  <p>
+    The Advisor is responsible for securing the Google environment used for their Client Data,
+    including their Google account, passwords, multi-factor authentication, device security,
+    and Google Sheet sharing permissions. JCC cannot guarantee the security of third-party
+    infrastructure, or of the Advisor's own devices, networks, Google account, or third-party
+    services.
+  </p>
+
+  <p style="font-weight:700;color:#0C447C;margin:14px 0 6px;">9. Security Incidents and Personal Data Breaches</p>
+  <p>
+    JCC maintains reasonable procedures for identifying, assessing, containing, investigating,
+    documenting, and mitigating security incidents involving systems or information under
+    JCC's control. If JCC becomes aware of an actual or reasonably suspected security incident
+    involving Client Data that JCC has received or processed, JCC will assess the nature and
+    scope of the incident, take reasonable steps to contain and mitigate it, investigate
+    relevant technical circumstances, document material facts and remedial actions, notify the
+    affected Advisor as appropriate, and reasonably cooperate with the Advisor where required
+    by applicable law or contractual obligations. Any notification, reporting, or cooperation
+    obligations will be determined based on the nature and circumstances of the incident and
+    applicable Philippine privacy laws and regulations.
+  </p>
+
+  <p style="font-weight:700;color:#0C447C;margin:14px 0 6px;">10. Rights of the Advisor's Clients</p>
+  <p>
+    The Advisor is generally responsible for managing requests and obligations relating to
+    their client relationships and Client Data, because the Advisor determines the purposes
+    and means of the relevant client processing. The Advisor is responsible for ensuring there
+    is an appropriate lawful basis for processing Client Data, and for satisfying applicable
+    transparency, notice, access, correction, objection, erasure/blocking, and other
+    data-subject requirements.
+  </p>
+  <p>
+    If JCC receives a privacy request relating to Client Data that JCC actually holds or
+    processes, JCC will reasonably cooperate with the Advisor as required by applicable law.
+  </p>
+
+  <p style="font-weight:700;color:#0C447C;margin:14px 0 6px;">11. Data Retention</p>
+  <p>
+    JCC does not ordinarily retain the Advisor's Client Data, because Client Data is designed
+    to remain in the Advisor's own Google environment. The Advisor is responsible for
+    establishing appropriate retention and deletion practices for Client Data in accordance
+    with applicable law, company policy, contractual requirements, and legitimate business
+    purposes.
+  </p>
+  <p>
+    JCC may retain limited Advisor/customer information necessary for purchase records,
+    billing, subscription administration, customer support, contractual records, security
+    purposes, or legal and regulatory obligations. If Client Data is voluntarily provided to
+    JCC during support, it will be retained only for as long as reasonably necessary for the
+    stated purpose, subject to legitimate legal or recordkeeping requirements.
+  </p>
+
+  <p style="font-weight:700;color:#0C447C;margin:14px 0 6px;">12. Third-Party Services Involved</p>
+  <p>Client Pulse may rely on third-party services selected or configured by the Advisor, or used to deliver the application, including:</p>
+  <ul>
+    <li>Google Sheets, Google Apps Script, and Google Drive, under the Advisor's own Google account, which may process Client Data;</li>
+    <li>GitHub Pages or another static hosting provider, used primarily to deliver the Client Pulse application itself, and not intended to serve as JCC's central Client Data database;</li>
+    <li>Email or messaging services the Advisor configures, which may process limited information such as email addresses, telephone numbers, or message content as necessary to deliver the communication.</li>
+  </ul>
+  <p>
+    Third-party services are governed by their own terms, privacy policies, security
+    practices, and infrastructure. JCC does not control the infrastructure or privacy
+    practices of third-party providers, and their use by such providers does not by itself
+    guarantee compliance with any particular law or standard.
+  </p>
+
+  <p style="font-weight:700;color:#0C447C;margin:14px 0 6px;">13. Organizational and Company Policy Compliance</p>
+  <p>
+    The Advisor is responsible for ensuring that their use of Client Pulse is permitted under
+    all applicable company, employer, insurance company, agency, contractual, regulatory, and
+    data privacy requirements that apply to the Advisor. For Advisors affiliated with a
+    financial institution, insurance company, agency, or other organization, the Advisor
+    should obtain any required internal approval before using Client Pulse with organizational
+    or client information.
+  </p>
+  <p>
+    Client Pulse is an independent software product developed by JCC Business Solutions. This
+    policy does not state or imply that any insurance company, agency, or other organization
+    has approved, endorsed, or authorized Client Pulse, or that Client Pulse is compliant with
+    any particular organization's internal requirements, unless actual written authorization
+    exists.
+  </p>
+
+  <p style="font-weight:700;color:#0C447C;margin:14px 0 6px;">14. Children's Data</p>
+  <p>
+    Client Pulse is not specifically designed for the collection or management of children's
+    personal data. Advisors should avoid entering information relating to minors unless such
+    processing is necessary, lawful, and permitted under applicable organizational policies.
+  </p>
+
+  <p style="font-weight:700;color:#0C447C;margin:14px 0 6px;">15. Changes to This Policy</p>
+  <p>
+    JCC may update this policy to reflect changes in Client Pulse, in applicable law, in
+    National Privacy Commission guidance, in security practices, or in third-party services.
+    Material changes will be reflected by an updated effective date and, where applicable, an
+    updated agreement version number. Changes will not be represented as retroactively
+    removing any right or obligation that cannot legally be waived.
+  </p>
+
+  <p style="font-weight:700;color:#0C447C;margin:14px 0 6px;">16. Governing Law</p>
+  <p>
+    This policy is governed by the laws of the Republic of the Philippines, including
+    Republic Act No. 10173 (Data Privacy Act of 2012), its Implementing Rules and
+    Regulations, and applicable issuances of the National Privacy Commission. Nothing in this
+    policy is intended to waive any right, remedy, or obligation that cannot lawfully be
+    waived under Philippine law.
+  </p>
+
+  <p style="font-weight:700;color:#0C447C;margin:14px 0 6px;">17. Contact</p>
+  <p>
+    Questions about Client Pulse as software, privacy questions concerning JCC-controlled
+    information, security concerns, technical support, and privacy-related communications
+    concerning information actually received by JCC may be sent to
+    <strong>jccbusinesssolutions@gmail.com</strong>. Questions about how a specific Advisor is
+    handling a particular client's personal data should generally be directed to that
+    Advisor, since the Advisor is responsible for that client's information under the Data
+    Privacy Act.
+  </p>
+
+  <div style="background:#FDF8F0;border-left:3px solid #C99A3B;border-radius:6px;padding:10px 12px;margin:10px 0;">
+    This policy describes the privacy and security practices of Client Pulse and does not
+    constitute legal advice. Advisors remain responsible for determining their own
+    obligations under applicable law and organizational policies.
+  </div>
+      </div>
+      <div id="policyAgreementScrollHint" style="font-size:11px;color:#C99A3B;font-weight:700;margin:0 2px 10px;">Scroll to the bottom to continue &darr;</div>
+      <label style="display:flex;align-items:flex-start;gap:8px;margin:4px 2px 12px;font-size:12.5px;color:#333;cursor:pointer;">
+        <input type="checkbox" id="policyAgreementCheckbox" disabled style="width:16px;height:16px;flex-shrink:0;margin-top:2px;cursor:pointer;accent-color:#0C447C;">
+        I have read, understood, and agree to the CLIENT PULSE Policy Agreement, including the 15-Day Limited Warranty and Data Privacy Policy.
+      </label>
+      <div class="gate-error" id="policyAgreementError"></div>
+      <button class="gate-btn" onclick="submitPolicyAgreement()" id="policyAgreementBtn">ACCEPT &amp; CONTINUE</button>
+      <div class="gate-footer">JCC BUSINESS SOLUTIONS&trade;<br>All Rights Reserved 2026</div>
+    </div>
     </div>
   </div>
 </div>
@@ -7594,10 +8007,124 @@ function clearAllGateErrors() {
 }
 
 function hideAllGateSteps() {
-  ['emailStep','setupPasswordStep','forgotPasswordStep','resetPasswordStep'].forEach(id => {
+  ['emailStep','setupPasswordStep','forgotPasswordStep','resetPasswordStep','policyAgreementStep'].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.style.display = 'none';
   });
+}
+
+// ============================================================
+// POLICY AGREEMENT GATE
+// ------------------------------------------------------------
+// Shown whenever the backend's login/setpassword/resetpassword
+// response is {status:'AGREEMENT_REQUIRED', token, agreementVersion,
+// agreementEffectiveDate}. A session token has ALREADY been issued at
+// this point (same as a normal successful login) — this step is a
+// hard block on reaching the dashboard, not a second credential
+// check, so pendingAgreementEmail/Token/Version below are all that's
+// needed to complete it.
+// ============================================================
+let pendingAgreementEmail = '';
+let pendingAgreementToken = '';
+let pendingAgreementVersion = '';
+
+function showPolicyAgreementStep(email, token, agreementVersion, agreementEffectiveDate) {
+  pendingAgreementEmail = email;
+  pendingAgreementToken = token;
+  pendingAgreementVersion = agreementVersion;
+  clearAllGateErrors();
+  hideAllGateSteps();
+  document.getElementById('paVersionLabel').textContent = agreementVersion || '—';
+  document.getElementById('paEffectiveDateLabel').textContent = agreementEffectiveDate || '—';
+  const checkbox = document.getElementById('policyAgreementCheckbox');
+  checkbox.checked = false;
+  checkbox.disabled = true;
+  document.getElementById('policyAgreementScrollHint').style.display = '';
+  document.getElementById('policyAgreementScrollBox').scrollTop = 0;
+  document.getElementById('policyAgreementStep').style.display = '';
+  // In case the box is short enough that it never actually needs
+  // scrolling (small screen zoom, huge font override, etc.), check
+  // once immediately after layout rather than requiring a scroll
+  // event that may never fire.
+  setTimeout(_checkPolicyAgreementScrolled, 50);
+}
+
+// Unlocks the acceptance checkbox only once the Advisor has scrolled
+// the full policy text to its bottom — a genuine "they had the chance
+// to read it" gate, not just a checkbox that's clickable from the
+// instant the modal opens. The 4px tolerance accounts for sub-pixel
+// scroll rounding in different browsers.
+function _checkPolicyAgreementScrolled() {
+  const box = document.getElementById('policyAgreementScrollBox');
+  if (!box) return;
+  const reachedBottom = box.scrollTop + box.clientHeight >= box.scrollHeight - 4;
+  const checkbox = document.getElementById('policyAgreementCheckbox');
+  const hint = document.getElementById('policyAgreementScrollHint');
+  if (reachedBottom) {
+    checkbox.disabled = false;
+    hint.style.display = 'none';
+  }
+}
+
+// Completes login exactly like a normal successful gate pass — same
+// sessionStorage writes, same hideGate()/startSessionWatch() sequence
+// used by accessGate's PAID path, submitSetupPassword's PAID path, and
+// submitResetPassword's ok path.
+function finalizeLoginSuccess(email, token, daysUntilExpiration) {
+  currentEmail = email.toLowerCase();
+  currentSessionToken = token;
+  sessionStorage.setItem('clientPulseAuth', currentEmail);
+  sessionStorage.setItem('clientPulseSessionToken', currentSessionToken);
+  hideGate();
+  startSessionWatch();
+  if (typeof daysUntilExpiration !== 'undefined') maybeShowExpirationNotice(daysUntilExpiration);
+}
+
+async function submitPolicyAgreement() {
+  const errEl = document.getElementById('policyAgreementError');
+  errEl.textContent = '';
+
+  if (!document.getElementById('policyAgreementCheckbox').checked || document.getElementById('policyAgreementCheckbox').disabled) {
+    errEl.textContent = 'Please scroll through and check the box confirming you have read and agree to the Policy Agreement.';
+    return;
+  }
+
+  const btn = document.getElementById('policyAgreementBtn');
+  btn.disabled = true;
+  btn.textContent = 'SAVING...';
+
+  try {
+    const res = await fetch(CLIENT_PULSE_SHEET_API, {
+      method: 'POST',
+      body: JSON.stringify({
+        action: 'acceptPolicyAgreement',
+        email: pendingAgreementEmail,
+        token: pendingAgreementToken,
+        agreementVersion: pendingAgreementVersion
+      })
+    });
+    const data = await res.json();
+
+    if (data && data.status === 'PAID' && data.token) {
+      finalizeLoginSuccess(pendingAgreementEmail, data.token, data.daysUntilExpiration);
+    } else if (data && data.status === 'VERSION_CHANGED') {
+      // The admin bumped the version while this modal was open — reload
+      // with the new version/date rather than silently record acceptance
+      // of a now-outdated one.
+      errEl.textContent = 'The Policy Agreement was just updated. Please review the new version below.';
+      showPolicyAgreementStep(pendingAgreementEmail, pendingAgreementToken, data.agreementVersion, data.agreementEffectiveDate);
+    } else if (data && data.status === 'DENIED') {
+      errEl.textContent = (data && data.message) || 'Your session has expired. Please log in again.';
+      setTimeout(showEmailStep, 1800);
+    } else {
+      errEl.textContent = (data && data.message) || 'Could not save your acceptance. Please try again.';
+    }
+  } catch (e) {
+    errEl.textContent = 'Could not save your acceptance right now. Please try again.';
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'ACCEPT & CONTINUE';
+  }
 }
 
 function showEmailStep() {
@@ -7658,11 +8185,6 @@ async function accessGate() {
     const status = data && data.status;
 
     if (status === 'PAID' && data.token) {
-      currentEmail = email.toLowerCase();
-      currentSessionToken = data.token;
-      sessionStorage.setItem('clientPulseAuth', currentEmail);
-      sessionStorage.setItem('clientPulseSessionToken', currentSessionToken);
-
       // "Remember me" is opt-in and only saves after a successful login
       // (never on a failed attempt) — plain localStorage has no real
       // encryption, so this is a convenience trade-off the person
@@ -7676,9 +8198,20 @@ async function accessGate() {
         localStorage.removeItem('cpRememberedPassword');
       }
 
-      hideGate();
-      startSessionWatch();
-      maybeShowExpirationNotice(data.daysUntilExpiration);
+      finalizeLoginSuccess(email, data.token, data.daysUntilExpiration);
+    } else if (status === 'AGREEMENT_REQUIRED' && data.token) {
+      // Credentials were correct and a session token was already
+      // issued — "Remember me" still applies here, same as a normal
+      // successful login, since the password check has already passed.
+      const remember = document.getElementById('gateRememberMe').checked;
+      if (remember){
+        localStorage.setItem('cpRememberedEmail', email);
+        localStorage.setItem('cpRememberedPassword', password);
+      } else {
+        localStorage.removeItem('cpRememberedEmail');
+        localStorage.removeItem('cpRememberedPassword');
+      }
+      showPolicyAgreementStep(email, data.token, data.agreementVersion, data.agreementEffectiveDate);
     } else if (status === 'NEEDS_SETUP') {
       // First time this email is logging in — no password on file yet.
       showSetupPasswordStep(email);
@@ -7721,12 +8254,9 @@ async function submitSetupPassword() {
     });
     const data = await res.json();
     if (data && data.status === 'PAID' && data.token) {
-      currentEmail = pendingFlowEmail.toLowerCase();
-      currentSessionToken = data.token;
-      sessionStorage.setItem('clientPulseAuth', currentEmail);
-      sessionStorage.setItem('clientPulseSessionToken', currentSessionToken);
-      hideGate();
-      startSessionWatch();
+      finalizeLoginSuccess(pendingFlowEmail, data.token, data.daysUntilExpiration);
+    } else if (data && data.status === 'AGREEMENT_REQUIRED' && data.token) {
+      showPolicyAgreementStep(pendingFlowEmail, data.token, data.agreementVersion, data.agreementEffectiveDate);
     } else if (data && data.status === 'ALREADY_SET') {
       errEl.textContent = 'A password is already set for this account. Please log in instead.';
       setTimeout(showEmailStep, 1800);
@@ -7809,12 +8339,9 @@ async function submitResetPassword() {
     });
     const data = await res.json();
     if (data && data.status === 'ok' && data.token) {
-      currentEmail = pendingFlowEmail.toLowerCase();
-      currentSessionToken = data.token;
-      sessionStorage.setItem('clientPulseAuth', currentEmail);
-      sessionStorage.setItem('clientPulseSessionToken', currentSessionToken);
-      hideGate();
-      startSessionWatch();
+      finalizeLoginSuccess(pendingFlowEmail, data.token);
+    } else if (data && data.status === 'AGREEMENT_REQUIRED' && data.token) {
+      showPolicyAgreementStep(pendingFlowEmail, data.token, data.agreementVersion, data.agreementEffectiveDate);
     } else if (data && data.status === 'EXPIRED_CODE') {
       errEl.textContent = 'That code has expired. Please request a new one.';
     } else if (data && data.status === 'INVALID_CODE') {
