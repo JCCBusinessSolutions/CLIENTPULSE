@@ -19,6 +19,13 @@
 
 <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.tailwindcss.com"></script>
+<!-- html2pdf.js: generates a PDF snapshot of the accepted Policy
+     Agreement in-browser, so the same PDF that the standalone
+     JCC_POLICY_AGREEMENTS.html page produces can also be attached to
+     the confirmation emails sent when an Advisor accepts in-app. -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"
+  integrity="sha512-GsLlZN/3F2ErC5ifS5QtgpiJtWd43JWSuIgh7mbzZ8zBps+dvLusV+eNQATqgA/HdeKFVgA5v3S/cIrLF7QnIg=="
+  crossorigin="anonymous" referrerpolicy="no-referrer"></script>
 <script>
   tailwind.config = {
     theme: {
@@ -8080,6 +8087,72 @@ function finalizeLoginSuccess(email, token, daysUntilExpiration) {
   if (typeof daysUntilExpiration !== 'undefined') maybeShowExpirationNotice(daysUntilExpiration);
 }
 
+// Converts a Blob (the generated PDF) into a plain base64 string, same
+// helper the standalone Policy Agreement page uses.
+function _blobToBase64(blob){
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => resolve(reader.result.split(',')[1]);
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
+  });
+}
+
+// Builds a print-ready snapshot of the just-accepted agreement — JCC
+// header, Advisor identity, version/effective date, date/time of
+// acceptance, then the full policy text already sitting in
+// #policyAgreementScrollBox (reused via innerHTML rather than
+// duplicated a second time in this file) — renders it off-screen, and
+// returns the resulting PDF as a base64 string via html2pdf.js.
+async function _generatePolicyAgreementPdf(){
+  if (typeof html2pdf === 'undefined') return '';
+
+  const now = new Date();
+  const dateStr = now.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+  const timeStr = now.toLocaleTimeString();
+  const policyBodyHtml = document.getElementById('policyAgreementScrollBox').innerHTML;
+
+  const snapshot = document.createElement('div');
+  snapshot.style.position = 'fixed';
+  snapshot.style.top = '0';
+  snapshot.style.left = '-99999px'; // off-screen, but NOT display:none — html2pdf needs real layout
+  snapshot.style.width = '760px';
+  snapshot.style.background = '#fff';
+  snapshot.style.padding = '40px 36px';
+  snapshot.style.fontFamily = 'Arial, sans-serif';
+  snapshot.innerHTML = `
+    <div style="text-align:center;margin-bottom:24px;padding-bottom:16px;border-bottom:1px solid #e7dfcf;">
+      <div style="font-family:Georgia,serif;font-size:22px;font-weight:700;color:#0C447C;">Client Pulse</div>
+      <div style="font-size:11px;letter-spacing:1px;color:#C99A3B;font-weight:700;margin-top:4px;">CLIENT PULSE POLICY AGREEMENT — ELECTRONIC ACCEPTANCE</div>
+    </div>
+    <table style="width:100%;margin:0 0 20px;border-collapse:collapse;font-size:13px;color:#333;">
+      <tr><td style="padding:4px 0;color:#6B7280;width:160px;">Advisor Email</td><td style="padding:4px 0;font-weight:700;">${pendingAgreementEmail}</td></tr>
+      <tr><td style="padding:4px 0;color:#6B7280;">Agreement Version</td><td style="padding:4px 0;font-weight:700;">${pendingAgreementVersion}</td></tr>
+      <tr><td style="padding:4px 0;color:#6B7280;">Date Accepted</td><td style="padding:4px 0;font-weight:700;">${dateStr} &middot; ${timeStr}</td></tr>
+    </table>
+    <div style="font-size:12px;line-height:1.6;color:#333;">${policyBodyHtml}</div>
+    <div style="margin-top:28px;padding-top:14px;border-top:1px solid #e7dfcf;text-align:center;font-size:11px;color:#6B7280;">
+      JCC Business Solutions, Intellectual Property of Jaymar Castro, CPA, CIS, CEP<br>
+      This is a system-generated record of electronic acceptance, not a substitute for independent legal advice.
+    </div>
+  `;
+  document.body.appendChild(snapshot);
+
+  try {
+    const opt = {
+      margin: 8,
+      image: { type: 'jpeg', quality: 0.7 },
+      html2canvas: { scale: 1.2, useCORS: true },
+      jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
+      pagebreak: { mode: ['css'] }
+    };
+    const blob = await html2pdf().set(opt).from(snapshot).outputPdf('blob');
+    return await _blobToBase64(blob);
+  } finally {
+    document.body.removeChild(snapshot);
+  }
+}
+
 async function submitPolicyAgreement() {
   const errEl = document.getElementById('policyAgreementError');
   errEl.textContent = '';
@@ -8093,6 +8166,21 @@ async function submitPolicyAgreement() {
   btn.disabled = true;
   btn.textContent = 'SAVING...';
 
+  // Build a printable snapshot (JCC header + Advisor identity + full
+  // policy text already loaded in the scroll box) and render it to a
+  // PDF client-side, same html2pdf.js approach the standalone
+  // JCC_POLICY_AGREEMENTS.html page uses — so the confirmation emails
+  // sent on acceptance carry an actual signed-copy PDF, not just text.
+  let pdfBase64 = '';
+  try {
+    pdfBase64 = await _generatePolicyAgreementPdf();
+  } catch (pdfErr) {
+    // A failed PDF snapshot should never block the acceptance itself
+    // from being recorded — the backend still logs the acceptance and
+    // still sends a (PDF-less) confirmation email either way.
+    pdfBase64 = '';
+  }
+
   try {
     const res = await fetch(CLIENT_PULSE_SHEET_API, {
       method: 'POST',
@@ -8100,7 +8188,8 @@ async function submitPolicyAgreement() {
         action: 'acceptPolicyAgreement',
         email: pendingAgreementEmail,
         token: pendingAgreementToken,
-        agreementVersion: pendingAgreementVersion
+        agreementVersion: pendingAgreementVersion,
+        pdfBase64: pdfBase64
       })
     });
     const data = await res.json();
