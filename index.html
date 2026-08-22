@@ -8106,27 +8106,17 @@ async function submitPolicyAgreement() {
     const data = await res.json();
 
     if (data && data.status === 'PAID' && data.token) {
-      // The acceptance itself (checkbox + scroll-gate, right here in
-      // Client Pulse) is what legally matters, and it's already
-      // recorded on the backend at this point. The actual PDF copy +
-      // email delivery is handed off to the standalone
-      // JCC_POLICY_AGREEMENTS.html page in a new tab — that page
-      // captures its own real, visible, on-screen content for the PDF
-      // (the same approach that's been reliable), rather than
-      // duplicating a synthetic off-screen snapshot inside this login
-      // modal, which repeatedly produced blank/narrow PDFs. If the
-      // pop-up is blocked, the acceptance is still fully recorded;
-      // only the emailed copy is skipped, silently, since there's no
-      // good way to surface a blocked-pop-up warning from inside a
-      // gate step that's about to close anyway.
-      try {
-        const pdfPageUrl = 'https://jccbusinesssolutions.github.io/POLICYAGREEMENTS/'
-          + '?advisorEmail=' + encodeURIComponent(pendingAgreementEmail)
-          + '&auto=1';
-        window.open(pdfPageUrl, '_blank', 'noopener');
-      } catch (popupErr) {
-        // Ignore — acceptance is already recorded regardless.
-      }
+      // Acceptance (checkbox + scroll-gate, right here in Client Pulse)
+      // is recorded on the backend at this point, and that same
+      // acceptPolicyAgreement call already triggers exactly one
+      // confirmation email from the backend. Deliberately NOT also
+      // redirecting to the standalone JCC_POLICY_AGREEMENTS.html page
+      // here — that page has its own "GENERATE & EMAIL MY COPY" action,
+      // and auto-triggering it on top of the backend's own email was
+      // producing a duplicate send per acceptance. One acceptance now
+      // means one email, full stop. The standalone page still exists
+      // for anyone who wants to review/print/re-send the full policy
+      // manually — it's just no longer auto-opened from here.
       finalizeLoginSuccess(pendingAgreementEmail, data.token, data.daysUntilExpiration);
     } else if (data && data.status === 'VERSION_CHANGED') {
       // The admin bumped the version while this modal was open — reload
