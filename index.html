@@ -1837,11 +1837,11 @@ input:checked + #studioSection .slider-toggle::before{transform:translateX(19px)
         <path d="M310,55 q5,-5 10,0 M325,60 q5,-5 10,0" stroke="#C99A3B" stroke-width="2" fill="none" opacity="0.4" stroke-linecap="round"/>
       </svg>
       <div class="relative z-10 flex items-center gap-4">
-        <div class="relative w-14 h-14 flex-shrink-0 cursor-pointer" id="heroPhotoWrap" onclick="document.getElementById('heroPhotoInput').click()" title="Tap to set your profile photo">
-          <div class="w-14 h-14 rounded-full bg-[#FBEFD8] flex items-center justify-center text-xl overflow-hidden border-2 border-white shadow" id="heroPhotoCircle" style="background-size:cover;background-position:center;">
+        <div class="relative w-20 h-20 sm:w-24 sm:h-24 flex-shrink-0 cursor-pointer" id="heroPhotoWrap" onclick="document.getElementById('heroPhotoInput').click()" title="Tap to set your profile photo">
+          <div class="w-20 h-20 sm:w-24 sm:h-24 rounded-full bg-[#FBEFD8] flex items-center justify-center text-3xl overflow-hidden border-2 border-white shadow" id="heroPhotoCircle" style="background-size:cover;background-position:center;">
             <span id="heroPhotoPlaceholder">👤</span>
           </div>
-          <div class="absolute -bottom-1 -right-1 w-5 h-5 rounded-full bg-navy text-white flex items-center justify-center text-[10px] border-2 border-white">📷</div>
+          <div class="absolute -bottom-1 -right-1 w-7 h-7 rounded-full bg-navy text-white flex items-center justify-center text-sm border-2 border-white">📷</div>
         </div>
         <input type="file" id="heroPhotoInput" accept="image/*" style="display:none;">
         <div>
@@ -2607,15 +2607,6 @@ input:checked + #studioSection .slider-toggle::before{transform:translateX(19px)
          SETTINGS (existing real functionality — Setup / Branding / Password)
          ============================================================ -->
     <div id="settingsSection" data-section="settings" class="mt-2">
-
-      <div class="card" id="todayLoginsCard" style="display:none;">
-        <h2>Today's Logins</h2>
-        <p class="sub">Every advisor who logged in today, most recent first. Visible only to you.</p>
-        <div id="todayLoginsList" style="font-size:13px; color:var(--ink-soft,#4A5A68);">Loading&hellip;</div>
-        <div class="row" style="margin-top:10px;">
-          <button class="btn-ghost" id="refreshTodayLoginsBtn" style="width:100%;">REFRESH</button>
-        </div>
-      </div>
 
       <div class="card" id="configCard" style="display:none;">
         <h2>Connection Setup</h2>
@@ -3794,35 +3785,6 @@ async function checkAdvisorActiveStatus(){
     // Transient network issue — don't lock someone out over a blip.
   }
 }
-
-// Admin-only "who's logged in today" panel — hits CLIENT_PULSE_SHEET_API
-// (the same backend that handles login itself), not the Dues/Broadcast
-// Script URL, since login events are recorded there.
-async function loadTodayLogins(){
-  const listEl = document.getElementById('todayLoginsList');
-  if (!listEl) return;
-  listEl.textContent = 'Loading\u2026';
-  try{
-    const res = await fetch(CLIENT_PULSE_SHEET_API + '?action=getTodayLogins');
-    const data = await res.json();
-    const logins = (data && data.logins) || [];
-    if (logins.length === 0){
-      listEl.textContent = 'No logins yet today.';
-      return;
-    }
-    listEl.innerHTML = '<div style="margin-bottom:8px; font-weight:700; color:var(--navy,#0C447C);">' + logins.length + ' login' + (logins.length === 1 ? '' : 's') + ' today</div>'
-      + logins.map(l =>
-          '<div style="display:flex; justify-content:space-between; padding:6px 0; border-bottom:1px solid var(--line,#E4DCC8);">'
-          + '<span>' + escapeHtml(l.email) + '</span>'
-          + '<span style="color:var(--ink-soft,#4A5A68);">' + escapeHtml(l.time) + '</span>'
-          + '</div>'
-        ).join('');
-  }catch(e){
-    listEl.textContent = 'Couldn\u2019t load today\u2019s logins right now.';
-  }
-}
-document.getElementById('refreshTodayLoginsBtn').addEventListener('click', loadTodayLogins);
-
 
 // Mirrors REMINDER_DAYS_BEFORE_LOCK in Code.gs — kept as a separate
 // frontend constant since this file can't import from the Apps Script
@@ -8468,10 +8430,6 @@ function hideGate() {
   fetchAdvanceDays().then(days => populateAdvanceDays(days));
     refreshPersonalLink();
     checkAdvisorActiveStatus();
-    if (currentEmail === ADMIN_EMAIL){
-      document.getElementById('todayLoginsCard').style.display = 'block';
-      loadTodayLogins();
-    }
   } catch (e) {
     var emailError = document.getElementById('emailError');
     if (emailError) emailError.textContent = 'Something went wrong unlocking the dashboard: ' + e.message;
