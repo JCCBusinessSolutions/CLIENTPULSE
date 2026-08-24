@@ -6985,6 +6985,32 @@ refreshPersonalLink();
     placeholder.style.display = 'none';
   }
 
+  // PROFILE PHOTO CACHE — avoids re-downloading + re-base64ing the same
+  // Drive file from Apps Script on every single login/refresh. Keyed by
+  // profileImageFileId (the pointer the backend already tracks), stored
+  // locally per-browser like the rest of this app's localStorage usage.
+  // A changed fileId (new upload, or from another device) automatically
+  // busts the cache — we only ever trust the cache when the fileId
+  // matches exactly what getAdvisorProfile just returned.
+  const PHOTO_CACHE_ID_KEY = 'cpProfilePhotoFileId';
+  const PHOTO_CACHE_DATA_KEY = 'cpProfilePhotoDataUrl';
+
+  function getCachedProfilePhoto(fileId){
+    try{
+      if (localStorage.getItem(PHOTO_CACHE_ID_KEY) === fileId){
+        return localStorage.getItem(PHOTO_CACHE_DATA_KEY);
+      }
+    }catch(e){ /* localStorage unavailable — fall through to network */ }
+    return null;
+  }
+
+  function setCachedProfilePhoto(fileId, dataUrl){
+    try{
+      localStorage.setItem(PHOTO_CACHE_ID_KEY, fileId);
+      localStorage.setItem(PHOTO_CACHE_DATA_KEY, dataUrl);
+    }catch(e){ /* storage full/unavailable — just skip caching */ }
+  }
+
   async function loadAdvisorProfile(){
     const profile = await fetchAdvisorProfile();
     if (profile && profile.advisorName){
@@ -6994,8 +7020,16 @@ refreshPersonalLink();
     updateHeaderIdentity(profile && profile.advisorName);
     renderGreeting();
     if (profile && profile.profileImageFileId){
-      const photo = await fetchProfilePhoto();
-      if (photo) showPhoto(photo);
+      const cached = getCachedProfilePhoto(profile.profileImageFileId);
+      if (cached){
+        showPhoto(cached);
+      }else{
+        const photo = await fetchProfilePhoto();
+        if (photo){
+          showPhoto(photo);
+          setCachedProfilePhoto(profile.profileImageFileId, photo);
+        }
+      }
     }
   }
 
@@ -7020,8 +7054,16 @@ refreshPersonalLink();
     if (!file) return;
     try{
       const { base64, mimeType } = await resizeImageForUpload(file, 400, 0.85);
-      showPhoto('data:' + mimeType + ';base64,' + base64);
+      const dataUrl = 'data:' + mimeType + ';base64,' + base64;
+      showPhoto(dataUrl);
       await callBackend({ action:'uploadProfileImage', base64: base64, mimeType: mimeType });
+      // Refresh the fileId from the backend rather than guessing it from
+      // the upload response (shape not guaranteed) — this is the only
+      // extra call, and only happens on an actual upload, not every login.
+      const freshProfile = await fetchAdvisorProfile();
+      if (freshProfile && freshProfile.profileImageFileId){
+        setCachedProfilePhoto(freshProfile.profileImageFileId, dataUrl);
+      }
       showToast('Profile photo updated.');
     }catch(err){
       showToast('Could not upload photo: ' + err.message);
