@@ -6822,12 +6822,33 @@ el('refreshDueToday').addEventListener('click', loadDueToday);
   updateSetupBlinkState();
 })();
 
-loadDueToday();
-loadDailyStats();
-fetchBrandConfig().then(config => populateBrandingFields(config));
-fetchSendHour().then(hour => populateSendHour(hour));
+// Tracks whether the six calls below already ran once for this page
+// load, so hideGate() (fired right after login) doesn't blast the same
+// Apps Script deployment with a second, near-simultaneous copy of every
+// request. Apps Script has a real concurrent-execution ceiling per
+// script — stacking ~12 requests within a couple seconds of each other
+// was causing some to queue (slow numbers) and occasionally get bounced
+// with a non-JSON quota/error page (the "did not match the expected
+// pattern" toast, which is just Safari's generic message for res.json()
+// choking on non-JSON content).
+let dashboardDataLoadedOnce = false;
+
+function loadCoreDashboardData(){
+  loadDueToday();
+  loadDailyStats();
+  fetchBrandConfig().then(config => populateBrandingFields(config));
+  fetchSendHour().then(hour => populateSendHour(hour));
   fetchAdvanceDays().then(days => populateAdvanceDays(days));
-refreshPersonalLink();
+  refreshPersonalLink();
+  dashboardDataLoadedOnce = true;
+}
+
+// Only fire immediately if a Setup URL is already saved on this device —
+// otherwise there's nothing to call yet, and hideGate() will cover it
+// once login resolves one (e.g. via a ?s= personal link on a new device).
+if (getScriptUrl()) {
+  loadCoreDashboardData();
+}
 
 </script>
 
@@ -8420,15 +8441,15 @@ function hideGate() {
     document.getElementById('gateScreen').style.zIndex = '10';
     document.getElementById('gateScreen').style.display = 'none';
     document.body.classList.add('cp-authed');
-    // Re-run all data fetches after login completes — necessary on new
-    // devices where the Setup URL was just decoded from the personal link
-    // (?s= param) and wasn't available during the initial page-load fetch.
-    loadDueToday();
-    loadDailyStats();
-    fetchBrandConfig().then(config => populateBrandingFields(config));
-    fetchSendHour().then(hour => populateSendHour(hour));
-  fetchAdvanceDays().then(days => populateAdvanceDays(days));
-    refreshPersonalLink();
+    // Re-run the core data fetches only if they haven't already run this
+    // page load. Necessary on new devices where the Setup URL was just
+    // decoded from the personal link (?s= param) and wasn't available
+    // yet at the top-level page-load fetch — but on an ordinary login
+    // (URL already saved), that top-level fetch already covered this,
+    // so firing again here would just double every request unnecessarily.
+    if (!dashboardDataLoadedOnce) {
+      loadCoreDashboardData();
+    }
     checkAdvisorActiveStatus();
   } catch (e) {
     var emailError = document.getElementById('emailError');
