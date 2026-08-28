@@ -73,6 +73,27 @@
      happens to land on the page instead of always being reachable at
      the top. This rule guarantees correct positioning regardless of
      whether the CDN loads, since it doesn't depend on Tailwind at all. */
+  #bcPickerBody { flex-direction:column; }
+  #bcPickerResizeHandle { display:flex; }
+  #bcPickerFiltersPanel { border-bottom:1px solid var(--line,#E4DCC8); overflow:hidden; }
+  @media (min-width:1024px){
+    /* Split layout: an even 50/50 divide, filters on the left, client
+       list on the right — instead of the filters eating most of the
+       vertical space above a cramped list, as they did in the
+       single-column layout used below this breakpoint. */
+    #bcPickerBody { flex-direction:row; }
+    #bcPickerFiltersPanel {
+      flex:1 1 50%; width:50%; max-width:50%;
+      border-bottom:none; border-right:1px solid var(--line,#E4DCC8);
+      overflow-y:auto; /* desktop still just scrolls — the shrink-to-fit
+                           scaling below is a mobile-only affordance,
+                           since desktop already gets a real 50/50 split */
+    }
+    #bcPickerFiltersContent { transform:none !important; }
+    #bcPickerList { flex:1 1 50%; width:50%; max-width:50%; }
+    #bcPickerResizeHandle { display:none; }
+  }
+
   #mobileHeaderBar{
     position: sticky;
     top: 0;
@@ -165,6 +186,9 @@
   .summary-grid .num{ font-size:20px; font-weight:700; color:var(--navy); font-family:'Playfair Display',serif; }
   .summary-grid .lbl{ font-size:11px; color:var(--muted,#76839A); margin-top:2px; }
   .footer-note{ text-align:center; font-size:11px; color:#9CA3AF; }
+  .btn-gold-navy:hover { background:#E1A324 !important; }
+  .btn-gold-navy:active { transform:translateY(1px); }
+
   .config-link{
     background:var(--gold);
     border:none;
@@ -1882,23 +1906,27 @@ input:checked + #studioSection .slider-toggle::before{transform:translateX(19px)
     <div class="font-heading text-gold text-xl font-bold tracking-wide leading-tight" id="sidebarTitleLine2">Due Reminder</div>
   </div>
   <nav class="flex-1 px-4 flex flex-col gap-1">
-    <div class="sidebar-link active" data-nav="dues"><span>📊</span>Premium Due Reminders</div>
-    <div class="sidebar-link" data-nav="birthday"><span>🎂</span>Client Birthday Greetings</div>
-    <div class="sidebar-link" data-nav="anniversary"><span>🎉</span>Policy Anniversary Greetings</div>
-    <div class="sidebar-link" data-nav="upload"><span>📤</span>Upload &amp; Parse</div>
-    <div class="sidebar-link" data-nav="clients"><span>🧑‍🤝‍🧑</span>Clients</div>
-    <div class="sidebar-link" data-nav="broadcast"><span>📣</span>Broadcast Email</div>
-    <div class="sidebar-link" data-nav="settings" id="sidebarSettingsLink"><span>⚙️</span>Settings<span class="dot" id="sidebarSettingsDot" style="display:none;"></span></div>
-    <div class="sidebar-link" id="sidebarLogoutLink" onclick="logoutUser()" style="color:#FF8A80;"><span>🚪</span>Logout</div>
+    <div class="sidebar-link active" data-nav="dues"><span><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><path d="M10.268 21a2 2 0 0 0 3.464 0"/><path d="M22 8c0-2.3-.8-4.3-2-6"/><path d="M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326"/><path d="M4 2C2.8 3.7 2 5.7 2 8"/></svg></span>Premium Due Reminders</div>
+    <div class="sidebar-link" data-nav="birthday"><span><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><path d="M20 21v-8a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8"/><path d="M4 16s.5-1 2-1 2.5 2 4 2 2.5-2 4-2 2.5 2 4 2 2-1 2-1"/><path d="M2 21h20"/><path d="M7 8v3"/><path d="M12 8v3"/><path d="M17 8v3"/><path d="M7 4h.01"/><path d="M12 4h.01"/><path d="M17 4h.01"/></svg></span>Client Birthday Greetings</div>
+    <div class="sidebar-link" data-nav="anniversary"><span><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><path d="M5.8 11.3 2 22l10.7-3.79"/><path d="M4 3h.01"/><path d="M22 8h.01"/><path d="M15 2h.01"/><path d="M22 20h.01"/><path d="m22 2-2.24.75a2.9 2.9 0 0 0-1.96 3.12c.1.86-.57 1.63-1.45 1.63h-.38c-.86 0-1.6.6-1.76 1.44L14 10"/><path d="m22 13-.82-.33c-.86-.34-1.82.2-1.98 1.11c-.11.7-.72 1.22-1.43 1.22H17"/><path d="m11 2 .33.82c.34.86-.2 1.82-1.11 1.98C9.52 4.9 9 5.52 9 6.23V7"/><path d="M11 13c1.93 1.93 2.83 4.17 2 5-.83.83-3.07-.07-5-2-1.93-1.93-2.83-4.17-2-5 .83-.83 3.07.07 5 2Z"/></svg></span>Policy Anniversary Greetings</div>
+    <div class="sidebar-link" data-nav="upload"><span><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><path d="M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z"/><path d="M14 2v5a1 1 0 0 0 1 1h5"/><path d="M12 12v6"/><path d="m15 15-3-3-3 3"/></svg></span>Upload &amp; Parse</div>
+    <div class="sidebar-link" data-nav="clients"><span><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><path d="M18 21a8 8 0 0 0-16 0"/><circle cx="10" cy="8" r="5"/><path d="M22 20c0-3.37-2-6.5-4-8a5 5 0 0 0-.45-8.3"/></svg></span>Clients</div>
+    <div class="sidebar-link" data-nav="broadcast"><span><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><path d="M14.536 21.686a.5.5 0 0 0 .937-.024l6.5-19a.496.496 0 0 0-.635-.635l-19 6.5a.5.5 0 0 0-.024.937l7.93 3.18a2 2 0 0 1 1.112 1.11z"/><path d="m21.854 2.147-10.94 10.939"/></svg></span>Broadcast Email</div>
+    <div class="sidebar-link" data-nav="settings" id="sidebarSettingsLink"><span><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><path d="M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915"/><circle cx="12" cy="12" r="3"/></svg></span>Settings<span class="dot" id="sidebarSettingsDot" style="display:none;"></span></div>
+    <div class="sidebar-link" id="sidebarLogoutLink" onclick="logoutUser()" style="color:#FF8A80;"><span><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><path d="m16 17 5-5-5-5"/><path d="M21 12H9"/><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/></svg></span>Logout</div>
   </nav>
   <div class="px-4 pb-4">
     <div class="glass rounded-2xl p-4 mb-3">
-      <div class="text-white text-sm font-semibold mb-1">Need Help?</div>
+      <div class="text-white text-sm font-semibold mb-1" style="display:flex;align-items:center;gap:8px;"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></svg>Need Help?</div>
       <div class="text-white/60 text-xs mb-3 leading-snug">We're here to help with your Due Reminder needs.</div>
       <div class="text-white/60 text-xs mb-3 leading-snug" style="word-break:break-all;">Jccbusinesssolutions16@gmail.com</div>
-      <a href="mailto:Jccbusinesssolutions16@gmail.com" class="btn-gold !min-h-0 !py-2 !text-[11px]" style="display:flex;align-items:center;justify-content:center;text-decoration:none;">Contact Support</a>
+      <a href="mailto:Jccbusinesssolutions16@gmail.com" class="btn-gold !min-h-0 !py-2 !text-[11px]" style="display:flex;align-items:center;justify-content:center;text-decoration:none;gap:7px;"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><path d="m22 7-8.991 5.727a2 2 0 0 1-2.009 0L2 7"/><rect x="2" y="4" width="20" height="16" rx="2"/></svg>Contact Support</a>
+      <a href="https://www.facebook.com/profile.php?id=61591302882160" target="_blank" rel="noopener" style="display:flex; align-items:center; justify-content:center; gap:7px; margin-top:10px; padding:8px; border-radius:10px; background:#fff; text-decoration:none; color:#003B7A; font-size:11px; font-weight:600;">
+        <svg width="16" height="16" viewBox="0 0 24 24" style="flex-shrink:0;"><path fill="#0866FF" d="M9.101 23.691v-7.98H6.627v-3.667h2.474v-1.58c0-4.085 1.848-5.978 5.858-5.978.401 0 .955.042 1.468.103a8.68 8.68 0 0 1 1.141.195v3.325a8.623 8.623 0 0 0-.653-.036 26.805 26.805 0 0 0-.733-.009c-.707 0-1.259.096-1.675.309a1.686 1.686 0 0 0-.679.622c-.258.42-.374.995-.374 1.752v1.297h3.919l-.386 2.103-.287 1.564h-3.246v8.245C19.396 23.238 24 18.179 24 12.044c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.628 3.874 10.35 9.101 11.647Z"/></svg>
+        Follow us for more apps!
+      </a>
     </div>
-    <div class="sidebar-link" onclick="location.reload()"><span>↩️</span>Refresh App</div>
+    <div class="sidebar-link" onclick="location.reload()"><span><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></svg></span>Refresh App</div>
   </div>
 </aside>
 
@@ -1919,16 +1947,28 @@ input:checked + #studioSection .slider-toggle::before{transform:translateX(19px)
 <!-- ============================================================
      MOBILE HEADER
      ============================================================ -->
-<div class="lg:hidden sticky top-0 z-30 bg-navy px-4 py-4 flex items-center gap-3 shadow-lg" id="mobileHeaderBar">
-  <div class="flex-1 min-w-0">
-    <div class="font-heading text-white text-[15px] font-bold leading-tight" id="mobileTitleLine1">Client Payment</div>
-    <div class="font-heading text-gold text-[15px] font-bold tracking-wide leading-tight" id="mobileTitleLine2">Due Reminder</div>
+<div class="lg:hidden sticky top-0 z-30 bg-navy shadow-lg" id="mobileHeaderBar">
+  <div class="px-4 py-4 flex items-center gap-3">
+    <div class="flex-1 min-w-0">
+      <div class="font-heading text-white text-[15px] font-bold leading-tight" id="mobileTitleLine1">Client Payment</div>
+      <div class="font-heading text-gold text-[15px] font-bold tracking-wide leading-tight" id="mobileTitleLine2">Due Reminder</div>
+    </div>
+    <button class="theme-switch" id="themeToggleMobile" onclick="toggleDarkMode()">
+      <span class="theme-switch-label text-white" id="themeToggleLabelMobile" style="display:none;">Light Mode</span>
+      <span class="theme-switch-track"><span class="theme-switch-thumb"></span></span>
+    </button>
+    <button class="config-link" id="toggleConfig">Setup</button>
   </div>
-  <button class="theme-switch" id="themeToggleMobile" onclick="toggleDarkMode()">
-    <span class="theme-switch-label text-white" id="themeToggleLabelMobile">Light Mode</span>
-    <span class="theme-switch-track"><span class="theme-switch-thumb"></span></span>
-  </button>
-  <button class="config-link" id="toggleConfig">Setup</button>
+  <!-- Logout sits directly below Setup, upper-right — the mobile bottom
+       nav no longer carries a Logout tab (moved here instead), and the
+       "Google Sheet" quick-link that used to occupy this row was removed
+       per request. -->
+  <div class="px-4 pb-3" style="display:flex; justify-content:flex-end;">
+    <button id="mobileHeaderLogoutBtn" onclick="logoutUser()" style="background:none; border:1.5px solid #FF8A80; color:#FF8A80; font-weight:700; font-size:12px; letter-spacing:.3px; padding:7px 16px; border-radius:999px; white-space:nowrap; display:flex; align-items:center; gap:6px; width:auto; min-height:0;">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><path d="m16 17 5-5-5-5"/><path d="M21 12H9"/><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/></svg>
+      Logout
+    </button>
+  </div>
 </div>
 
 <!-- ============================================================
@@ -1938,8 +1978,9 @@ input:checked + #studioSection .slider-toggle::before{transform:translateX(19px)
 
   <!-- Desktop top header -->
   <div class="hidden lg:flex items-center justify-between px-10 py-5 bg-white border-b border-bordertan" id="desktopHeaderBar">
-    <div class="font-heading text-navy text-2xl font-bold" id="desktopTitle">Client Payment Due Reminder</div>
-    <div class="flex items-center gap-5">
+    <div class="font-heading text-navy text-2xl font-bold" id="desktopTitle" style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0; flex:1 1 auto;">Client Payment Due Reminder</div>
+    <div class="flex items-center gap-5" style="flex-shrink:0;">
+      <button id="goToSheetBtnDesktop" onclick="goToGoogleSheet()" style="background:var(--navy,#003B7A); border:1.5px solid #fff; color:#fff; font-weight:700; font-size:13px; letter-spacing:.2px; padding:9px 18px; border-radius:999px; white-space:nowrap; cursor:pointer;">Google Sheet</button>
       <button class="theme-switch" id="themeToggleDesktop" onclick="toggleDarkMode()">
         <span class="theme-switch-label text-ink" id="themeToggleLabelDesktop">Light Mode</span>
         <span class="theme-switch-track"><span class="theme-switch-thumb"></span></span>
@@ -1948,8 +1989,8 @@ input:checked + #studioSection .slider-toggle::before{transform:translateX(19px)
       <div class="flex items-center gap-3 cursor-pointer" onclick="openSettingsPage();">
         <div class="w-10 h-10 rounded-full bg-navy text-gold font-heading font-bold flex items-center justify-center text-sm" id="headerAdvisorAvatar">--</div>
         <div>
-          <div class="text-sm font-semibold text-ink leading-tight" id="headerAdvisorName">Your Name</div>
-          <div class="text-xs text-muted leading-tight">Financial Advisor</div>
+          <div class="text-sm font-semibold text-ink leading-tight" id="headerAdvisorName" style="white-space:nowrap;">Your Name</div>
+          <div class="text-xs text-muted leading-tight" style="white-space:nowrap;">Financial Advisor</div>
         </div>
         <span class="text-muted text-xs">▾</span>
       </div>
@@ -2058,9 +2099,11 @@ input:checked + #studioSection .slider-toggle::before{transform:translateX(19px)
         </div>
       </div>
       <div class="row" style="margin-top:14px;">
-        <button class="btn-primary" id="refreshStats" style="display:flex;align-items:center;justify-content:center;gap:7px;">🔄 REFRESH ACTIVITY</button>
+        <button class="btn-primary" id="refreshStats" style="display:flex;align-items:center;justify-content:center;gap:7px;flex:1;">🔄 REFRESH ACTIVITY</button>
+        <button class="btn-gold-navy" id="sendDuesAgainBtn" style="display:flex;align-items:center;justify-content:center;gap:7px;flex:1;background:var(--gold,#F5B335);color:#000;border:none;font-weight:700;">📨 SEND AGAIN</button>
       </div>
       <div class="text-[11px] text-muted text-center mt-2" id="statsUpdatedAt"></div>
+      <div id="duesSendAgainResult" style="display:none;margin-top:10px;padding:10px 12px;border-radius:8px;font-size:12.5px;line-height:1.5;"></div>
     </div>
 
     <!-- ============================================================
@@ -2222,10 +2265,12 @@ input:checked + #studioSection .slider-toggle::before{transform:translateX(19px)
           </div>
         </div>
         <div class="row" style="margin-top:14px;">
-          <button class="btn-primary" id="refreshBirthdayStats" style="display:flex;align-items:center;justify-content:center;gap:7px;">🔄 REFRESH ACTIVITY</button>
+          <button class="btn-primary" id="refreshBirthdayStats" style="display:flex;align-items:center;justify-content:center;gap:7px;flex:1;">🔄 REFRESH ACTIVITY</button>
+          <button class="btn-gold-navy" id="sendBirthdaysAgainBtn" style="display:flex;align-items:center;justify-content:center;gap:7px;flex:1;background:var(--gold,#F5B335);color:#000;border:none;font-weight:700;">📨 SEND AGAIN</button>
         </div>
         <div class="text-[11px] text-muted text-center mt-2" id="birthdayStatsUpdatedAt"></div>
         <div id="birthdaySendDiagnostic" style="display:none;margin-top:12px;padding:10px 12px;background:#FDF6E3;border:1px solid #F0DFA6;border-radius:8px;font-size:12.5px;color:#7A5C00;line-height:1.5;"></div>
+        <div id="birthdaySendAgainResult" style="display:none;margin-top:10px;padding:10px 12px;border-radius:8px;font-size:12.5px;line-height:1.5;"></div>
       </div>
 
       <div class="grid grid-cols-1 lg:grid-cols-[7fr_3fr] gap-5 items-start">
@@ -2385,9 +2430,11 @@ input:checked + #studioSection .slider-toggle::before{transform:translateX(19px)
           </div>
         </div>
         <div class="row" style="margin-top:14px;">
-          <button class="btn-primary" id="refreshAnniversaryStats" style="display:flex;align-items:center;justify-content:center;gap:7px;">🔄 REFRESH ACTIVITY</button>
+          <button class="btn-primary" id="refreshAnniversaryStats" style="display:flex;align-items:center;justify-content:center;gap:7px;flex:1;">🔄 REFRESH ACTIVITY</button>
+          <button class="btn-gold-navy" id="sendAnniversariesAgainBtn" style="display:flex;align-items:center;justify-content:center;gap:7px;flex:1;background:var(--gold,#F5B335);color:#000;border:none;font-weight:700;">📨 SEND AGAIN</button>
         </div>
         <div class="text-[11px] text-muted text-center mt-2" id="anniversaryStatsUpdatedAt"></div>
+        <div id="anniversarySendAgainResult" style="display:none;margin-top:10px;padding:10px 12px;border-radius:8px;font-size:12.5px;line-height:1.5;"></div>
       </div>
 
     </div>
@@ -2674,7 +2721,9 @@ input:checked + #studioSection .slider-toggle::before{transform:translateX(19px)
           <button type="button" id="bcPickerCloseBtn" style="flex:0 0 auto; width:auto; min-height:auto; background:rgba(255,255,255,.15); border:none; color:#fff; border-radius:8px; padding:6px 12px; font-size:13px; font-weight:600; cursor:pointer;">Done</button>
         </div>
 
-        <div style="padding:12px 16px; flex:0 0 auto; background:#fff; border-bottom:1px solid var(--line,#E4DCC8);">
+        <div id="bcPickerBody" style="flex:1 1 auto; min-height:0; display:flex; overflow:hidden;">
+        <div id="bcPickerFiltersPanel" style="padding:12px 16px; flex:0 0 auto; background:#fff;">
+          <div id="bcPickerFiltersContent">
           <input type="text" id="bcPickerSearch" placeholder="Search by name..." style="width:100%; padding:10px 14px; border:1px solid var(--line,#E4DCC8); border-radius:10px; background:var(--cream,#FDF8F0); font-size:14px; margin-bottom:10px;">
 
           <div style="font-size:11px; color:#6B7280; margin-bottom:6px;">Not in your client list? Add an email directly:</div>
@@ -2683,6 +2732,14 @@ input:checked + #studioSection .slider-toggle::before{transform:translateX(19px)
             <button type="button" id="bcManualEmailAddBtn" style="flex:0 0 auto; width:auto; min-height:auto; padding:10px 16px; border-radius:10px; border:none; background:var(--navy,#0C447C); color:#fff; font-size:13px; font-weight:700; cursor:pointer;">ADD</button>
           </div>
           <div id="bcManualEmailStatus" style="font-size:11.5px; margin:-4px 0 10px; min-height:14px;"></div>
+
+          <div style="font-size:11px; color:#6B7280; margin-bottom:6px;">Or upload a list (2 columns: Name, Email):</div>
+          <button type="button" id="bcExcelUploadBtn" style="width:100%; padding:9px 12px; border:none; border-radius:10px; background:var(--gold,#F5B335); font-size:12.5px; color:#000; font-weight:700; letter-spacing:.3px; cursor:pointer; text-align:center; margin-bottom:6px; display:flex; align-items:center; justify-content:center; gap:7px;">
+            <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
+            UPLOAD EXCEL (.XLSX)
+          </button>
+          <input type="file" id="bcExcelUploadInput" accept=".xlsx" style="display:none;">
+          <div id="bcExcelUploadStatus" style="font-size:11.5px; margin:-2px 0 10px; min-height:14px;"></div>
 
           <div style="font-size:11px; color:#6B7280; margin-bottom:6px;">Sort by:</div>
           <div style="display:flex; gap:6px; flex-wrap:wrap; align-items:center; margin-bottom:10px;">
@@ -2725,15 +2782,28 @@ input:checked + #studioSection .slider-toggle::before{transform:translateX(19px)
           <div style="display:flex; gap:6px; flex-wrap:wrap; align-items:center;">
             <span style="font-size:11px; color:#6B7280; margin-right:2px;">Quick select:</span>
             <button type="button" class="bc-quick-btn" data-top="10">Top 10</button>
+            <button type="button" class="bc-quick-btn" data-top="20">Top 20</button>
+            <button type="button" class="bc-quick-btn" data-top="30">Top 30</button>
             <button type="button" class="bc-quick-btn" data-top="50">Top 50</button>
             <button type="button" class="bc-quick-btn" data-top="100">Top 100</button>
             <button type="button" class="bc-quick-btn" id="bcSelectAllBtn">Select All</button>
             <button type="button" class="bc-quick-btn" id="bcClearSelectionBtn">Clear</button>
           </div>
           <div id="bcSortHint" style="font-size:11px; color:#9CA3AF; margin-top:8px;">Sorted by fund value (highest first) · tap Top N to select the N clients shown below</div>
+          </div>
+        </div>
+
+        <!-- Mobile-only drag handle: split view isn't possible on a narrow
+             screen, so this lets the person manually trade space between
+             the filters above and the client list below by dragging —
+             hidden entirely at the lg: breakpoint, where the real 50/50
+             split layout already solves this. -->
+        <div id="bcPickerResizeHandle" style="align-items:center; justify-content:center; height:20px; flex:0 0 auto; cursor:ns-resize; touch-action:none; background:#fff; border-bottom:1px solid var(--line,#E4DCC8);">
+          <div style="width:40px; height:4px; border-radius:999px; background:#D1D5DB;"></div>
         </div>
 
         <div id="bcPickerList" style="flex:1 1 auto; overflow-y:auto; padding:8px 12px 90px;"></div>
+        </div>
 
         <div style="position:fixed; bottom:0; left:0; right:0; background:#fff; border-top:1px solid var(--line,#E4DCC8); padding:12px 16px; display:flex; align-items:center; justify-content:space-between;">
           <span id="bcPickerSelectedCount" style="font-size:13px; font-weight:700; color:var(--navy,#0C447C);">0 selected</span>
@@ -2945,6 +3015,23 @@ input:checked + #studioSection .slider-toggle::before{transform:translateX(19px)
         <div class="status" id="advanceDaysStatus"></div>
       </div>
 
+      <div class="card" id="helpSupportCard">
+        <h2 style="display:flex; align-items:center; gap:8px;">
+          <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="var(--navy,#0C447C)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></svg>
+          Need Help?
+        </h2>
+        <p class="sub">We're here to help with your Due Reminder needs.</p>
+        <p class="sub" style="word-break:break-all;">Jccbusinesssolutions16@gmail.com</p>
+        <a href="mailto:Jccbusinesssolutions16@gmail.com" class="btn-gold" style="display:flex; align-items:center; justify-content:center; gap:7px; text-decoration:none; margin-bottom:10px; width:100%; box-sizing:border-box; padding:13px 18px; border-radius:14px; min-height:44px; font-weight:700; font-size:13px; letter-spacing:.4px;">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><path d="m22 7-8.991 5.727a2 2 0 0 1-2.009 0L2 7"/><rect x="2" y="4" width="20" height="16" rx="2"/></svg>
+          Contact Support
+        </a>
+        <a href="https://www.facebook.com/profile.php?id=61591302882160" target="_blank" rel="noopener" style="display:flex; align-items:center; justify-content:center; gap:7px; padding:10px; border-radius:10px; background:var(--cream,#FDF8F0); border:1px solid var(--line,#E4DCC8); text-decoration:none; color:var(--navy,#0C447C); font-size:13px; font-weight:600;">
+          <svg width="17" height="17" viewBox="0 0 24 24" style="flex-shrink:0;"><path fill="#0866FF" d="M9.101 23.691v-7.98H6.627v-3.667h2.474v-1.58c0-4.085 1.848-5.978 5.858-5.978.401 0 .955.042 1.468.103a8.68 8.68 0 0 1 1.141.195v3.325a8.623 8.623 0 0 0-.653-.036 26.805 26.805 0 0 0-.733-.009c-.707 0-1.259.096-1.675.309a1.686 1.686 0 0 0-.679.622c-.258.42-.374.995-.374 1.752v1.297h3.919l-.386 2.103-.287 1.564h-3.246v8.245C19.396 23.238 24 18.179 24 12.044c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.628 3.874 10.35 9.101 11.647Z"/></svg>
+          Follow us for more apps!
+        </a>
+      </div>
+
       <div class="card" id="setupGuideCard" style="text-align:center;">
         <a href="https://jccbusinesssolutions.github.io/CLIENT-PULSE-SETUP-GUIDE/" style="display:inline-block;font-weight:700;color:#0C447C;text-decoration:underline;">CLIENT PULSE SETUP GUIDE</a>
       </div>
@@ -2965,13 +3052,11 @@ input:checked + #studioSection .slider-toggle::before{transform:translateX(19px)
      MOBILE BOTTOM NAV
      ============================================================ -->
 <nav class="mobile-bottom-nav lg:hidden" id="mobileBottomNav">
-  <div class="mobile-nav-item active" data-nav="dues" onclick="scrollToSection('dues')"><span class="ico">📊</span>Premium Due Reminders</div>
-  <div class="mobile-nav-item" data-nav="birthday" onclick="scrollToSection('birthday')"><span class="ico">🎂</span>Birthdays</div>
-  <div class="mobile-nav-item" data-nav="anniversary" onclick="scrollToSection('anniversary')"><span class="ico">🎉</span>Anniversaries</div>
-  <div class="mobile-nav-item" data-nav="upload" onclick="scrollToSection('upload')"><span class="ico">📤</span>Upload</div>
-  <div class="mobile-nav-item" data-nav="clients" onclick="scrollToSection('clients')"><span class="ico">👥</span>Clients</div>
-  <div class="mobile-nav-item" data-nav="broadcast" onclick="scrollToSection('broadcast')"><span class="ico">📣</span>Broadcast</div>
-  <div class="mobile-nav-item" id="mobileLogoutLink" onclick="logoutUser()" style="color:#d32f2f;"><span class="ico">🚪</span>Logout</div>
+  <div class="mobile-nav-item active" data-nav="dues" onclick="scrollToSection('dues')"><span class="ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><path d="M10.268 21a2 2 0 0 0 3.464 0"/><path d="M22 8c0-2.3-.8-4.3-2-6"/><path d="M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326"/><path d="M4 2C2.8 3.7 2 5.7 2 8"/></svg></span>Premium Due Reminders</div>
+  <div class="mobile-nav-item" data-nav="birthday" onclick="scrollToSection('birthday')"><span class="ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><path d="M20 21v-8a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8"/><path d="M4 16s.5-1 2-1 2.5 2 4 2 2.5-2 4-2 2.5 2 4 2 2-1 2-1"/><path d="M2 21h20"/><path d="M7 8v3"/><path d="M12 8v3"/><path d="M17 8v3"/><path d="M7 4h.01"/><path d="M12 4h.01"/><path d="M17 4h.01"/></svg></span>Birthdays</div>
+  <div class="mobile-nav-item" data-nav="anniversary" onclick="scrollToSection('anniversary')"><span class="ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><path d="M5.8 11.3 2 22l10.7-3.79"/><path d="M4 3h.01"/><path d="M22 8h.01"/><path d="M15 2h.01"/><path d="M22 20h.01"/><path d="m22 2-2.24.75a2.9 2.9 0 0 0-1.96 3.12c.1.86-.57 1.63-1.45 1.63h-.38c-.86 0-1.6.6-1.76 1.44L14 10"/><path d="m22 13-.82-.33c-.86-.34-1.82.2-1.98 1.11c-.11.7-.72 1.22-1.43 1.22H17"/><path d="m11 2 .33.82c.34.86-.2 1.82-1.11 1.98C9.52 4.9 9 5.52 9 6.23V7"/><path d="M11 13c1.93 1.93 2.83 4.17 2 5-.83.83-3.07-.07-5-2-1.93-1.93-2.83-4.17-2-5 .83-.83 3.07.07 5 2Z"/></svg></span>Anniversaries</div>
+  <div class="mobile-nav-item" data-nav="clients" onclick="scrollToSection('clients')"><span class="ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><path d="M18 21a8 8 0 0 0-16 0"/><circle cx="10" cy="8" r="5"/><path d="M22 20c0-3.37-2-6.5-4-8a5 5 0 0 0-.45-8.3"/></svg></span>Clients</div>
+  <div class="mobile-nav-item" data-nav="broadcast" onclick="scrollToSection('broadcast')"><span class="ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><path d="M14.536 21.686a.5.5 0 0 0 .937-.024l6.5-19a.496.496 0 0 0-.635-.635l-19 6.5a.5.5 0 0 0-.024.937l7.93 3.18a2 2 0 0 1 1.112 1.11z"/><path d="m21.854 2.147-10.94 10.939"/></svg></span>Broadcast</div>
 </nav>
 
 <div class="toast" id="toast"></div>
@@ -3381,6 +3466,22 @@ function toggleDarkMode(){
 })();
 
 let toastTimer = null;
+// Opens the advisor's saved Google Sheet directly from the header —
+// same localStorage value Setup's "Save" button already writes to
+// (clientPulse_sheetLink), so this is always in sync with whatever
+// was last saved there, no separate persistence needed. Guards
+// against a brand-new advisor who hasn't set this up yet, rather
+// than silently opening a blank tab.
+function goToGoogleSheet(){
+  let link = '';
+  try{ link = localStorage.getItem('clientPulse_sheetLink') || ''; }catch(e){}
+  if (!link){
+    showToast('Save your Google Sheet Link in Setup first, then this button will take you straight there.');
+    return;
+  }
+  window.open(link, '_blank', 'noopener');
+}
+
 function showToast(msg){
   const t = document.getElementById('toast');
   t.textContent = msg;
@@ -4296,11 +4397,38 @@ function decodeSetupUrl(encoded){
   }catch(e){ return null; }
 }
 
+// Unlike the Apps Script Setup URL, a Google Sheet link has no single
+// fixed prefix/suffix shape worth stripping — advisors paste it with all
+// sorts of trailing bits (\/edit, \/edit#gid=0, \/edit?usp=sharing, or
+// nothing at all), and guessing wrong would corrupt the round-trip. So
+// this just base64url-encodes the whole thing as-is, unlike
+// encodeSetupUrl's prefix-stripped optimization above.
+function encodeSheetLink(link){
+  try{
+    return toBase64Url(btoa(link));
+  }catch(e){ return null; }
+}
+function decodeSheetLink(encoded){
+  try{
+    return atob(fromBase64Url(encoded));
+  }catch(e){ return null; }
+}
+
 function getPersonalLink(setupUrl){
   const encoded = encodeSetupUrl(setupUrl);
   if (!encoded) return null;
   const base = window.location.href.split('?')[0].split('#')[0];
-  return base + '?s=' + encoded;
+  let link = base + '?s=' + encoded;
+  // Sheet link is optional — an advisor who saved a Setup URL but never
+  // filled in Step 2 still gets a working personal link, just without
+  // the sheet bookmark riding along.
+  let sheetLink = '';
+  try{ sheetLink = localStorage.getItem('clientPulse_sheetLink') || ''; }catch(e){}
+  if (sheetLink){
+    const encodedSheet = encodeSheetLink(sheetLink);
+    if (encodedSheet) link += '&sl=' + encodedSheet;
+  }
+  return link;
 }
 
 let personalLinkRealValue = ''; // the actual link — copy/share always read from here, never from the (possibly masked) displayed text
@@ -4398,7 +4526,10 @@ el('sharePersonalLinkBtn').addEventListener('click', () => {
   }
 });
 
-// On page load: if ?s= is in the URL, decode and auto-load Setup URL.
+// On page load: if ?s= is in the URL, decode and auto-load Setup URL —
+// and if ?sl= is also present, decode and restore the Google Sheet link
+// too, so a buyer opening this on a fresh device never has to open their
+// Sheet and copy/paste that link in manually.
 (function loadSetupUrlFromQueryParam(){
   try{
     const params = new URLSearchParams(window.location.search);
@@ -4410,15 +4541,32 @@ el('sharePersonalLinkBtn').addEventListener('click', () => {
       window.history.replaceState({}, document.title, window.location.href.split('?')[0]);
       return;
     }
+    let sheetLinkLoaded = false;
     const existing = localStorage.getItem('duesTrackerScriptUrl');
     if (!existing){
       persistScriptUrl(decoded);
       el('scriptUrl').value = decoded;
       el('scriptUrl').dataset.value = decoded;
       updateSetupBlinkState();
-      showToast('Setup URL loaded from your personal link \u2014 you\'re connected!');
+
+      // Sheet link rides along as a second, optional param — decoded and
+      // restored the same way, but never blocks the Setup URL from
+      // loading if it's missing or fails to decode (older personal links
+      // generated before this feature existed won't have it at all).
+      const encodedSheet = params.get('sl');
+      if (encodedSheet){
+        const decodedSheet = decodeSheetLink(encodedSheet);
+        if (decodedSheet && decodedSheet.startsWith('https://docs.google.com/spreadsheets/')){
+          try{ localStorage.setItem('clientPulse_sheetLink', decodedSheet); }catch(e){}
+          el('sheetLink').value = decodedSheet;
+          sheetLinkLoaded = true;
+        }
+      }
+      showToast(sheetLinkLoaded
+        ? 'Setup URL and Google Sheet link loaded from your personal link \u2014 you\'re connected!'
+        : 'Setup URL loaded from your personal link \u2014 you\'re connected!');
     }
-    // Clean ?s= from address bar without reload
+    // Clean ?s= and ?sl= from address bar without reload
     window.history.replaceState({}, document.title, window.location.href.split('?')[0]);
   }catch(e){}
 })();
@@ -5087,6 +5235,97 @@ function renderPickerList(clients){
   });
 }
 
+// Mobile-only drag-to-resize between the filters panel and the client
+// list. Split view (side-by-side) is only viable at desktop widths (see
+// the #bcPickerBody media query above) — below that, this lets the
+// person manually trade vertical space between the two by dragging the
+// handle, instead of the filters panel permanently eating most of the
+// screen above a cramped, barely-visible list.
+//
+// The filters panel is left exactly as it's always been (sized to its
+// own content, no scrollbar, no wasted space) until the very first drag
+// — only then does this pin it to an explicit, adjustable pixel height.
+// That keeps the default first-open appearance completely unchanged for
+// everyone who never touches the handle.
+(function initPickerResizeHandle(){
+  const handle = document.getElementById('bcPickerResizeHandle');
+  const panel = document.getElementById('bcPickerFiltersPanel');
+  const content = document.getElementById('bcPickerFiltersContent');
+  const body = document.getElementById('bcPickerBody');
+  if (!handle || !panel || !content || !body) return;
+
+  let dragging = false;
+  let startY = 0;
+  let startHeight = 0;
+  let naturalContentHeight = 0; // the content's own full, unscaled height
+
+  function pointerY(e){
+    return (e.touches && e.touches.length) ? e.touches[0].clientY : e.clientY;
+  }
+
+  // Applies whatever scale keeps the filter controls fully visible at
+  // the panel's current height, instead of clipping/hiding the bottom
+  // of the content the way a plain overflow:hidden would. Never scales
+  // UP past 100% — a tall panel just shows everything at full size with
+  // room to spare, same as before this feature existed.
+  function applyScale(panelHeight){
+    if (naturalContentHeight <= 0) return;
+    const scale = Math.min(1, panelHeight / naturalContentHeight);
+    content.style.transform = 'scale(' + scale + ')';
+    content.style.transformOrigin = 'top center';
+  }
+
+  function onStart(e){
+    if (window.innerWidth >= 1024) return; // desktop uses the real split layout, not this handle
+    dragging = true;
+    startY = pointerY(e);
+    startHeight = panel.getBoundingClientRect().height;
+
+    // Reset any scale from a previous drag before measuring — otherwise
+    // a content height measured while already shrunk would be wrong,
+    // and re-measuring on every drag (rather than caching once) keeps
+    // this correct even if the person rotates their phone or the
+    // client list's filter options change how tall the content is.
+    content.style.transform = 'none';
+    naturalContentHeight = content.getBoundingClientRect().height;
+
+    panel.style.height = startHeight + 'px';
+    panel.style.flex = '0 0 auto';
+    applyScale(startHeight);
+    document.body.style.userSelect = 'none';
+    e.preventDefault();
+  }
+
+  function onMove(e){
+    if (!dragging) return;
+    const dy = pointerY(e) - startY;
+    const bodyHeight = body.getBoundingClientRect().height;
+    // Filters panel never shrinks below 56px (the controls scale down
+    // to fit, so even a sliver still shows a legible, if tiny, search
+    // bar) and never grows so tall that fewer than 140px remains for
+    // the client list below it.
+    const minPanelHeight = 56;
+    const maxPanelHeight = Math.max(minPanelHeight, bodyHeight - 140);
+    let newHeight = startHeight + dy;
+    newHeight = Math.max(minPanelHeight, Math.min(maxPanelHeight, newHeight));
+    panel.style.height = newHeight + 'px';
+    applyScale(newHeight);
+    e.preventDefault();
+  }
+
+  function onEnd(){
+    dragging = false;
+    document.body.style.userSelect = '';
+  }
+
+  handle.addEventListener('mousedown', onStart);
+  handle.addEventListener('touchstart', onStart, { passive:false });
+  window.addEventListener('mousemove', onMove, { passive:false });
+  window.addEventListener('touchmove', onMove, { passive:false });
+  window.addEventListener('mouseup', onEnd);
+  window.addEventListener('touchend', onEnd);
+})();
+
 function updatePickerCount(){
   const n = bcSelectedEmails.size;
   el('bcPickerSelectedCount').textContent = n + ' selected';
@@ -5139,6 +5378,146 @@ function addManualBroadcastEmail(){
   updatePickerCount();
   renderPickerList(currentFilteredClients());
 }
+
+// Bulk-adds recipients from an uploaded Excel file with Name + Email
+// columns. Reuses the same parsing tools already loaded for the Dues/
+// Birthday uploads (SheetJS, findColumn's fuzzy header matching,
+// looksLikeHeaderRow's header-row detection) and the exact same
+// "already exists? just select it — otherwise push a lightweight
+// synthetic entry" pattern addManualBroadcastEmail() already uses, so
+// every existing filter/sort/render/selection function works on the
+// result unchanged. No backend call, no Code.gs involved — this only
+// ever touches the in-memory bcAllClients/bcSelectedEmails the picker
+// already keeps client-side.
+async function handleBroadcastExcelUpload(file){
+  const status = el('bcExcelUploadStatus');
+  status.style.color = '#6B7280';
+  status.textContent = 'Reading ' + file.name + '\u2026';
+
+  const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+  // Same protection the Top N / Select All quick-select buttons already
+  // have: force a fresh check right now rather than trusting whatever
+  // bcAlreadySentEmails happened to already contain, since the subject
+  // field's own debounced check might not have finished yet. Without
+  // this, someone who already received this exact subject could get
+  // silently re-selected (and, with nothing to catch it at send time
+  // either, genuinely re-sent to) just by being in the uploaded file.
+  await refreshAlreadySentForCurrentSubject();
+
+  try{
+    const buffer = await file.arrayBuffer();
+    const workbook = XLSX.read(buffer, {type:'array'});
+    const ws = workbook.Sheets[workbook.SheetNames[0]];
+    const rows = XLSX.utils.sheet_to_json(ws, {header:1, raw:true});
+
+    const signalGroups = [['name'], ['email', 'e-mail']];
+    let headerIdx = -1;
+    for (let i = 0; i < Math.min(rows.length, 10); i++){
+      if (rows[i] && looksLikeHeaderRow(rows[i], signalGroups)){ headerIdx = i; break; }
+    }
+    if (headerIdx === -1){
+      status.style.color = '#EB5757';
+      status.textContent = 'Couldn\u2019t find Name/Email column headers in this file.';
+      return;
+    }
+
+    const headers = rows[headerIdx];
+    const claimed = new Set();
+    const nameCol = findColumn(headers, claimed, ['name', 'full name', 'client name'], ['name']);
+    const emailCol = findColumn(headers, claimed, ['email', 'e-mail', 'email address'], ['email']);
+    if (emailCol === -1){
+      status.style.color = '#EB5757';
+      status.textContent = 'Couldn\u2019t find an Email column in this file.';
+      return;
+    }
+
+    let added = 0, merged = 0, skipped = 0, alreadySent = 0;
+    for (let i = headerIdx + 1; i < rows.length; i++){
+      const row = rows[i];
+      if (!row) continue;
+      const rawEmail = String(row[emailCol] || '').trim().toLowerCase();
+      const rawName = nameCol !== -1 ? String(row[nameCol] || '').trim() : '';
+      if (!rawEmail){ continue; } // blank row — not an error, just nothing to do
+      if (!emailPattern.test(rawEmail)){ skipped++; continue; }
+
+      if (bcAlreadySentEmails.has(rawEmail)){
+        // Already received this exact subject — never select them, same
+        // as a manual row click is already blocked for this case. Still
+        // merged into bcAllClients if they're not already there (so they
+        // show up, correctly greyed out, with the "ALREADY SENT" badge)
+        // rather than silently vanishing from the file entirely.
+        if (!bcAllClients.find(c => (c.email || '').trim().toLowerCase() === rawEmail)){
+          bcAllClients.push({
+            email: rawEmail, clientName: rawName || rawEmail, product: '',
+            fundValue: 0, dueDate: null, policyStatus: '', lapseDate: null,
+            manuallyAdded: true
+          });
+        }
+        alreadySent++;
+        continue;
+      }
+
+      const existing = bcAllClients.find(c => (c.email || '').trim().toLowerCase() === rawEmail);
+      if (existing){
+        // Merge: this person is already a real client (or was added
+        // earlier) — never overwrite their existing record, just make
+        // sure the upload's intent ("include this person") is honored
+        // by selecting them, same as addManualBroadcastEmail() already
+        // does for a single already-known email.
+        bcSelectedEmails.add(existing.email);
+        merged++;
+      } else {
+        bcAllClients.push({
+          email: rawEmail,
+          clientName: rawName || rawEmail,
+          product: '',
+          fundValue: 0,
+          dueDate: null,
+          policyStatus: '',
+          lapseDate: null,
+          manuallyAdded: true
+        });
+        bcSelectedEmails.add(rawEmail);
+        added++;
+      }
+    }
+
+    el('bcExcelUploadInput').value = ''; // allow re-uploading the same file again later
+    updatePickerCount();
+    renderPickerList(currentFilteredClients());
+
+    if (added === 0 && merged === 0 && alreadySent === 0){
+      status.style.color = '#EB5757';
+      status.textContent = skipped > 0
+        ? 'No valid rows found (' + skipped + ' row' + (skipped === 1 ? '' : 's') + ' had an invalid email).'
+        : 'No rows found in this file.';
+    } else {
+      status.style.color = '#27AE60';
+      let msg = '\u2713 ' + added + ' added';
+      if (merged > 0) msg += ', ' + merged + ' matched existing clients';
+      if (skipped > 0) msg += ', ' + skipped + ' skipped (invalid email)';
+      const newlySelected = added + merged;
+      msg += ' \u2014 ' + newlySelected + ' selected';
+      if (alreadySent > 0){
+        // Deliberately NOT selected — same protection a manual row click
+        // already has for this exact case, extended to the upload path.
+        msg += ', ' + alreadySent + ' already received this subject and ' +
+          (alreadySent === 1 ? 'was' : 'were') + ' automatically excluded';
+      }
+      status.textContent = msg + '.';
+    }
+  }catch(err){
+    status.style.color = '#EB5757';
+    status.textContent = 'Could not read this file: ' + (err && err.message ? err.message : String(err));
+  }
+}
+
+el('bcExcelUploadBtn').addEventListener('click', () => el('bcExcelUploadInput').click());
+el('bcExcelUploadInput').addEventListener('change', (e) => {
+  const file = e.target.files && e.target.files[0];
+  if (file) handleBroadcastExcelUpload(file);
+});
 
 el('bcManualEmailAddBtn').addEventListener('click', addManualBroadcastEmail);
 el('bcManualEmailInput').addEventListener('keydown', (e) => {
@@ -6961,6 +7340,121 @@ el('refreshDueToday').addEventListener('click', loadDueToday);
   }catch(e){}
   updateSetupBlinkState();
 })();
+
+/* ============================================================
+   "SEND AGAIN" — manual fail-safe trigger for Dues, Birthdays,
+   and Anniversaries
+   ------------------------------------------------------------
+   Lets an advisor manually re-run today's send instead of waiting
+   for tomorrow — e.g. right after fixing a quota or branding issue
+   that caused a run to fail. Does NOT run the send synchronously in
+   this request: the backend schedules a one-time trigger instead,
+   which gets the same 6-minute execution budget the real daily
+   trigger gets, rather than being squeezed into the Web App's much
+   tighter 30-second response window (risky for a large batch of
+   real GmailApp.sendEmail() calls). This function then polls for
+   that run's log to appear and renders the real result once it does.
+
+   Nothing here duplicates the "already sent" check — sendDailyReminders/
+   sendDailyBirthdayGreetings/sendDailyAnniversaryGreetings already skip
+   any row whose tracking column shows today's date (or this year, for
+   birthdays/anniversaries), so clicking this twice in a row — or
+   clicking it after some rows already sent automatically today — can
+   never double-send to the same client.
+   ============================================================ */
+function wireSendAgainButton(config){
+  const btn = el(config.btnId);
+  const resultBox = el(config.resultId);
+  if (!btn || !resultBox) return;
+
+  btn.addEventListener('click', async () => {
+    btn.disabled = true;
+    const originalLabel = btn.innerHTML;
+    btn.innerHTML = '⏳ Sending…';
+    resultBox.style.display = 'block';
+    resultBox.style.background = '#EAF1FB';
+    resultBox.style.border = '1px solid #BFDBFE';
+    resultBox.style.color = '#1E3A5F';
+    resultBox.textContent = 'Triggering a manual send — this can take up to a minute…';
+
+    try{
+      // Capture the current run's timestamp (if any) before triggering,
+      // so we can tell a genuinely NEW run log apart from a stale one
+      // left over from an earlier automatic run today.
+      const beforeUrl = getScriptUrl();
+      if (!beforeUrl) throw new Error('NO_SCRIPT_URL');
+      const beforeLog = await fetch(beforeUrl + '?action=' + config.logAction).then(r => r.json()).catch(() => ({}));
+      const beforeTimestamp = beforeLog.timestamp || null;
+
+      await callBackend({ action: config.triggerAction });
+
+      // Poll every 3s for up to 45s for the run log's timestamp to
+      // change — that's how we know the manually-triggered run has
+      // actually completed (or at least logged its progress so far;
+      // the send functions save progressively, not just at the end).
+      let finalLog = null;
+      for (let attempt = 0; attempt < 15; attempt++){
+        await new Promise(r => setTimeout(r, 3000));
+        const res = await fetch(beforeUrl + '?action=' + config.logAction);
+        const log = await res.json();
+        if (log.timestamp && log.timestamp !== beforeTimestamp){
+          finalLog = log;
+          break;
+        }
+      }
+
+      if (!finalLog){
+        resultBox.style.background = '#FDF6E3';
+        resultBox.style.border = '1px solid #F0DFA6';
+        resultBox.style.color = '#7A5C00';
+        resultBox.textContent = 'Send was triggered, but taking longer than expected to confirm. Tap Refresh Activity in a moment to check the latest numbers.';
+      }else{
+        const entries = finalLog.entries || [];
+        const endLine = entries.find(en => en.startsWith('END')) || entries.find(en => en.startsWith('EXIT')) || entries[entries.length - 1] || 'Run completed.';
+        const matched = Number((endLine.match(/matched=(\d+)/) || [])[1]) || 0;
+        const sentN = Number((endLine.match(/(?:^|\s)sent=(\d+)/) || [])[1]) || 0;
+        const failedN = Number((endLine.match(/failed=(\d+)/) || [])[1]) || 0;
+        const skippedN = Number((endLine.match(/skippedAlreadySent=(\d+)/) || [])[1]) || 0;
+
+        if (endLine.startsWith('EXIT')){
+          resultBox.style.background = '#FDF6E3';
+          resultBox.style.border = '1px solid #F0DFA6';
+          resultBox.style.color = '#7A5C00';
+          resultBox.textContent = endLine.replace('EXIT: ', '');
+        } else {
+          const isClean = failedN === 0;
+          resultBox.style.background = isClean ? '#E8F6ED' : '#FDECEC';
+          resultBox.style.border = isClean ? '1px solid #A9E5BE' : '1px solid #F5B7B7';
+          resultBox.style.color = isClean ? '#1E5A34' : '#7A1F1F';
+          let msg = matched + ' matched today — ' + sentN + ' sent';
+          if (skippedN > 0) msg += ', ' + skippedN + ' already sent (skipped)';
+          if (failedN > 0) msg += ', ' + failedN + ' failed';
+          resultBox.textContent = msg + '.';
+        }
+      }
+
+      config.refreshFn();
+    }catch(err){
+      resultBox.style.background = '#FDECEC';
+      resultBox.style.border = '1px solid #F5B7B7';
+      resultBox.style.color = '#7A1F1F';
+      resultBox.textContent = 'Could not trigger the send: ' + (err && err.message ? err.message : String(err));
+    }finally{
+      btn.disabled = false;
+      btn.innerHTML = originalLabel;
+    }
+  });
+}
+
+wireSendAgainButton({ btnId: 'sendDuesAgainBtn', resultId: 'duesSendAgainResult', triggerAction: 'manualSendDuesNow', logAction: 'getLastReminderRunLog', refreshFn: loadDailyStats });
+// loadBirthdayStats/loadAnniversaryStats are declared in a LATER
+// <script> block than this one, so they're wrapped in arrow functions
+// here rather than passed directly — that defers the name lookup to
+// click-time (long after every script block has run), instead of
+// resolving it right now while this block executes, which would
+// throw "loadBirthdayStats is not defined" immediately on page load.
+wireSendAgainButton({ btnId: 'sendBirthdaysAgainBtn', resultId: 'birthdaySendAgainResult', triggerAction: 'manualSendBirthdaysNow', logAction: 'getLastBirthdayRunLog', refreshFn: () => loadBirthdayStats() });
+wireSendAgainButton({ btnId: 'sendAnniversariesAgainBtn', resultId: 'anniversarySendAgainResult', triggerAction: 'manualSendAnniversariesNow', logAction: 'getLastAnniversaryRunLog', refreshFn: () => loadAnniversaryStats() });
 
 loadDueToday();
 loadDailyStats();
