@@ -312,7 +312,7 @@
     flex:1; display:flex; flex-direction:column; align-items:center; gap:3px;
     padding:6px 2px; border-radius:12px; cursor:pointer;
     color:var(--muted,#76839A); font-size:10.5px; font-weight:600;
-    min-height:44px;
+    min-height:44px; text-align:center;
   }
   .mobile-nav-item.active{ color:var(--navy); }
   .mobile-nav-item .ico{ font-size:18px; line-height:1; }
@@ -1950,8 +1950,8 @@ input:checked + #studioSection .slider-toggle::before{transform:translateX(19px)
 <div class="lg:hidden sticky top-0 z-30 bg-navy shadow-lg" id="mobileHeaderBar">
   <div class="px-4 py-4 flex items-center gap-3">
     <div class="flex-1 min-w-0">
-      <div class="font-heading text-white text-[15px] font-bold leading-tight" id="mobileTitleLine1">Client Payment</div>
-      <div class="font-heading text-gold text-[15px] font-bold tracking-wide leading-tight" id="mobileTitleLine2">Due Reminder</div>
+      <div class="font-heading text-white text-[19px] font-bold leading-tight" id="mobileTitleLine1">Client Payment</div>
+      <div class="font-heading text-gold text-[19px] font-bold tracking-wide leading-tight" id="mobileTitleLine2">Due Reminder</div>
     </div>
     <button class="theme-switch" id="themeToggleMobile" onclick="toggleDarkMode()">
       <span class="theme-switch-label text-white" id="themeToggleLabelMobile" style="display:none;">Light Mode</span>
@@ -1964,7 +1964,7 @@ input:checked + #studioSection .slider-toggle::before{transform:translateX(19px)
        "Google Sheet" quick-link that used to occupy this row was removed
        per request. -->
   <div class="px-4 pb-3" style="display:flex; justify-content:flex-end;">
-    <button id="mobileHeaderLogoutBtn" onclick="logoutUser()" style="background:none; border:1.5px solid #FF8A80; color:#FF8A80; font-weight:700; font-size:12px; letter-spacing:.3px; padding:7px 16px; border-radius:999px; white-space:nowrap; display:flex; align-items:center; gap:6px; width:auto; min-height:0;">
+    <button id="mobileHeaderLogoutBtn" onclick="logoutUser()" style="background:rgba(255,138,128,.16); border:none; color:#FF8A80; font-weight:700; font-size:12px; letter-spacing:.3px; padding:7px 16px; border-radius:999px; white-space:nowrap; display:flex; align-items:center; gap:6px; width:auto; min-height:0;">
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><path d="m16 17 5-5-5-5"/><path d="M21 12H9"/><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/></svg>
       Logout
     </button>
@@ -2203,6 +2203,23 @@ input:checked + #studioSection .slider-toggle::before{transform:translateX(19px)
         </div>
       </div>
     </div>
+    
+      <div class="lg:hidden card" id="helpSupportCardDuesTab" style="margin-top:20px;">
+        <h2 style="display:flex; align-items:center; gap:8px;">
+          <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="var(--navy,#0C447C)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></svg>
+          Need Help?
+        </h2>
+        <p class="sub">We're here to help with your Due Reminder needs.</p>
+        <p class="sub" style="word-break:break-all;">Jccbusinesssolutions16@gmail.com</p>
+        <a href="mailto:Jccbusinesssolutions16@gmail.com" class="btn-gold" style="display:flex; align-items:center; justify-content:center; gap:7px; text-decoration:none; margin-bottom:10px; width:100%; box-sizing:border-box; padding:13px 18px; border-radius:14px; min-height:44px; font-weight:700; font-size:13px; letter-spacing:.4px;">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><path d="m22 7-8.991 5.727a2 2 0 0 1-2.009 0L2 7"/><rect x="2" y="4" width="20" height="16" rx="2"/></svg>
+          Contact Support
+        </a>
+        <a href="https://www.facebook.com/profile.php?id=61591302882160" target="_blank" rel="noopener" style="display:flex; align-items:center; justify-content:center; gap:7px; padding:10px; border-radius:10px; background:#fff; border:1px solid var(--line,#E4DCC8); text-decoration:none; color:var(--navy,#0C447C); font-size:13px; font-weight:600;">
+          <svg width="17" height="17" viewBox="0 0 24 24" style="flex-shrink:0;"><path fill="#0866FF" d="M9.101 23.691v-7.98H6.627v-3.667h2.474v-1.58c0-4.085 1.848-5.978 5.858-5.978.401 0 .955.042 1.468.103a8.68 8.68 0 0 1 1.141.195v3.325a8.623 8.623 0 0 0-.653-.036 26.805 26.805 0 0 0-.733-.009c-.707 0-1.259.096-1.675.309a1.686 1.686 0 0 0-.679.622c-.258.42-.374.995-.374 1.752v1.297h3.919l-.386 2.103-.287 1.564h-3.246v8.245C19.396 23.238 24 18.179 24 12.044c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.628 3.874 10.35 9.101 11.647Z"/></svg>
+          Follow us for more apps!
+        </a>
+      </div>
     </div>
 
     <div id="page-birthday" style="display:none;">
@@ -2364,6 +2381,23 @@ input:checked + #studioSection .slider-toggle::before{transform:translateX(19px)
           </div>
         </div>
       </div>
+    
+      <div class="lg:hidden card" id="helpSupportCardBirthdayTab" style="margin-top:20px;">
+        <h2 style="display:flex; align-items:center; gap:8px;">
+          <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="var(--navy,#0C447C)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></svg>
+          Need Help?
+        </h2>
+        <p class="sub">We're here to help with your Due Reminder needs.</p>
+        <p class="sub" style="word-break:break-all;">Jccbusinesssolutions16@gmail.com</p>
+        <a href="mailto:Jccbusinesssolutions16@gmail.com" class="btn-gold" style="display:flex; align-items:center; justify-content:center; gap:7px; text-decoration:none; margin-bottom:10px; width:100%; box-sizing:border-box; padding:13px 18px; border-radius:14px; min-height:44px; font-weight:700; font-size:13px; letter-spacing:.4px;">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><path d="m22 7-8.991 5.727a2 2 0 0 1-2.009 0L2 7"/><rect x="2" y="4" width="20" height="16" rx="2"/></svg>
+          Contact Support
+        </a>
+        <a href="https://www.facebook.com/profile.php?id=61591302882160" target="_blank" rel="noopener" style="display:flex; align-items:center; justify-content:center; gap:7px; padding:10px; border-radius:10px; background:#fff; border:1px solid var(--line,#E4DCC8); text-decoration:none; color:var(--navy,#0C447C); font-size:13px; font-weight:600;">
+          <svg width="17" height="17" viewBox="0 0 24 24" style="flex-shrink:0;"><path fill="#0866FF" d="M9.101 23.691v-7.98H6.627v-3.667h2.474v-1.58c0-4.085 1.848-5.978 5.858-5.978.401 0 .955.042 1.468.103a8.68 8.68 0 0 1 1.141.195v3.325a8.623 8.623 0 0 0-.653-.036 26.805 26.805 0 0 0-.733-.009c-.707 0-1.259.096-1.675.309a1.686 1.686 0 0 0-.679.622c-.258.42-.374.995-.374 1.752v1.297h3.919l-.386 2.103-.287 1.564h-3.246v8.245C19.396 23.238 24 18.179 24 12.044c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.628 3.874 10.35 9.101 11.647Z"/></svg>
+          Follow us for more apps!
+        </a>
+      </div>
     </div>
 
     <!-- ============================================================
@@ -2437,6 +2471,23 @@ input:checked + #studioSection .slider-toggle::before{transform:translateX(19px)
         <div id="anniversarySendAgainResult" style="display:none;margin-top:10px;padding:10px 12px;border-radius:8px;font-size:12.5px;line-height:1.5;"></div>
       </div>
 
+    
+      <div class="lg:hidden card" id="helpSupportCardAnniversaryTab" style="margin-top:20px;">
+        <h2 style="display:flex; align-items:center; gap:8px;">
+          <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="var(--navy,#0C447C)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></svg>
+          Need Help?
+        </h2>
+        <p class="sub">We're here to help with your Due Reminder needs.</p>
+        <p class="sub" style="word-break:break-all;">Jccbusinesssolutions16@gmail.com</p>
+        <a href="mailto:Jccbusinesssolutions16@gmail.com" class="btn-gold" style="display:flex; align-items:center; justify-content:center; gap:7px; text-decoration:none; margin-bottom:10px; width:100%; box-sizing:border-box; padding:13px 18px; border-radius:14px; min-height:44px; font-weight:700; font-size:13px; letter-spacing:.4px;">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><path d="m22 7-8.991 5.727a2 2 0 0 1-2.009 0L2 7"/><rect x="2" y="4" width="20" height="16" rx="2"/></svg>
+          Contact Support
+        </a>
+        <a href="https://www.facebook.com/profile.php?id=61591302882160" target="_blank" rel="noopener" style="display:flex; align-items:center; justify-content:center; gap:7px; padding:10px; border-radius:10px; background:#fff; border:1px solid var(--line,#E4DCC8); text-decoration:none; color:var(--navy,#0C447C); font-size:13px; font-weight:600;">
+          <svg width="17" height="17" viewBox="0 0 24 24" style="flex-shrink:0;"><path fill="#0866FF" d="M9.101 23.691v-7.98H6.627v-3.667h2.474v-1.58c0-4.085 1.848-5.978 5.858-5.978.401 0 .955.042 1.468.103a8.68 8.68 0 0 1 1.141.195v3.325a8.623 8.623 0 0 0-.653-.036 26.805 26.805 0 0 0-.733-.009c-.707 0-1.259.096-1.675.309a1.686 1.686 0 0 0-.679.622c-.258.42-.374.995-.374 1.752v1.297h3.919l-.386 2.103-.287 1.564h-3.246v8.245C19.396 23.238 24 18.179 24 12.044c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.628 3.874 10.35 9.101 11.647Z"/></svg>
+          Follow us for more apps!
+        </a>
+      </div>
     </div>
 
     <!-- ============================================================
@@ -2447,7 +2498,6 @@ input:checked + #studioSection .slider-toggle::before{transform:translateX(19px)
       <div class="card" id="clientsIntroCard">
         <h2>📋 Manage Your Clients</h2>
         <p class="sub">Choose which clients will receive dues reminders and birthday greetings. Toggle off any clients you don't want to reach out to automatically.</p>
-        <p style="font-size:10px; color:#C99A3B; margin:8px 0 0; font-weight:600;">Build: 2026-07-05-reorder-v2 \u2014 if this line isn\u2019t visible, you\u2019re viewing a cached/old copy of this page.</p>
       </div>
 
       <!-- DUES CLIENTS -->
@@ -3030,10 +3080,6 @@ input:checked + #studioSection .slider-toggle::before{transform:translateX(19px)
           <svg width="17" height="17" viewBox="0 0 24 24" style="flex-shrink:0;"><path fill="#0866FF" d="M9.101 23.691v-7.98H6.627v-3.667h2.474v-1.58c0-4.085 1.848-5.978 5.858-5.978.401 0 .955.042 1.468.103a8.68 8.68 0 0 1 1.141.195v3.325a8.623 8.623 0 0 0-.653-.036 26.805 26.805 0 0 0-.733-.009c-.707 0-1.259.096-1.675.309a1.686 1.686 0 0 0-.679.622c-.258.42-.374.995-.374 1.752v1.297h3.919l-.386 2.103-.287 1.564h-3.246v8.245C19.396 23.238 24 18.179 24 12.044c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.628 3.874 10.35 9.101 11.647Z"/></svg>
           Follow us for more apps!
         </a>
-      </div>
-
-      <div class="card" id="setupGuideCard" style="text-align:center;">
-        <a href="https://jccbusinesssolutions.github.io/CLIENT-PULSE-SETUP-GUIDE/" style="display:inline-block;font-weight:700;color:#0C447C;text-decoration:underline;">CLIENT PULSE SETUP GUIDE</a>
       </div>
 
     </div>
