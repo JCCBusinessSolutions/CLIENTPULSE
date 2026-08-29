@@ -2738,7 +2738,11 @@ input:checked + #studioSection .slider-toggle::before{transform:translateX(19px)
         </div>
 
         <div id="bcScheduledListWrap" style="margin-top:20px;">
-          <label>Scheduled Broadcasts</label>
+          <label style="display:flex; align-items:center; justify-content:space-between; gap:8px;">
+            <span>Scheduled Broadcasts</span>
+            <span id="bcScheduleCapacityBadge" style="display:none; font-size:11px; font-weight:700; padding:3px 9px; border-radius:999px; white-space:nowrap;"></span>
+          </label>
+          <div id="bcScheduleCapacityNote" style="display:none; font-size:11.5px; color:#EB5757; margin:-2px 0 8px; line-height:1.4;"></div>
           <div id="bcScheduledList" style="font-size:13px; color:#9CA3AF;">No scheduled broadcasts.</div>
         </div>
 
@@ -5796,6 +5800,35 @@ async function refreshScheduledBroadcastsList(){
     const schedules = (data && data.schedules) || [];
     const active = schedules.filter(s => s.status === 'scheduled' || s.status === 'sending');
     const completed = schedules.filter(s => s.status === 'sent' || s.status === 'failed');
+
+    // Google caps every Apps Script project at 20 total triggers, no
+    // exceptions, no way to raise it. This app already keeps 5 standing
+    // ones running at all times (daily dues/birthday/anniversary sends,
+    // the inactivity check, and the hourly watchdog that self-heals the
+    // other four) — leaving 15 slots for scheduled broadcasts specifically,
+    // since each one holds its own trigger for as long as it's pending.
+    // Surfacing this here means an advisor sees it coming instead of
+    // discovering it via a failed "Could not schedule" error.
+    const STANDING_TRIGGERS = 5;
+    const TRIGGER_CAP = 20;
+    const BROADCAST_SLOT_CAP = TRIGGER_CAP - STANDING_TRIGGERS;
+    const badge = el('bcScheduleCapacityBadge');
+    const capacityNote = el('bcScheduleCapacityNote');
+    const used = active.length;
+    badge.style.display = 'inline-block';
+    badge.textContent = used + ' / ' + BROADCAST_SLOT_CAP + ' slots used';
+    if (used >= BROADCAST_SLOT_CAP){
+      badge.style.background = 'rgba(235,87,87,.15)'; badge.style.color = '#EB5757';
+      capacityNote.style.display = 'block';
+      capacityNote.textContent = 'No slots left \u2014 cancel a scheduled broadcast below before scheduling a new one.';
+    } else if (used >= BROADCAST_SLOT_CAP - 3){
+      badge.style.background = 'rgba(201,154,59,.15)'; badge.style.color = '#C99A3B';
+      capacityNote.style.display = 'block';
+      capacityNote.textContent = 'Getting close to the limit \u2014 cancel any broadcasts you no longer need to free up slots.';
+    } else {
+      badge.style.background = 'rgba(39,174,96,.12)'; badge.style.color = '#27AE60';
+      capacityNote.style.display = 'none';
+    }
 
     if (active.length === 0){
       container.innerHTML = '<div style="font-size:13px; color:#9CA3AF;">No scheduled broadcasts.</div>';
