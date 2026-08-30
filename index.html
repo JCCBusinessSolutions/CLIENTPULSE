@@ -8847,37 +8847,6 @@ function _checkPolicyAgreementScrolled() {
 // sessionStorage writes, same hideGate()/startSessionWatch() sequence
 // used by accessGate's PAID path, submitSetupPassword's PAID path, and
 // submitResetPassword's ok path.
-// Forces the correct hidden/visible state for the desktop sidebar using
-// JS's own window.innerWidth reading, instead of trusting the browser's
-// CSS media-query evaluation. Some in-app browsers (confirmed with
-// Messenger's webview) mis-measure the viewport on the very first paint
-// after login — before their own UI chrome (address bar, etc.) has
-// finished settling — which can make an @media query evaluate
-// incorrectly just once. Any later layout change (like switching tabs)
-// forces a recalculation that gets it right, which is exactly the "only
-// wrong on the first screen after login" pattern reported. Since JS's
-// own viewport measurement doesn't have that lag, using it directly and
-// writing an inline style (which always wins over any CSS media query,
-// correct or not) sidesteps the browser bug entirely rather than trying
-// to fix the browser's own mistimed calculation.
-function enforceDesktopSidebarVisibility(){
-  const sidebar = document.getElementById('desktopSidebar');
-  if (!sidebar) return;
-  // setProperty(..., 'important') rather than a plain style assignment —
-  // a plain inline style can NEVER beat a stylesheet rule that carries
-  // !important (including this app's own #desktopSidebar backstop rule),
-  // so if THAT rule is the one misfiring on first paint, a non-important
-  // inline style would be powerless to correct it. Only an inline style
-  // that is itself !important can override any CSS rule unconditionally.
-  sidebar.style.setProperty('display', (window.innerWidth >= 1024) ? 'flex' : 'none', 'important');
-}
-enforceDesktopSidebarVisibility();
-window.addEventListener('resize', enforceDesktopSidebarVisibility);
-// Runs again shortly after load, once any in-app browser's own UI chrome
-// (address bar collapse/expand, etc.) has had a moment to settle —
-// belt-and-suspenders alongside the immediate check above.
-setTimeout(enforceDesktopSidebarVisibility, 400);
-
 function finalizeLoginSuccess(email, token, daysUntilExpiration) {
   currentEmail = email.toLowerCase();
   currentSessionToken = token;
@@ -9208,12 +9177,47 @@ async function checkSessionStillValid() {
   // poll 30 seconds later gets another chance.
 }
 
+// Forces the correct hidden/visible state for the desktop sidebar using
+// JS's own window.innerWidth reading, instead of trusting the browser's
+// CSS media-query evaluation for it. Some in-app browsers (confirmed
+// with Messenger's webview) mis-evaluate an @media query exactly once,
+// right after a large layout shift — and the moment cp-authed gets
+// added below is precisely that: #mainContentWrapper, #mobileHeaderBar,
+// and several other sections all flip from display:none to visible in
+// one instant. That matches the reported pattern exactly (wrong only on
+// the first screen after login, corrected the moment anything else
+// changes, like switching tabs, which is a second, smaller layout
+// shift that gives the browser a chance to recompute correctly).
+// setProperty(..., 'important') rather than a plain style assignment —
+// a plain inline style can never beat a stylesheet rule that carries
+// !important (including this app's own #desktopSidebar backstop rule),
+// so only an inline style that is itself !important can unconditionally
+// override whatever the browser incorrectly computed.
+function enforceDesktopSidebarVisibility(){
+  const sidebar = document.getElementById('desktopSidebar');
+  if (!sidebar) return;
+  sidebar.style.setProperty('display', (window.innerWidth >= 1024) ? 'flex' : 'none', 'important');
+}
+window.addEventListener('resize', enforceDesktopSidebarVisibility);
+if (window.visualViewport){
+  // The purpose-built API for exactly this class of issue — fires
+  // reliably when the browser's own UI chrome (address bar, etc.)
+  // changes size, unlike a guessed setTimeout delay.
+  window.visualViewport.addEventListener('resize', enforceDesktopSidebarVisibility);
+}
+
 function hideGate() {
   try {
     document.getElementById('gateScreen').classList.remove('show');
     document.getElementById('gateScreen').style.zIndex = '10';
     document.getElementById('gateScreen').style.display = 'none';
     document.body.classList.add('cp-authed');
+    // Checked immediately, then again at a few staggered delays — the
+    // large layout shift from cp-authed above can take a moment to
+    // fully settle in some in-app browsers, and one fixed guess isn't
+    // reliable enough on its own.
+    enforceDesktopSidebarVisibility();
+    [50, 150, 400, 900].forEach(ms => setTimeout(enforceDesktopSidebarVisibility, ms));
     // Re-run all data fetches after login completes — necessary on new
     // devices where the Setup URL was just decoded from the personal link
     // (?s= param) and wasn't available during the initial page-load fetch.
