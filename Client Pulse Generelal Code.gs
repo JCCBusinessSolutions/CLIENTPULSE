@@ -1251,12 +1251,41 @@ function doPost(e){
   if (body.action === 'saveDraft')              { try{ return jsonResponse(saveDraft(body.draftId, body.payload)); }catch(err){ return jsonResponse({ success: false, error: toEnglishErrorMessage(err.message) }); } }
   if (body.action === 'getDrafts')              { try{ return jsonResponse({ drafts: getDrafts() }); }catch(err){ return jsonResponse({ success: false, error: toEnglishErrorMessage(err.message) }); } }
   if (body.action === 'deleteDraft')            { try{ return jsonResponse(deleteDraft(body.draftId)); }catch(err){ return jsonResponse({ success: false, error: toEnglishErrorMessage(err.message) }); } }
+  if (body.action === 'manualSendDuesNow')          { try{ return jsonResponse(manualSendDuesNow()); }catch(err){ return jsonResponse({ success:false, error: toEnglishErrorMessage(err.message) }); } }
+  if (body.action === 'manualSendBirthdaysNow')     { try{ return jsonResponse(manualSendBirthdaysNow()); }catch(err){ return jsonResponse({ success:false, error: toEnglishErrorMessage(err.message) }); } }
+  if (body.action === 'manualSendAnniversariesNow') { try{ return jsonResponse(manualSendAnniversariesNow()); }catch(err){ return jsonResponse({ success:false, error: toEnglishErrorMessage(err.message) }); } }
 
   return jsonResponse({ error: 'Unknown action' });
 }
 
 function jsonResponse(obj){
   return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(ContentService.MimeType.JSON);
+}
+
+// ============================================================
+// MANUAL "SEND AGAIN" — fail-safe manual trigger
+// ------------------------------------------------------------
+// Schedules a one-time trigger instead of running the send inline —
+// that gives it the same 6-minute execution budget the real daily
+// trigger gets, instead of being squeezed into the Web App's much
+// tighter 30-second response window. Nothing here duplicates the
+// "already sent" check — sendDailyReminders/sendDailyBirthdayGreetings/
+// sendDailyAnniversaryGreetings already skip any row whose tracking
+// column shows today's date (or this year), so clicking twice — or
+// clicking after some rows already sent automatically today — can
+// never double-send to the same client.
+// ============================================================
+function manualSendDuesNow(){
+  ScriptApp.newTrigger('sendDailyReminders').timeBased().after(1000).create();
+  return { success: true, triggered: true };
+}
+function manualSendBirthdaysNow(){
+  ScriptApp.newTrigger('sendDailyBirthdayGreetings').timeBased().after(1000).create();
+  return { success: true, triggered: true };
+}
+function manualSendAnniversariesNow(){
+  ScriptApp.newTrigger('sendDailyAnniversaryGreetings').timeBased().after(1000).create();
+  return { success: true, triggered: true };
 }
 
 /* ============================================================
@@ -1447,20 +1476,6 @@ function getDailyStats(){
 }
 
 function sendDailyReminders(){
-  // Two real gaps fixed here, not just more visibility:
-  // 1. The log write was only ever called at specific points inside the
-  //    function — if ANYTHING threw an uncaught error anywhere else
-  //    (e.g. the sheet write below, or advanceDueDate()), the whole
-  //    function would crash and the log would never get saved at all,
-  //    even though some rows may have already sent successfully before
-  //    the crash. Wrapping the entire body in try/finally guarantees
-  //    the log is written no matter what happens or where it happens.
-  // 2. Each row's post-send work (writing Last Reminder Sent, advancing
-  //    the due date) is now its OWN try/catch — previously an error
-  //    there would crash the entire loop, silently ending the run and
-  //    leaving every row positioned after it in the sheet completely
-  //    unprocessed, with no record of why. Isolating it means one bad
-  //    row can never take down everyone who comes after it.
   const runLog = [];
   let matchedCount = 0, skippedAlreadySent = 0, sentCount = 0, failedCount = 0;
 
@@ -1476,12 +1491,6 @@ function sendDailyReminders(){
     const tz = Session.getScriptTimeZone();
     const todayStr = Utilities.formatDate(new Date(), tz, 'yyyy-MM-dd');
 
-    // Sends exactly TWO reminders per policy — one early heads-up on the
-    // single day that's exactly advanceDays before the due date, and one
-    // more on the actual due date itself. Nothing in between: a policy due
-    // in 3 days with advanceDays=3 gets one email today (daysAhead=3) and
-    // stays silent until the due date itself, when it gets the second and
-    // final email (daysAhead=0) — no daily countdown.
     const advanceDays = getAdvanceDays().advanceDays;
     const advanceTargetDate = new Date();
     advanceTargetDate.setDate(advanceTargetDate.getDate() + advanceDays);
@@ -1490,48 +1499,29 @@ function sendDailyReminders(){
     const startMsg = 'START — today=' + todayStr + ' advanceDays=' + advanceDays + ' advanceTarget=' + advanceTargetStr + ' totalRows=' + (data.length - 1);
     Logger.log('[sendDailyReminders] ' + startMsg);
     runLog.push(startMsg);
-    saveReminderRunLog(runLog); // saved immediately, not just at the end — see note below on why
+    saveReminderRunLog(runLog);
 
     for (let i = 1; i < data.length; i++){
       const row = data[i];
       const sendDues = row[col('Send Dues?')];
       if (sendDues === false || sendDues === 'FALSE' || sendDues === 0 || sendDues === '0') continue;
-      // Second layer of defense: the frontend now nulls Due Date for
-      // lapsed rows before pushing, but this check protects against a
-      // lapsed policy ever getting a due-date reminder even if it slips
-      // through with a real Due Date some other way (a manual sheet edit,
-      // a future upload-path change, etc.) — same isLapsedStatus() guard
-      // the Policy Anniversary Greeter already uses for the same reason.
       if (isLapsedStatus(row[col('Policy Status')])) continue;
       const dueDate = row[col('Due Date')];
       if (!(dueDate instanceof Date)) continue;
       const dueDateStr = Utilities.formatDate(dueDate, tz, 'yyyy-MM-dd');
 
-      // advanceDays is always >=1 (clamped in setAdvanceDays), so these
-      // two target dates can never collide — a policy is never matched
-      // by both conditions on the same day.
       let daysAhead;
       if (dueDateStr === advanceTargetStr) daysAhead = advanceDays;
       else if (dueDateStr === todayStr) daysAhead = 0;
-      else continue; // neither touchpoint applies today for this policy
+      else continue;
 
       matchedCount++;
       const policyNumber = row[col('Policy Number')];
 
-      // Due-today and advance are tracked in two completely separate
-      // columns now — 'Last Reminder Sent' for the due-today touchpoint,
-      // 'Advance Reminder Sent' for the advance one. Previously both
-      // shared the same column, which worked correctly in practice (the
-      // two dates can never land on the same calendar day), but kept
-      // them tangled together with no independent record of which
-      // touchpoint actually fired. Splitting them removes any chance of
-      // one touchpoint's write ever being misread by the other's check,
-      // and gives a clean, separate audit trail for each in the sheet.
       const trackingColName = daysAhead === 0 ? 'Last Reminder Sent' : 'Advance Reminder Sent';
       const trackingCol = col(trackingColName);
       const lastSentStr = normalizeDateCellToYmd(row[trackingCol], tz);
       if (lastSentStr === todayStr){
-        // guards against the trigger firing twice same day
         skippedAlreadySent++;
         const msg = 'SKIP (already sent today, ' + trackingColName + ') — policy=' + policyNumber + ' daysAhead=' + daysAhead + ' lastSent=' + lastSentStr;
         Logger.log('[sendDailyReminders] ' + msg);
@@ -1539,11 +1529,6 @@ function sendDailyReminders(){
         continue;
       }
 
-      // Everything for this one row — the send itself, marking it sent,
-      // and advancing its due date — is now inside a single try/catch,
-      // so a failure at ANY step here only affects this one row and
-      // logs exactly what broke, instead of silently ending the entire
-      // run and leaving every subsequent row unprocessed.
       try{
         const sent = sendReminderEmail(row, col, daysAhead);
         if (sent){
@@ -1553,10 +1538,6 @@ function sendDailyReminders(){
           const msg = 'SENT (' + trackingColName + ') — policy=' + policyNumber + ' daysAhead=' + daysAhead;
           Logger.log('[sendDailyReminders] ' + msg);
           runLog.push(msg);
-          // Cycling the due date forward to the next billing period only
-          // makes sense once the policy has actually reached its due
-          // date — the advance reminder (daysAhead > 0) is just a
-          // heads-up and must never move the due date early.
           if (daysAhead === 0){
             advanceDueDate(sheet, i + 1, col, dueDate, row[col('Premium Mode')]);
           }
@@ -1567,24 +1548,11 @@ function sendDailyReminders(){
         }
       }catch(err){
         failedCount++;
-        // Previously this class of error was either swallowed with only
-        // a counter bump, or — worse, for errors outside the narrow
-        // original try/catch — could crash the entire remaining loop.
-        // Now it's fully contained to this one row and fully logged.
         const msg = 'ERROR — policy=' + policyNumber + ' daysAhead=' + daysAhead + ' error=' + (err && err.message ? err.message : String(err));
         Logger.log('[sendDailyReminders] ' + msg);
         runLog.push(msg);
         bumpDailyStat('STAT_FAILED');
       }
-      // Saved after EVERY matched row, not just once at the very end.
-      // A plain try/finally only protects against a catchable JS
-      // exception — it does NOT protect against Apps Script's own
-      // platform-level hard kill when a script exceeds its maximum
-      // execution time, which terminates the script outright without
-      // running any cleanup code, finally block included. If that's
-      // what happened on a slow run, saving progressively here means
-      // whatever got through before the kill is still on record,
-      // instead of the whole run vanishing without a trace.
       saveReminderRunLog(runLog);
     }
 
@@ -1593,9 +1561,6 @@ function sendDailyReminders(){
     runLog.push(endMsg);
 
   }catch(err){
-    // Catches anything unexpected outside the per-row protection above
-    // (e.g. a problem reading the sheet itself, or in getAdvanceDays())
-    // — still guarantees a log entry instead of a silent, traceless crash.
     const msg = 'FATAL ERROR — run did not complete: ' + (err && err.message ? err.message : String(err));
     Logger.log('[sendDailyReminders] ' + msg);
     runLog.push(msg);
@@ -1604,32 +1569,19 @@ function sendDailyReminders(){
   }
 }
 
-// Persists the run log to Script Properties (survives regardless of
-// whether Cloud Logs captured this particular run), capped well under
-// the 9KB-per-property limit by keeping only the most recent lines if
-// an unusually large day's run would otherwise overflow it.
 function saveReminderRunLog(runLog){
   try{
     const tz = Session.getScriptTimeZone();
     const timestamp = Utilities.formatDate(new Date(), tz, "yyyy-MM-dd'T'HH:mm:ss");
     let entries = runLog;
-    // Rough safety margin: each line averages well under 200 bytes, so
-    // 40 lines keeps this comfortably inside the property size limit
-    // even for a verbose run — keeping the START/END summary lines plus
-    // the most recent detail lines if trimming is ever needed.
     if (entries.length > 40){
       entries = [entries[0]].concat(entries.slice(-39));
     }
     PropertiesService.getScriptProperties().setProperty('LAST_REMINDER_RUN_LOG', JSON.stringify({ timestamp: timestamp, entries: entries }));
   }catch(e){
-    // Logging failing should never surface as if the actual send run failed.
   }
 }
 
-// Retrieves whatever sendDailyReminders() last recorded — the one
-// reliable way to see what an AUTOMATIC (time-driven trigger) run
-// actually did, since Cloud Logs have repeatedly not been available
-// for those specifically, only for manual runs from the editor.
 function getLastReminderRunLog(){
   const raw = PropertiesService.getScriptProperties().getProperty('LAST_REMINDER_RUN_LOG');
   if (!raw) return { timestamp: null, entries: [] };
@@ -1640,7 +1592,6 @@ function getLastReminderRunLog(){
   }
 }
 
-// daysAhead: 0 = due today, 1+ = that many days before the due date.
 function sendReminderEmail(row, col, daysAhead){
   const email = row[col('Email')];
   if (!email) return false;
@@ -1664,7 +1615,6 @@ function sendReminderEmail(row, col, daysAhead){
   }
   const htmlBody = buildReminderEmailHtml(clientName, policyNumber, product, amount, dueDate, config, daysAhead);
 
-  // Build options — cc, replyTo, and from-alias are all optional
   const options = {
     htmlBody: htmlBody,
     name: config.senderName,
@@ -1678,14 +1628,6 @@ function sendReminderEmail(row, col, daysAhead){
   return true;
 }
 
-// Sends via GmailApp, using contactEmail as the visible "From" address
-// if it's set up as a verified "Send mail as" alias in the deploying
-// account's Gmail settings (Settings > Accounts and Import > Send mail
-// as). This is what hides a personal Gmail address from clients —
-// without a verified alias, GmailApp.sendEmail() throws "Invalid from
-// address", so this always falls back to the account's own address if
-// the alias send fails for any reason (not yet verified, removed, etc.),
-// rather than letting the whole reminder/test silently fail.
 function sendWithOptionalFromAlias(to, subject, options, fromAlias){
   if (fromAlias){
     try{
@@ -1693,8 +1635,6 @@ function sendWithOptionalFromAlias(to, subject, options, fromAlias){
       GmailApp.sendEmail(to, subject, '', aliasOptions);
       return;
     }catch(err){
-      // Alias not verified (or any other from-related failure) —
-      // fall through and send normally below instead of failing outright.
     }
   }
   GmailApp.sendEmail(to, subject, '', options);
@@ -1707,13 +1647,6 @@ function getEmailImages(config){
   };
 }
 
-// Some Filipino names lead with "Ma." (short for Maria) or the spelled-
-// out "Maria" as a formal prefix before the name someone actually goes
-// by — e.g. "Dela Cruz, Ma. Teresa" or "Dela Cruz, Maria Cristina".
-// People go by "Teresa" or "Cristina", not "Ma." or "Maria", so when
-// the first word is one of these, skip it and use the next word
-// instead. Falls back to the prefix itself if there's nothing after it
-// (e.g. the name really is just "Maria" with no middle name).
 const MARIA_STYLE_PREFIXES = ['ma', 'maria'];
 
 function firstNameOnly(rawName){
@@ -1792,7 +1725,7 @@ function previewReminderEmail(){
   const daysAhead = getAdvanceDays().advanceDays;
   const tz = Session.getScriptTimeZone();
   const sampleDueDate = new Date();
-  sampleDueDate.setDate(sampleDueDate.getDate() + daysAhead); // shows the due date the way an advance reminder actually would — X days out, matching your current setting
+  sampleDueDate.setDate(sampleDueDate.getDate() + daysAhead);
   const htmlBody = buildReminderEmailHtml('Dela Cruz, Juan Miguel', '0123456789', 'Sample Insurance Plan', 50000, sampleDueDate, config, daysAhead);
   const subjectDate = Utilities.formatDate(sampleDueDate, tz, 'MMMM d');
   const daysLabel = daysAhead === 0 ? '' : (daysAhead === 1 ? ' IN 1 DAY' : ' IN ' + daysAhead + ' DAYS');
@@ -1803,21 +1736,15 @@ function previewReminderEmail(){
   });
 }
 
-// Test email: sends to contactEmail if set, otherwise falls back to
-// the active user's email (which works fine in the Apps Script editor context).
 function sendDuesTestEmailToSelf(){
   const config = getBrandConfig();
   assertConfigured(config);
-  // Session.getEffectiveUser().getEmail() needs the userinfo.email scope,
-  // which some Workspace policies (e.g. Sun Life's) block outright —
-  // even though it works fine for personal Gmail deployments. Using
-  // contactEmail directly sidesteps that scope entirely.
   const recipient = config.contactEmail;
   if (!recipient) throw new Error('Please set a Contact Email in Your Branding first, then try the test email again.');
   const daysAhead = getAdvanceDays().advanceDays;
   const tz = Session.getScriptTimeZone();
   const sampleDueDate = new Date();
-  sampleDueDate.setDate(sampleDueDate.getDate() + daysAhead); // shows the due date the way an advance reminder actually would — X days out, matching your current setting
+  sampleDueDate.setDate(sampleDueDate.getDate() + daysAhead);
   const htmlBody = buildReminderEmailHtml('Dela Cruz, Juan Miguel', '0123456789', 'Sample Insurance Plan', 50000, sampleDueDate, config, daysAhead);
   const subjectDate = Utilities.formatDate(sampleDueDate, tz, 'MMMM d');
   const daysLabel = daysAhead === 0 ? '' : (daysAhead === 1 ? ' IN 1 DAY' : ' IN ' + daysAhead + ' DAYS');
@@ -1850,10 +1777,6 @@ function getBirthdaysTodayRows(){
     if (!(dob instanceof Date)) continue;
     if (dob.getMonth() === todayMonth && dob.getDate() === todayDay){
       const lastGreetingYear = String(row[col('Last Greeting Sent (Year)')] || '');
-      // Only counts as "sent" if it matches THIS year specifically —
-      // a value left over from last year's birthday (or any earlier
-      // one) shouldn't make today's greeting look like it already
-      // went out.
       const wasSentThisYear = lastGreetingYear === currentYearStr;
       result.push({
         fullName: row[col('Full Name')],
@@ -1895,11 +1818,6 @@ function getBirthdayDailyStats(){
 }
 
 function sendDailyBirthdayGreetings(){
-  // Same reliability hardening as sendDailyReminders/sendDailyAnniversaryGreetings
-  // — per-row isolation (one bad row can't crash the rest of the loop)
-  // and a progressive, persisted run log (survives even a hard
-  // execution-timeout kill, which try/finally alone can't protect
-  // against). Birthday greetings never had either of these until now.
   const runLog = [];
   let sentCount = 0, failedCount = 0, matchedCount = 0;
 
@@ -1933,10 +1851,6 @@ function sendDailyBirthdayGreetings(){
       matchedCount++;
       const fullName = row[col('Full Name')];
 
-      // Sending AND marking it sent are now both inside one try/catch —
-      // previously only the send itself was protected, so a failure
-      // writing the sheet afterward could crash every remaining row
-      // in the loop.
       try{
         const sent = sendBirthdayEmail(row, col);
         if (sent){
@@ -1958,9 +1872,6 @@ function sendDailyBirthdayGreetings(){
         Logger.log('[sendDailyBirthdayGreetings] ' + msg);
         runLog.push(msg);
       }
-      // Saved after every matched row, not just once at the end — same
-      // reason as the other two reminder functions: a hard platform
-      // timeout kill bypasses try/finally entirely.
       saveBirthdayRunLog(runLog);
     }
 
@@ -1977,9 +1888,6 @@ function sendDailyBirthdayGreetings(){
   }
 }
 
-// Same persistence pattern as saveReminderRunLog/saveAnniversaryRunLog,
-// under its own separate Script Property so all three features' logs
-// stay independent.
 function saveBirthdayRunLog(runLog){
   try{
     const tz = Session.getScriptTimeZone();
@@ -1990,7 +1898,6 @@ function saveBirthdayRunLog(runLog){
     }
     PropertiesService.getScriptProperties().setProperty('LAST_BIRTHDAY_RUN_LOG', JSON.stringify({ timestamp: timestamp, entries: entries }));
   }catch(e){
-    // Logging failing should never surface as if the actual send run failed.
   }
 }
 
@@ -2013,7 +1920,6 @@ function sendBirthdayEmail(row, col){
   const subject = 'HAPPY BIRTHDAY FROM ' + (config.senderName || 'YOUR ADVISOR').toUpperCase() + '!';
   const htmlBody = buildBirthdayEmailHtml(fullName, config);
 
-  // Build options — cc and replyTo are optional
   const options = {
     htmlBody: htmlBody,
     name: config.senderName,
@@ -2029,23 +1935,8 @@ function sendBirthdayEmail(row, col){
 
 /* ============================================================
    POLICY ANNIVERSARY GREETER
-   ------------------------------------------------------------
-   Reuses the existing Dues Tracker sheet (Issued Date is already
-   a column there) rather than a separate tracker — a policy
-   anniversary is just "today's month/day matches Issued Date",
-   the same shape as a birthday but keyed off the policy instead
-   of the person. "Send Anniversary?" is its own independent
-   toggle per row (like "Send Dues?"), so an advisor can turn
-   anniversary greetings off for a client without touching their
-   due reminders.
    ============================================================ */
 
-// Mirrors isLapsedStatus() in the frontend exactly — that one only ever
-// existed client-side, but the Policy Anniversary Greeter needs the
-// same check server-side to skip lapsed policies when sending. Kept
-// identical on purpose (same substring match, same case-folding) so
-// "lapsed" means the same thing everywhere in this app, not two
-// slightly different rules that could disagree on an edge case.
 function isLapsedStatus(policyStatus){
   const s = String(policyStatus || '').toLowerCase();
   return s.includes('lapsed') || s.includes('lapse');
@@ -2063,7 +1954,6 @@ function assertConfiguredForAnniversary(config){
   }
 }
 
-// e.g. 1 -> "1st", 2 -> "2nd", 3 -> "3rd", 4 -> "4th", 11-13 -> "th"
 function ordinalSuffix(n){
   const rem100 = n % 100;
   if (rem100 >= 11 && rem100 <= 13) return 'th';
@@ -2093,16 +1983,9 @@ function getPolicyAnniversariesTodayRows(){
     const issuedDate = row[col('Issued Date')];
     if (!(issuedDate instanceof Date)) continue;
     if (issuedDate.getMonth() !== todayMonth || issuedDate.getDate() !== todayDay) continue;
-    // A lapsed policy isn't really something to celebrate — skip it
-    // entirely rather than greeting someone for a policy that's no
-    // longer active. Uses the same isLapsedStatus() check the rest of
-    // the app already relies on as the source of truth for "lapsed",
-    // not the Lapse Date column alone (a policy can carry an old Lapse
-    // Date value while its current Policy Status says otherwise, e.g.
-    // reinstated).
     if (isLapsedStatus(row[col('Policy Status')])) continue;
     const yearsCount = currentYear - issuedDate.getFullYear();
-    if (yearsCount <= 0) continue; // issued today this same year — not an anniversary yet
+    if (yearsCount <= 0) continue;
     const lastSentYear = String(row[col('Last Anniversary Sent (Year)')] || '');
     const wasSentThisYear = lastSentYear === currentYearStr;
     result.push({
@@ -2134,7 +2017,7 @@ function countAnniversariesOnOffset(offsetDays){
   for (let i = 1; i < data.length; i++){
     const issuedDate = data[i][col('Issued Date')];
     if (!(issuedDate instanceof Date)) continue;
-    if (isLapsedStatus(data[i][statusCol])) continue; // keep this count consistent with the actual list/send logic
+    if (isLapsedStatus(data[i][statusCol])) continue;
     if (issuedDate.getMonth() === targetMonth && issuedDate.getDate() === targetDay && issuedDate.getFullYear() < targetYear) count++;
   }
   return count;
@@ -2150,12 +2033,6 @@ function getAnniversaryDailyStats(){
 }
 
 function sendDailyAnniversaryGreetings(){
-  // Same reliability hardening as sendDailyReminders — per-row isolation
-  // (one bad row can't crash the rest of the loop) and a progressive,
-  // persisted run log (survives even if Apps Script's own execution
-  // timeout kills the script mid-run, which try/finally alone can't
-  // protect against). Anniversary greetings never had either of these
-  // until now, despite being exposed to the exact same failure classes.
   const runLog = [];
   let sentCount = 0, failedCount = 0, matchedCount = 0;
 
@@ -2185,7 +2062,7 @@ function sendDailyAnniversaryGreetings(){
       const issuedDate = row[col('Issued Date')];
       if (!(issuedDate instanceof Date)) continue;
       if (issuedDate.getMonth() !== todayMonth || issuedDate.getDate() !== todayDay) continue;
-      if (isLapsedStatus(row[col('Policy Status')])) continue; // same rule as the display list — no greeting for a lapsed policy
+      if (isLapsedStatus(row[col('Policy Status')])) continue;
       const yearsCount = currentYear - issuedDate.getFullYear();
       if (yearsCount <= 0) continue;
       const lastSentYear = String(row[col('Last Anniversary Sent (Year)')] || '');
@@ -2194,11 +2071,6 @@ function sendDailyAnniversaryGreetings(){
       matchedCount++;
       const policyNumber = row[col('Policy Number')];
 
-      // Sending AND marking it sent are now both inside one try/catch —
-      // previously only the send itself was protected, so a failure
-      // writing the sheet afterward could crash every remaining row
-      // in the loop, exactly the bug class that caused the dues
-      // reminder investigation this whole week.
       try{
         const sent = sendAnniversaryEmail(row, col, yearsCount);
         if (sent){
@@ -2220,10 +2092,6 @@ function sendDailyAnniversaryGreetings(){
         Logger.log('[sendDailyAnniversaryGreetings] ' + msg);
         runLog.push(msg);
       }
-      // Saved after every matched row, not just once at the end — same
-      // reason as sendDailyReminders: a hard platform timeout kill
-      // bypasses try/finally entirely, so whatever ran before the kill
-      // needs to already be on record.
       saveAnniversaryRunLog(runLog);
     }
 
@@ -2240,9 +2108,6 @@ function sendDailyAnniversaryGreetings(){
   }
 }
 
-// Same persistence pattern as saveReminderRunLog/getLastReminderRunLog,
-// under a separate Script Property so the two features' diagnostics
-// never overwrite each other.
 function saveAnniversaryRunLog(runLog){
   try{
     const tz = Session.getScriptTimeZone();
@@ -2253,7 +2118,6 @@ function saveAnniversaryRunLog(runLog){
     }
     PropertiesService.getScriptProperties().setProperty('LAST_ANNIVERSARY_RUN_LOG', JSON.stringify({ timestamp: timestamp, entries: entries }));
   }catch(e){
-    // Logging failing should never surface as if the actual send run failed.
   }
 }
 
@@ -2289,10 +2153,6 @@ function sendAnniversaryEmail(row, col, years){
   return true;
 }
 
-// Deliberately no "Pay Online" button here — an anniversary is a
-// relationship touchpoint, not a billing moment. The two CTAs instead
-// invite a review conversation (reviewLink) and general contact
-// (connectLink), each shown only if that link is actually configured.
 function buildAnniversaryEmailHtml(clientName, years, config){
   const greetingName = firstNameOnly(clientName);
   const yearsLabel = years + ordinalSuffix(years);
@@ -2335,8 +2195,6 @@ function previewAnniversaryEmail(){
   });
 }
 
-// Test email: sends to contactEmail if set, otherwise falls back to
-// the active user's email (works in the Apps Script editor context).
 function sendAnniversaryTestEmailToSelf(){
   const config = getBrandConfig();
   assertConfiguredForAnniversary(config);
@@ -2372,15 +2230,6 @@ function createAnniversaryDailyTrigger(hour){
     .create();
 }
 
-// Cheap, idempotent self-install for advisors who were already using
-// the app before the Policy Anniversary Greeter existed and haven't
-// touched their Send Hour setting since — createAnniversaryDailyTrigger()
-// above always deletes-and-recreates, which is fine for the rare
-// "advisor changed their send hour" case it's built for, but far too
-// expensive to call on every single upload. Same lock protection as
-// ensureDailyReminderTriggerExists — this also runs on every request
-// now, and was exposed to the identical concurrent-duplicate race.
-// Also now version-aware via _rebuildTriggerIfStale.
 function ensureAnniversaryDailyTriggerExists(){
   const lock = LockService.getScriptLock();
   try{
@@ -2412,44 +2261,15 @@ function setAnniversaryPreference(policyNumber, enabled){
 }
 
 /* ============================================================
-   BROADCAST EMAIL — custom message sent to all Dues Tracker
-   clients, with optional image/PDF attachments and {FirstName}
-   personalization. Sent in batches from the front-end (same
-   pattern as pushDuesRows) to stay under the 30-second Web App
-   execution limit regardless of client list size.
+   BROADCAST EMAIL
    ============================================================ */
 
-// attachments: array of { base64, mimeType, filename }
-// rows: array of { email, clientName } for one batch
-// htmlBody: may contain the literal text "{FirstName}" which gets
-// replaced per-recipient before sending.
-// useTemplate: when true, wraps htmlBody with the same header/footer
-// images used by dues reminders and birthday greetings, via cid:
-// references + inlineImages — this is the reliable method real email
-// clients render correctly, unlike data-URL images which many inboxes
-// (including Gmail's own web client in some cases) strip or block.
-// Personal Gmail accounts (the common case for individual advisors) are
-// capped at 100 email recipients per rolling 24-hour period; Google
-// Workspace accounts get up to 1,500/day. Checking this before a large
-// broadcast starts sending lets the advisor see the real ceiling and
-// decide how to proceed, rather than discovering it partway through a
-// send when a batch fails with a generic quota error and no context
-// for how much of the list actually has a realistic chance of going out
-// today.
 function getRemainingEmailQuota(){
   return { remaining: MailApp.getRemainingDailyQuota() };
 }
 
 function sendBroadcastEmailBatch(rows, subject, htmlBody, attachments, useTemplate){
   const config = getBrandConfig();
-  // Broadcast Email only strictly needs a sender name — header/footer
-  // photos are optional here (unlike dues reminders and birthday
-  // greetings, which always embed them). Requiring them unconditionally
-  // was blocking every broadcast for any advisor who hadn't set up a
-  // header/footer yet, even when the "Use header & footer template"
-  // toggle was off and no template was going to be embedded at all —
-  // this was the actual cause of broadcasts failing to send regardless
-  // of message size.
   if (!config.senderName){
     throw new Error(
       'Branding not set up yet. Open the app, tap "Setup", fill in ' +
@@ -2463,13 +2283,6 @@ function sendBroadcastEmailBatch(rows, subject, htmlBody, attachments, useTempla
     );
   }
 
-  // Check the ACTUAL stored header/footer file sizes before attempting
-  // anything. Client-side compression only affects newly-uploaded
-  // photos going forward — an advisor's existing header/footer (saved
-  // before this fix, or re-saved via an older code path) can still be
-  // large. Without this check, every single recipient in the batch
-  // fails one-by-one with the same size error, which wastes the whole
-  // send attempt; this fails once, immediately, with one clear fix.
   let templateMB = 0;
   if (useTemplate){
     const headerBytes = DriveApp.getFileById(config.headerImageFileId).getBlob().getBytes().length;
@@ -2477,31 +2290,8 @@ function sendBroadcastEmailBatch(rows, subject, htmlBody, attachments, useTempla
     templateMB = (headerBytes + footerBytes) / (1024 * 1024);
   }
 
-  // The size check above only ever covered the header/footer template —
-  // it completely missed images inserted directly into the message body
-  // via the editor's own Image button, which get embedded as base64
-  // data URLs right inside htmlBody itself. That gap is exactly what
-  // The size check below measures the real total as it will actually
-  // be transmitted: the processed HTML body (after converting any
-  // embedded data-URL images to cid: references, see below), those
-  // extracted body images, the header/footer template, and attachments.
   const attachmentBytesTotal = (attachments || []).reduce((sum, a) => sum + Math.ceil((a.base64 || '').length * 0.75), 0);
 
-  // Any image inserted via the composer's own Image button lands in
-  // htmlBody as a literal <img src="data:..."> data URL — this is
-  // simple to build client-side, but it means the image's full base64
-  // text sits directly inside the HTML body string. GmailApp's
-  // body/header size quota (which is separate from, and apparently far
-  // stricter than, the 25MB attachment limit) counts that inflated HTML
-  // text directly, which is why a broadcast that measured well under
-  // our 6MB threshold could still be rejected by Gmail for every single
-  // recipient — the real quota-counted size was dominated by base64
-  // text sitting in the body, not by attachments or the header/footer
-  // template at all. Converting each data-URL image into a proper
-  // cid: reference (exactly like the header/footer template already
-  // does) moves that image out of the quota-counted HTML text and into
-  // a separate inline resource, which is what actually brings the real
-  // sent size down to something Gmail's stricter body quota accepts.
   const dataUrlImagePattern = /<img[^>]+src="data:([^;]+);base64,([^"]+)"[^>]*>/g;
   const bodyInlineImages = {};
   let bodyImageCounter = 0;
@@ -2511,31 +2301,14 @@ function sendBroadcastEmailBatch(rows, subject, htmlBody, attachments, useTempla
       const bytes = Utilities.base64Decode(base64Data);
       bodyInlineImages[cid] = Utilities.newBlob(bytes, mimeType, cid);
     }catch(e){
-      return fullMatch; // if decoding fails for any reason, leave this one exactly as-is rather than breaking the whole send
+      return fullMatch;
     }
     return fullMatch.replace(/src="data:[^"]+"/, 'src="cid:' + cid + '"');
   });
-  // Recalculate the real body size using the now-much-smaller HTML (data
-  // URLs replaced with short cid: references) plus the actual decoded
-  // image bytes, which reflects what Gmail's body quota will actually
-  // see much more accurately than measuring the original data-URL-laden
-  // htmlBody ever could.
   const processedHtmlBodyBytes = Utilities.newBlob(processedHtmlBody).getBytes().length;
   const bodyImageBytesTotal = Object.values(bodyInlineImages).reduce((sum, blob) => sum + blob.getBytes().length, 0);
-  // Every one of these pieces gets MIME/base64-encoded before Gmail
-  // actually transmits it, inflating the real wire size over these raw
-  // byte counts.
   const MIME_ENCODING_OVERHEAD = 1.37;
   const totalMB = ((processedHtmlBodyBytes / (1024 * 1024)) + (bodyImageBytesTotal / (1024 * 1024)) + templateMB + (attachmentBytesTotal / (1024 * 1024))) * MIME_ENCODING_OVERHEAD;
-  // A REAL broadcast that measured ~0.88MB under the OLD calculation
-  // (which counted body images as inflated base64 text sitting directly
-  // in the HTML, rather than as separate inline resources) was rejected
-  // by Gmail for every single recipient. That means Gmail's actual body
-  // quota is far stricter than 6MB — this threshold is set with a wide
-  // safety margin below that real failure point now that data-URL
-  // images are correctly converted to cid: references before this
-  // check runs, rather than trying to guess a new raw-byte number that
-  // might still be wrong in the same direction.
   if (totalMB > 2){
     throw new Error(
       'This message is too large (~' + totalMB.toFixed(2) + 'MB total once encoded for sending, including any inserted photos, the header/footer template, and attachments) to send reliably. ' +
@@ -2565,10 +2338,9 @@ function sendBroadcastEmailBatch(rows, subject, htmlBody, attachments, useTempla
 
   let sent = 0, failed = 0;
   const failedEmails = [];
-  const sentEmails = []; // used to log this send for the "already sent this subject" exclusion check
-  const failureReasons = []; // { email, reason } — surfaced to the frontend so
-                              // "1 failed" isn't a dead end with no explanation
-  let quotaExhausted = false; // once true, every remaining row in this batch is marked failed without attempting to send
+  const sentEmails = [];
+  const failureReasons = [];
+  let quotaExhausted = false;
 
   rows.forEach(r => {
     if (!r.email) {
@@ -2577,14 +2349,6 @@ function sendBroadcastEmailBatch(rows, subject, htmlBody, attachments, useTempla
       return;
     }
     if (quotaExhausted){
-      // The daily sending quota was already confirmed exhausted earlier
-      // in this same batch — attempting the remaining recipients would
-      // only produce the identical rejection for every one of them
-      // (exactly what happened in a real broadcast: 44 and 17 failures,
-      // all the same "quota" error). Marking them failed immediately
-      // avoids wasting Apps Script execution time on calls guaranteed
-      // to fail, and keeps the failure list to one clear explanation
-      // instead of dozens of duplicates of the same message.
       failed++;
       failedEmails.push(r.email);
       failureReasons.push({ email: r.email, reason: 'Not attempted — daily sending quota was already exhausted earlier in this send.' });
@@ -2592,23 +2356,13 @@ function sendBroadcastEmailBatch(rows, subject, htmlBody, attachments, useTempla
     }
     try{
       const firstName = firstNameOnly(r.clientName) || 'there';
-      // Bold + black so the personalized greeting stands out regardless
-      // of whatever color the surrounding message text uses.
       const styledFirstName = '<span style="font-weight:700;color:#000000;">' + firstName + '</span>';
-      // Case-insensitive match: {FirstName}, {firstName}, {FIRSTNAME},
-      // {firstname} all work — typing the exact capitalization
-      // correctly shouldn't be a requirement for personalization to
-      // actually apply.
       const personalizedBody = wrappedBody.replace(/\{firstname\}/gi, styledFirstName);
 
       const options = {
         htmlBody: personalizedBody,
         name: config.senderName,
       };
-      // Merges the header/footer template images (when enabled) with
-      // any body images that were converted from data URLs to cid:
-      // references above — both need to be present in inlineImages
-      // for their respective cid: references in the HTML to resolve.
       const combinedInlineImages = Object.assign({}, useTemplate ? getEmailImages(config) : {}, bodyInlineImages);
       if (Object.keys(combinedInlineImages).length > 0) options.inlineImages = combinedInlineImages;
       if (blobs.length > 0) options.attachments = blobs;
@@ -2623,26 +2377,11 @@ function sendBroadcastEmailBatch(rows, subject, htmlBody, attachments, useTempla
       failed++;
       failedEmails.push(r.email);
       const translatedReason = toEnglishErrorMessage(err.message || String(err));
-      // If this is a size-related failure, attach the exact numbers our
-      // own pre-check calculated for this send — the processed body
-      // size, body image total, template size, and attachment total —
-      // so if Gmail rejects a send that our pre-check considered safe,
-      // the actual breakdown is visible immediately instead of having
-      // to guess again which component the pre-check is undercounting.
       const isSizeRelated = /too large|limit exceeded|laki ng body/i.test(translatedReason);
       const diagnosticSuffix = isSizeRelated
         ? ' [diagnostic: htmlBody=' + (processedHtmlBodyBytes/1024).toFixed(0) + 'KB, bodyImages=' + (bodyImageBytesTotal/1024/1024).toFixed(2) + 'MB, template=' + templateMB.toFixed(2) + 'MB, attachments=' + (attachmentBytesTotal/1024/1024).toFixed(2) + 'MB, precheck total=' + totalMB.toFixed(2) + 'MB]'
         : '';
       failureReasons.push({ email: r.email, reason: translatedReason + diagnosticSuffix });
-      // A quota-exhausted error is a hard stop for the rest of this
-      // batch — unlike a bad email address or an isolated failure,
-      // every subsequent send would fail for the exact same reason
-      // until the quota resets, which the daily limit does NOT do
-      // mid-batch. Checked against the RAW message (not the translated
-      // one) since this only needs to detect the pattern, not display
-      // it — but that raw message's language depends on the deploying
-      // Google account's locale, which can be Chinese (調用次數過多 =
-      // "too many invocations") just as easily as English or Tagalog.
       if (/quota|invoked too many times|masyadong madaming beses.*araw|調用次數過多|调用次数过多/i.test(err.message || '')){
         quotaExhausted = true;
       }
@@ -2651,7 +2390,7 @@ function sendBroadcastEmailBatch(rows, subject, htmlBody, attachments, useTempla
 
   if (sentEmails.length > 0){
     try{ recordBroadcastSentTo(subject, sentEmails); }
-    catch(e){ /* logging failure should never block the actual send result from being returned */ }
+    catch(e){ }
   }
 
   return { sent: sent, failed: failed, failedEmails: failedEmails, failureReasons: failureReasons, total: rows.length, quotaExhausted: quotaExhausted };
@@ -2659,22 +2398,6 @@ function sendBroadcastEmailBatch(rows, subject, htmlBody, attachments, useTempla
 
 /* ============================================================
    BROADCAST LOG — "already sent this subject" exclusion
-   ------------------------------------------------------------
-   Separate "Broadcast Log" tab, auto-created on first successful
-   send. Columns: Timestamp | Subject | Email — one row per
-   recipient per successful send (both immediate and scheduled
-   broadcasts funnel through sendBroadcastEmailBatch, so both are
-   covered by this same log automatically). Used by the recipient
-   picker to grey out anyone who already received THIS exact
-   subject, so re-running a campaign can't accidentally double-send
-   to someone who already got it — they still show in the list
-   (so it's obvious who's excluded and why), just can't be
-   selected.
-
-   Matching is by exact subject text after trimming and
-   case-folding — "Q3 Newsletter" and "q3 newsletter " are treated
-   as the same campaign, but a genuinely different subject is
-   never treated as a duplicate, even for the same recipients.
    ============================================================ */
 const BROADCAST_LOG_TAB_NAME = 'Broadcast Log';
 const BROADCAST_LOG_HEADERS = ['Timestamp', 'Subject', 'Email'];
@@ -2698,23 +2421,11 @@ function recordBroadcastSentTo(subject, emails){
   if (!emails || emails.length === 0) return;
   const sheet = getBroadcastLogTab();
   const now = new Date();
-  // One writeup of all rows at once (setValues) rather than an
-  // appendRow() per recipient — for a broadcast to hundreds of
-  // people, hundreds of individual writes would be needlessly slow
-  // and risks pushing this past the Web App's execution time limit.
   const startRow = sheet.getLastRow() + 1;
   const rows = emails.map(email => [now, subject, email]);
   sheet.getRange(startRow, 1, rows.length, 3).setValues(rows);
 }
 
-/**
- * Returns every distinct email that has already received a broadcast
- * with this exact subject (trimmed, case-insensitive match) — used by
- * the recipient picker to grey those rows out. Scans the whole log
- * rather than filtering as it's read since Sheets doesn't support a
- * server-side query here; for the realistic size of this log (one row
- * per recipient per send) this stays fast well beyond normal usage.
- */
 function getSentEmailsForSubject(subject){
   const target = normalizeSubjectForMatch(subject);
   if (!target) return jsonResponse({ emails: [] });
@@ -2734,24 +2445,9 @@ function getSentEmailsForSubject(subject){
 }
 
 /* ============================================================
-   SCHEDULED BROADCASTS — lets an advisor queue a broadcast to
-   send at a specific future date/time instead of immediately.
-   Each schedule gets its own one-time Apps Script trigger
-   (ScriptApp...at(specificDateTime)) that fires
-   sendScheduledBroadcast() at exactly that moment. The full
-   payload (subject, body, recipients, attachments, template
-   flag) is stored as JSON in the Scheduled Broadcasts sheet —
-   PropertiesService's 9KB-per-value limit is too small once
-   inline images/attachments are included, but a sheet cell
-   comfortably holds far more. Multiple schedules can be queued
-   at once, each with its own row and its own trigger, entirely
-   independent of one another.
+   SCHEDULED BROADCASTS
    ============================================================ */
 
-// scheduledFor: ISO datetime string for when this should send.
-// payload: { rows, subject, htmlBody, attachments, useTemplate } —
-// exactly the same shape sendBroadcastEmailBatch already accepts,
-// just captured now and replayed later at the scheduled time.
 function scheduleBroadcast(scheduledFor, payload){
   const scheduledDate = new Date(scheduledFor);
   if (isNaN(scheduledDate.getTime())){
@@ -2765,19 +2461,12 @@ function scheduleBroadcast(scheduledFor, payload){
   const scheduleId = Utilities.getUuid();
   const payloadJson = JSON.stringify(payload || {});
 
-  // One-time trigger, distinct from the recurring daily triggers used
-  // elsewhere — this fires exactly once, at exactly this timestamp.
   const trigger = ScriptApp.newTrigger('runScheduledBroadcastTrigger')
     .timeBased()
     .at(scheduledDate)
     .create();
   const triggerId = trigger.getUniqueId();
 
-  // The trigger only knows to call runScheduledBroadcastTrigger() with
-  // no arguments (Apps Script time triggers can't carry custom
-  // parameters), so the scheduleId has to be recoverable some other
-  // way — storing triggerId alongside the row lets the trigger handler
-  // look up "which row was I created for" when it fires.
   sheet.appendRow([
     scheduleId,
     scheduledDate,
@@ -2793,23 +2482,7 @@ function scheduleBroadcast(scheduledFor, payload){
   return { success: true, scheduleId: scheduleId, scheduledFor: scheduledDate.toISOString() };
 }
 
-// The actual function every scheduled trigger calls. Since Apps Script
-// time-based triggers can't pass custom data, this looks itself up by
-// matching the trigger's own unique ID against the TriggerId column —
-// whichever row matches is the schedule that just came due.
-// Apps Script kills a running script outright once it hits its 6-minute
-// execution limit — this does NOT throw a catchable exception, so a
-// broadcast to 100+ recipients (each GmailApp.sendEmail() call taking a
-// meaningful fraction of a second) could previously get partway through
-// sending, hit the time limit, and simply stop — leaving the Error
-// column blank and Status stuck wherever it happened to be, since the
-// script never reached the line that would have recorded a failure.
-// This processes recipients in small time-boxed chunks instead of all
-// at once, checking elapsed time frequently, and — if a chunk finishes
-// but recipients remain — creates a new one-time trigger to pick up
-// exactly where this run left off, chaining across as many trigger
-// firings as needed rather than risking one long, uninterruptible run.
-const SCHEDULED_BROADCAST_MAX_RUNTIME_MS = 4.5 * 60 * 1000; // 4.5 min, safely under the 6-minute hard limit
+const SCHEDULED_BROADCAST_MAX_RUNTIME_MS = 4.5 * 60 * 1000;
 
 function runScheduledBroadcastTrigger(e){
   const triggerId = e && e.triggerUid ? e.triggerUid : null;
@@ -2826,26 +2499,21 @@ function runScheduledBroadcastTrigger(e){
     }
   }
 
-  // Always clean up the one-time trigger regardless of outcome below —
-  // it has already fired and will never fire again, so leaving it
-  // registered only clutters the project's trigger list.
   if (triggerId){
     ScriptApp.getProjectTriggers().forEach(t => {
       if (t.getUniqueId() === triggerId) ScriptApp.deleteTrigger(t);
     });
   }
 
-  if (rowIndex === -1) return; // no matching row found — nothing to do
+  if (rowIndex === -1) return;
 
   const rowNum = rowIndex + 1;
   const status = data[rowIndex][col('Status')];
   if (status === 'cancelled'){
-    return; // person cancelled it before it fired — do nothing
+    return;
   }
 
   if (!isAdvisorActive()){
-    // hard stop: past the inactivity deadline. Mark the row instead of
-    // silently dropping it so it's visible in the sheet why nothing went out.
     sheet.getRange(rowNum, col('Status') + 1).setValue('skipped');
     sheet.getRange(rowNum, col('Error') + 1).setValue('Advisor inactive (no recent upload) — broadcast skipped');
     return;
@@ -2863,29 +2531,18 @@ function runScheduledBroadcastTrigger(e){
     const remainingRows = allRows.slice(alreadySent + alreadyFailed);
 
     if (remainingRows.length === 0){
-      // Nothing left to send (shouldn't normally happen, but covers the
-      // edge case of a schedule with zero recipients).
       sheet.getRange(rowNum, col('Status') + 1).setValue('sent');
       sheet.getRange(rowNum, col('Sent At') + 1).setValue(new Date());
       return;
     }
 
-    // Small batches (10 recipients per sendBroadcastEmailBatch call)
-    // rather than one giant call for everyone, or one call per single
-    // recipient — a single call for 100+ recipients is exactly what
-    // silently hit the 6-minute execution wall with no error logged,
-    // while calling once per individual recipient would repeat the
-    // header/footer size validation (a Drive lookup) 100+ times,
-    // adding real overhead against the same time budget this is meant
-    // to protect. Checking elapsed time between each small batch is
-    // frequent enough to stop safely with time to spare.
     const CHUNK_SIZE = 10;
     let chunkSent = 0, chunkFailed = 0;
     const chunkFailureReasons = [];
 
     for (let i = 0; i < remainingRows.length; i += CHUNK_SIZE){
       if (Date.now() - startTime > SCHEDULED_BROADCAST_MAX_RUNTIME_MS){
-        break; // time's up for this run — whatever's left continues in the next chained trigger
+        break;
       }
       const batchSlice = remainingRows.slice(i, i + CHUNK_SIZE);
       const batchResult = sendBroadcastEmailBatch(
@@ -2917,9 +2574,6 @@ function runScheduledBroadcastTrigger(e){
     }
 
     if (stillRemaining > 0){
-      // Not finished — chain a new trigger to continue almost
-      // immediately (a few seconds out is the minimum Apps Script
-      // allows), rather than leaving the rest unsent.
       const continuationTrigger = ScriptApp.newTrigger('runScheduledBroadcastTrigger')
         .timeBased()
         .after(5000)
@@ -2932,18 +2586,11 @@ function runScheduledBroadcastTrigger(e){
       sheet.getRange(rowNum, col('Sent At') + 1).setValue(new Date());
     }
   }catch(err){
-    // Per the advisor's own instruction: if anything is missing or
-    // broken by the time this fires (recipient list changed, Setup URL
-    // gone, branding incomplete), skip silently and just log the
-    // error in the sheet — no additional notification.
     sheet.getRange(rowNum, col('Status') + 1).setValue('failed');
     sheet.getRange(rowNum, col('Error') + 1).setValue(toEnglishErrorMessage(err.message || String(err)));
   }
 }
 
-// Lists all non-cancelled schedules, most recently created first, for
-// display in the Broadcast Email UI so the advisor can see what's
-// queued and cancel anything before it fires.
 function getScheduledBroadcasts(){
   const sheet = setupScheduleSheet();
   const data = sheet.getDataRange().getValues();
@@ -2962,12 +2609,6 @@ function getScheduledBroadcasts(){
       error: row[col('Error')] || '',
       sentCount: Number(row[col('SentCount')]) || 0,
       failedCount: Number(row[col('FailedCount')]) || 0,
-      // Lets a broadcast with failures be reloaded straight back into the
-      // composer (subject, body, attachments, template flag, original
-      // recipient list) instead of the advisor having to rebuild it from
-      // scratch — the frontend cross-checks the recipient list against
-      // the Broadcast Log to automatically exclude anyone who already
-      // received it, same mechanism drafts already use.
       payload: JSON.parse(row[col('PayloadJSON')] || '{}')
     });
   }
@@ -2975,9 +2616,6 @@ function getScheduledBroadcasts(){
   return result;
 }
 
-// Deletes the underlying trigger (so it can never fire) and marks the
-// row cancelled rather than deleting it outright, so there's still a
-// record of what was scheduled and cancelled.
 function cancelScheduledBroadcast(scheduleId){
   const sheet = setupScheduleSheet();
   const data = sheet.getDataRange().getValues();
@@ -2999,12 +2637,6 @@ function cancelScheduledBroadcast(scheduleId){
   return { success: false, error: 'Schedule not found.' };
 }
 
-// Permanently removes a finished broadcast's row so it stops cluttering
-// the Completed Broadcasts list on the dashboard. Only allowed for
-// broadcasts that are actually done (sent/failed) — a scheduled or
-// currently-sending broadcast still has a live trigger and recipients
-// waiting, so those must go through cancelScheduledBroadcast instead,
-// which also cleans up that trigger before removing anything.
 function deleteCompletedBroadcast(scheduleId){
   const sheet = setupScheduleSheet();
   const data = sheet.getDataRange().getValues();
@@ -3024,14 +2656,6 @@ function deleteCompletedBroadcast(scheduleId){
   return { success: false, error: 'Broadcast not found.' };
 }
 
-// Called after an "Edit & Resend" completes — leaves a note on the
-// ORIGINAL broadcast row saying the failed recipients were successfully
-// resent, without touching its original SentCount/FailedCount. Those
-// numbers stay exactly as they were as an accurate historical record of
-// that specific attempt; this just appends context so a glance at
-// Completed Broadcasts doesn't wrongly suggest 21 people never actually
-// got the message, when the Broadcast Log shows they did (just via a
-// second, separate send rather than a correction to the first).
 function annotateResendOnSchedule(scheduleId, resendSentCount, resendFailedCount){
   const sheet = setupScheduleSheet();
   const data = sheet.getDataRange().getValues();
@@ -3055,19 +2679,9 @@ function annotateResendOnSchedule(scheduleId, resendSentCount, resendFailedCount
 }
 
 /* ============================================================
-   BROADCAST DRAFTS — lets an advisor save a message (subject,
-   body, recipients, attachments, template flag) without sending
-   or scheduling it, to finish later or reuse as a starting
-   point. Unlike Scheduled Broadcasts, drafts never trigger
-   anything on their own — they just sit until explicitly opened,
-   edited, or deleted. Same PayloadJSON-in-a-cell pattern, for
-   the same reason (attachments/images are too big for
-   PropertiesService's 9KB-per-value limit).
+   BROADCAST DRAFTS
    ============================================================ */
 
-// Creates a new draft if draftId is omitted, or overwrites an existing
-// one if provided — lets "Save Draft" double as "update this draft"
-// once the advisor has saved it once and keeps editing.
 function saveDraft(draftId, payload){
   const sheet = setupDraftSheet();
   const data = sheet.getDataRange().getValues();
@@ -3085,8 +2699,6 @@ function saveDraft(draftId, payload){
         return { success: true, draftId: draftId };
       }
     }
-    // draftId was provided but not found (e.g. it was deleted elsewhere) —
-    // fall through and create a fresh one instead of silently failing.
   }
 
   const newDraftId = Utilities.getUuid();
@@ -3094,9 +2706,6 @@ function saveDraft(draftId, payload){
   return { success: true, draftId: newDraftId };
 }
 
-// Lists all saved drafts, most recently updated first, for display in
-// the Broadcast Email UI so the advisor can pick one up where they
-// left off.
 function getDrafts(){
   const sheet = setupDraftSheet();
   const data = sheet.getDataRange().getValues();
@@ -3151,7 +2760,13 @@ function toEnglishErrorMessage(rawMessage){
       english: 'Invalid email address.' },
 
     // ── Daily quota / sending limit ─────────────────────────────────────
-    { match: /quota|limitasyon.*araw|daily.*limit|invoked too many times|masyadong madaming beses.*araw|naabot.*limitasyon|Service.*invoked.*many|調用次數過多|调用次数过多|單日.*過多|单日.*过多/i,
+    // Covers English, Tagalog, Traditional Chinese, and Simplified Chinese
+    // phrasings Google has been observed to return for this same error —
+    // plus Japanese now, added after a real broadcast came back with
+    // "1日にサービス emailを実行した回数が多すぎます. " (\"You have executed the
+    // email service too many times in one day\"), which fell through
+    // untranslated since no Japanese pattern existed yet.
+    { match: /quota|limitasyon.*araw|daily.*limit|invoked too many times|masyadong madaming beses.*araw|naabot.*limitasyon|Service.*invoked.*many|調用次數過多|调用次数过多|單日.*過多|单日.*过多|1日にサービス.*実行した回数が多すぎます|実行回数.*上限|1日の.*上限.*超え/i,
       english: 'Daily sending limit reached for this Google account (personal Gmail accounts get 100 emails/day; Google Workspace accounts get up to 1,500/day) — try again after the quota resets, or send the rest tomorrow.' },
 
     // ── Rate limiting ───────────────────────────────────────────────────
@@ -3195,16 +2810,12 @@ function toEnglishErrorMessage(rawMessage){
       english: 'Message blocked — the recipient\'s email server rejected it. This is usually a corporate mail filter. Nothing you can do on your end.' },
 
     // ── Catch-all: any remaining Tagalog text ───────────────────────────
-    // Detects common Tagalog words and replaces the whole message so
-    // raw untranslated Tagalog never reaches the advisor's screen.
     { match: /\b(ang|ng|na|sa|ay|hindi|wala|para|nang|ito|kami|mo|niya|sila|kayo|ako|mga|kung|pero|at|o|may|magpadala|tatanggap|mensahe|error|problema)\b/i,
       english: 'An error occurred while processing your request. Please try again. If the problem persists, check your Apps Script deployment settings.' },
   ];
   for (const p of patterns){
     if (p.match.test(msg)) return p.english;
   }
-  // Unrecognized message in any language: return as-is so nothing
-  // gets silently swallowed if a new/unseen error shows up.
   return msg;
 }
 
@@ -3241,13 +2852,9 @@ function previewBirthdayEmail(){
   });
 }
 
-// Test email: sends to contactEmail if set, otherwise falls back to
-// the active user's email (works in the Apps Script editor context).
 function sendBirthdayTestEmailToSelf(){
   const config = getBrandConfig();
   assertConfiguredForBirthday(config);
-  // Same scope restriction as the dues test email — use contactEmail
-  // directly instead of Session.getEffectiveUser().
   const recipient = config.contactEmail;
   if (!recipient) throw new Error('Please set a Contact Email in Your Branding first, then try the test email again.');
   const htmlBody = buildBirthdayEmailHtml('Juan Miguel Dela Cruz', config);
