@@ -2814,6 +2814,19 @@ input:checked + #studioSection .slider-toggle::before{transform:translateX(19px)
           <input type="file" id="bcExcelUploadInput" accept=".xlsx" style="display:none;">
           <div id="bcExcelUploadStatus" style="font-size:11.5px; margin:-2px 0 10px; min-height:14px;"></div>
 
+          <div id="bcUploadedControlsWrap" style="display:none; margin:0 0 14px; padding:10px; border-radius:10px; background:var(--cream,#FDF8F0); border:1px solid var(--line,#E4DCC8);">
+            <div style="display:flex; gap:6px; flex-wrap:wrap; align-items:center;">
+              <span style="font-size:11px; color:#6B7280; margin-right:2px;">Uploaded list (<span id="bcUploadedCount">0</span>):</span>
+              <button type="button" class="bc-quick-btn bc-quick-uploaded-top" data-uploaded-top="20">Top 20</button>
+              <button type="button" class="bc-quick-btn bc-quick-uploaded-top" data-uploaded-top="30">Top 30</button>
+              <button type="button" class="bc-quick-btn bc-quick-uploaded-top" data-uploaded-top="50">Top 50</button>
+              <button type="button" class="bc-quick-btn" id="bcSelectUploadedBtn">Select Uploaded</button>
+              <button type="button" class="bc-quick-btn" id="bcClearUploadedBtn">Clear Uploaded</button>
+              <button type="button" id="bcDeleteUploadedBtn" style="padding:7px 14px; border-radius:999px; border:1px solid #EB5757; background:#fff; color:#EB5757; font-size:12px; font-weight:700; cursor:pointer;">Delete Uploaded</button>
+            </div>
+            <div style="font-size:11px; color:#9CA3AF; margin-top:6px;">Top 20/30/50 pick from your uploaded list in upload order (no fund value to sort by). “Delete Uploaded” removes them from this list entirely, so you can re-upload a corrected file without duplicates — your real client list is never touched.</div>
+          </div>
+
           <div style="font-size:11px; color:#6B7280; margin-bottom:6px;">Sort by:</div>
           <div style="display:flex; gap:6px; flex-wrap:wrap; align-items:center; margin-bottom:10px;">
             <button type="button" class="bc-sort-btn active" data-sort="fundValue">Fund Value</button>
@@ -2863,16 +2876,6 @@ input:checked + #studioSection .slider-toggle::before{transform:translateX(19px)
             <button type="button" class="bc-quick-btn" id="bcClearSelectionBtn">Clear</button>
           </div>
           <div id="bcSortHint" style="font-size:11px; color:#9CA3AF; margin-top:8px;">Sorted by fund value (highest first) · tap Top N to select the N clients shown below</div>
-
-          <div id="bcUploadedControlsWrap" style="display:none; margin-top:14px; padding-top:12px; border-top:1px solid var(--line,#E4DCC8);">
-            <div style="display:flex; gap:6px; flex-wrap:wrap; align-items:center;">
-              <span style="font-size:11px; color:#6B7280; margin-right:2px;">Uploaded list (<span id="bcUploadedCount">0</span>):</span>
-              <button type="button" class="bc-quick-btn" id="bcSelectUploadedBtn">Select Uploaded</button>
-              <button type="button" class="bc-quick-btn" id="bcClearUploadedBtn">Clear Uploaded</button>
-              <button type="button" id="bcDeleteUploadedBtn" style="padding:7px 14px; border-radius:999px; border:1px solid #EB5757; background:#fff; color:#EB5757; font-size:12px; font-weight:700; cursor:pointer;">Delete Uploaded</button>
-            </div>
-            <div style="font-size:11px; color:#9CA3AF; margin-top:6px;">"Delete Uploaded" removes them from this list entirely, so you can re-upload a corrected file without duplicates — your real client list is never touched.</div>
-          </div>
           </div>
         </div>
 
@@ -5719,6 +5722,25 @@ el('bcClearSelectionBtn').addEventListener('click', () => {
 // Ticks every Excel-uploaded person, without touching anyone else's
 // selection state — purely additive, same convention as the Top N /
 // Select All buttons above.
+// Top N for the uploaded batch specifically — picks the first N in
+// upload order, since there's no fund value (or any other ranking
+// signal) to sort uploaded people by the way real clients can be.
+// Same "already sent this subject" safety check as the real-client
+// Top N buttons, and purely additive — never deselects anyone else.
+document.querySelectorAll('.bc-quick-uploaded-top').forEach(btn => {
+  btn.addEventListener('click', async () => {
+    btn.disabled = true;
+    await refreshAlreadySentForCurrentSubject();
+    btn.disabled = false;
+    const n = Number(btn.dataset.uploadedTop);
+    const uploaded = bcAllClients.filter(c => c.uploadedViaExcel);
+    const selectable = uploaded.filter(c => !bcAlreadySentEmails.has((c.email || '').trim().toLowerCase()));
+    selectable.slice(0, n).forEach(c => bcSelectedEmails.add(c.email));
+    renderPickerList(currentFilteredClients());
+    updatePickerCount();
+  });
+});
+
 el('bcSelectUploadedBtn').addEventListener('click', () => {
   bcAllClients.filter(c => c.uploadedViaExcel).forEach(c => bcSelectedEmails.add(c.email));
   renderPickerList(currentFilteredClients());
