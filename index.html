@@ -5775,6 +5775,10 @@ el('bcDeleteUploadedBtn').addEventListener('click', () => {
   uploaded.forEach(c => bcSelectedEmails.delete(c.email));
   bcAllClients = bcAllClients.filter(c => !c.uploadedViaExcel);
   el('bcExcelUploadInput').value = ''; // lets the exact same filename be re-uploaded immediately
+  // Clears the old "✓ 127 added, 63 skipped..." summary from the last
+  // upload — leaving it up after deletion would misleadingly suggest
+  // those people are still in the list when they've just been removed.
+  el('bcExcelUploadStatus').textContent = '';
   renderPickerList(currentFilteredClients());
   updatePickerCount();
   showToast('Removed ' + count + ' uploaded ' + (count === 1 ? 'entry' : 'entries') + '.');
