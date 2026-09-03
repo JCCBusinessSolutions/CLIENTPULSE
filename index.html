@@ -2863,6 +2863,16 @@ input:checked + #studioSection .slider-toggle::before{transform:translateX(19px)
             <button type="button" class="bc-quick-btn" id="bcClearSelectionBtn">Clear</button>
           </div>
           <div id="bcSortHint" style="font-size:11px; color:#9CA3AF; margin-top:8px;">Sorted by fund value (highest first) · tap Top N to select the N clients shown below</div>
+
+          <div id="bcUploadedControlsWrap" style="display:none; margin-top:14px; padding-top:12px; border-top:1px solid var(--line,#E4DCC8);">
+            <div style="display:flex; gap:6px; flex-wrap:wrap; align-items:center;">
+              <span style="font-size:11px; color:#6B7280; margin-right:2px;">Uploaded list (<span id="bcUploadedCount">0</span>):</span>
+              <button type="button" class="bc-quick-btn" id="bcSelectUploadedBtn">Select Uploaded</button>
+              <button type="button" class="bc-quick-btn" id="bcClearUploadedBtn">Clear Uploaded</button>
+              <button type="button" id="bcDeleteUploadedBtn" style="padding:7px 14px; border-radius:999px; border:1px solid #EB5757; background:#fff; color:#EB5757; font-size:12px; font-weight:700; cursor:pointer;">Delete Uploaded</button>
+            </div>
+            <div style="font-size:11px; color:#9CA3AF; margin-top:6px;">"Delete Uploaded" removes them from this list entirely, so you can re-upload a corrected file without duplicates — your real client list is never touched.</div>
+          </div>
           </div>
         </div>
 
@@ -5252,7 +5262,24 @@ el('bcLapsedFilter')?.addEventListener('change', () => {
   renderPickerList(currentFilteredClients());
 });
 
+// Keeps the "Uploaded list" controls row (Select/Clear/Delete Uploaded)
+// in sync with bcAllClients every time the picker re-renders — shown
+// only once something has actually been uploaded via Excel, hidden
+// again once all uploaded entries are gone (e.g. after Delete Uploaded).
+// Deliberately counts against the FULL bcAllClients, not the filtered
+// "clients" param renderPickerList receives, so the count/visibility
+// stays accurate even while a search or filter is narrowing the
+// visible list to something that happens to exclude uploaded rows.
+function refreshUploadedControlsVisibility(){
+  const wrap = el('bcUploadedControlsWrap');
+  if (!wrap) return;
+  const count = bcAllClients.filter(c => c.uploadedViaExcel).length;
+  el('bcUploadedCount').textContent = count;
+  wrap.style.display = count > 0 ? 'block' : 'none';
+}
+
 function renderPickerList(clients){
+  refreshUploadedControlsVisibility();
   const container = el('bcPickerList');
   if (clients.length === 0){
     container.innerHTML = '<div style="text-align:center; padding:40px 20px; color:#9CA3AF; font-size:13px;">No clients match your search/filter.</div>';
@@ -5520,7 +5547,7 @@ async function handleBroadcastExcelUpload(file){
           bcAllClients.push({
             email: rawEmail, clientName: rawName || rawEmail, product: '',
             fundValue: 0, dueDate: null, policyStatus: '', lapseDate: null,
-            manuallyAdded: true
+            manuallyAdded: true, uploadedViaExcel: true
           });
         }
         alreadySent++;
@@ -5545,7 +5572,8 @@ async function handleBroadcastExcelUpload(file){
           dueDate: null,
           policyStatus: '',
           lapseDate: null,
-          manuallyAdded: true
+          manuallyAdded: true,
+          uploadedViaExcel: true
         });
         bcSelectedEmails.add(rawEmail);
         added++;
@@ -5686,6 +5714,48 @@ el('bcClearSelectionBtn').addEventListener('click', () => {
   bcSelectedEmails.clear();
   renderPickerList(currentFilteredClients());
   updatePickerCount();
+});
+
+// Ticks every Excel-uploaded person, without touching anyone else's
+// selection state — purely additive, same convention as the Top N /
+// Select All buttons above.
+el('bcSelectUploadedBtn').addEventListener('click', () => {
+  bcAllClients.filter(c => c.uploadedViaExcel).forEach(c => bcSelectedEmails.add(c.email));
+  renderPickerList(currentFilteredClients());
+  updatePickerCount();
+});
+
+// Unticks only the Excel-uploaded people — deliberately narrower than
+// the main "Clear" button, which resets the ENTIRE selection (real
+// clients and manually-typed emails included). This one exists
+// specifically so clearing a batch of uploads doesn't also wipe out
+// unrelated selections made elsewhere in the list.
+el('bcClearUploadedBtn').addEventListener('click', () => {
+  bcAllClients.filter(c => c.uploadedViaExcel).forEach(c => bcSelectedEmails.delete(c.email));
+  renderPickerList(currentFilteredClients());
+  updatePickerCount();
+});
+
+// Permanently removes the uploaded rows from this session's list (not
+// just deselecting them) — the actual "let me fix my file and
+// re-upload cleanly" workflow. Never touches bcAllClients entries that
+// came from the real Dues Tracker or from a single manually-typed
+// email, since only rows carrying uploadedViaExcel are ever matched.
+// Confirmed first since this can't be undone short of re-uploading.
+el('bcDeleteUploadedBtn').addEventListener('click', () => {
+  const uploaded = bcAllClients.filter(c => c.uploadedViaExcel);
+  if (uploaded.length === 0) return;
+  const count = uploaded.length;
+  const ok = confirm('Remove all ' + count + ' uploaded ' + (count === 1 ? 'entry' : 'entries') +
+    ' from this list? This only affects this broadcast session \u2014 your real client list is never touched. ' +
+    'You can re-upload a corrected Excel file right after.');
+  if (!ok) return;
+  uploaded.forEach(c => bcSelectedEmails.delete(c.email));
+  bcAllClients = bcAllClients.filter(c => !c.uploadedViaExcel);
+  el('bcExcelUploadInput').value = ''; // lets the exact same filename be re-uploaded immediately
+  renderPickerList(currentFilteredClients());
+  updatePickerCount();
+  showToast('Removed ' + count + ' uploaded ' + (count === 1 ? 'entry' : 'entries') + '.');
 });
 
 function closeBcPicker(){
