@@ -2825,6 +2825,13 @@ input:checked + #studioSection .slider-toggle::before{transform:translateX(19px)
               <button type="button" id="bcDeleteUploadedBtn" style="padding:7px 14px; border-radius:999px; border:1px solid #EB5757; background:#fff; color:#EB5757; font-size:12px; font-weight:700; cursor:pointer;">Delete Uploaded</button>
             </div>
             <div style="font-size:11px; color:#9CA3AF; margin-top:6px;">Top 20/30/50 pick from your uploaded list in upload order (no fund value to sort by). “Delete Uploaded” removes them from this list entirely, so you can re-upload a corrected file without duplicates — your real client list is never touched.</div>
+
+            <button type="button" id="bcShowSelectedUploadedOnlyBtn" style="width:100%; text-align:left; margin-top:10px; padding:8px 10px; border:1px solid var(--line,#E4DCC8); border-radius:8px; background:#fff; font-size:12.5px; color:var(--ink,#13202B); display:flex; align-items:center; gap:8px; cursor:pointer;">
+              <span id="bcShowSelectedUploadedOnlyCheck" style="width:15px; height:15px; flex-shrink:0; border:1.5px solid var(--line,#E4DCC8); border-radius:4px; display:flex; align-items:center; justify-content:center; font-size:10px; color:#fff;"></span>
+              <span id="bcShowSelectedUploadedOnlyLabel">Show only selected recipients</span>
+            </button>
+
+            <div id="bcUploadedList" style="margin-top:8px; max-height:220px; overflow-y:auto; border-radius:8px; background:#fff; border:1px solid var(--line,#E4DCC8);"></div>
           </div>
 
           <div style="font-size:11px; color:#6B7280; margin-bottom:6px;">Sort by:</div>
@@ -3811,6 +3818,28 @@ function parseSafeDate(raw, { allowFuture = false, maxSpanYears = 100 } = {}){
   return parsed;
 }
 
+// Serializes a Date to "YYYY-MM-DD" using its LOCAL calendar
+// components — never .toISOString(), which always converts to UTC.
+// A source report date like "Jul 10, 2027" gets parsed by
+// parseSafeDate() as local midnight (correct, still July 10). But
+// .toISOString() on that same value shifts it to UTC — for anyone in
+// a positive UTC offset (Manila is UTC+8), "July 10, 12:00 AM
+// Manila" becomes "July 9, 4:00 PM UTC", silently losing a day the
+// moment only the date portion of that ISO string gets used
+// downstream. This is exactly the mechanism that turned a birthday
+// or premium due date one calendar day earlier than the source file
+// for every advisor in a timezone ahead of UTC. getFullYear()/
+// getMonth()/getDate() all read local components, so this preserves
+// the calendar date the parser actually determined, regardless of
+// the browser's timezone offset in either direction.
+function toLocalDateStr(date){
+  if (!date) return null;
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return y + '-' + m + '-' + d;
+}
+
 function findColumn(headers, claimed, exactTerms, fuzzyTerms){
   const lower = headers.map(h => String(h||'').toLowerCase().trim());
   for (const term of exactTerms){
@@ -3927,14 +3956,14 @@ function parseDuesFromWorkbook(workbook){
       // negative "years since lapse", which would otherwise slot an old
       // record into the "Less than 1 year lapsed" bucket.
       const parsedLapseDate = parseSafeDate(lapseDateRaw, { allowFuture: false, maxSpanYears: 100 });
-      if (parsedLapseDate) lapseDate = parsedLapseDate.toISOString();
+      if (parsedLapseDate) lapseDate = toLocalDateStr(parsedLapseDate);
     }
 
     let issuedDate = null;
     if (idxIssuedDate !== -1){
       const issuedDateRaw = r[idxIssuedDate];
       const parsedIssuedDate = parseSafeDate(issuedDateRaw, { allowFuture: false, maxSpanYears: 100 });
-      if (parsedIssuedDate) issuedDate = parsedIssuedDate.toISOString();
+      if (parsedIssuedDate) issuedDate = toLocalDateStr(parsedIssuedDate);
     }
 
     // Prefer a "total premium" style column when present and nonzero (the
@@ -3961,7 +3990,7 @@ function parseDuesFromWorkbook(workbook){
       // picking them up (that function only considers rows where the
       // Due Date cell is an actual Date, so null here means automatic
       // exclusion for both).
-      dueDate: (isPaidUp || isLapsed) ? null : (dueDateParsed ? dueDateParsed.toISOString() : null),
+      dueDate: (isPaidUp || isLapsed) ? null : (dueDateParsed ? toLocalDateStr(dueDateParsed) : null),
       // Only meaningful for Lapsed rows — a distinct column from Due
       // Date, since the export tracks exactly when a policy actually
       // lapsed separately from its regular premium due date.
@@ -5154,6 +5183,11 @@ el('bcShowSelectedOnlyBtn').addEventListener('click', () => {
   renderPickerList(currentFilteredClients());
 });
 
+el('bcShowSelectedUploadedOnlyBtn').addEventListener('click', () => {
+  bcShowSelectedUploadedOnly = !bcShowSelectedUploadedOnly;
+  renderUploadedList();
+});
+
 function populatePlanFilterOptions(){
   const plans = Array.from(new Set(bcAllClients.map(c => (c.product || '').trim()).filter(Boolean))).sort();
   // Drop any previously-selected plan that no longer exists in the
@@ -5281,8 +5315,79 @@ function refreshUploadedControlsVisibility(){
   wrap.style.display = count > 0 ? 'block' : 'none';
 }
 
+let bcShowSelectedUploadedOnly = false;
+
+function renderShowSelectedUploadedOnlyToggle(){
+  const check = el('bcShowSelectedUploadedOnlyCheck');
+  const label = el('bcShowSelectedUploadedOnlyLabel');
+  if (!check || !label) return;
+  const uploadedSelectedCount = bcAllClients.filter(c => c.uploadedViaExcel && bcSelectedEmails.has(c.email)).length;
+  check.style.background = bcShowSelectedUploadedOnly ? 'var(--gold,#C99A3B)' : 'transparent';
+  check.style.borderColor = bcShowSelectedUploadedOnly ? 'var(--gold,#C99A3B)' : 'var(--line,#E4DCC8)';
+  check.textContent = bcShowSelectedUploadedOnly ? '\u2713' : '';
+  label.textContent = bcShowSelectedUploadedOnly
+    ? 'Showing only selected (' + uploadedSelectedCount + ')'
+    : 'Show only selected recipients';
+}
+
+// Completely separate render target from the main list — uploaded
+// people never appear in #bcPickerList at all (see currentFilteredClients,
+// which now excludes them entirely). Same row markup/click-to-toggle
+// pattern as the main list for visual and behavioral consistency, just
+// simpler (no fund value/plan/due date to show, since none of that
+// data exists for an uploaded row).
+function renderUploadedList(){
+  const container = el('bcUploadedList');
+  if (!container) return;
+  refreshUploadedControlsVisibility();
+  renderShowSelectedUploadedOnlyToggle();
+
+  let uploaded = bcAllClients.filter(c => c.uploadedViaExcel);
+  if (bcShowSelectedUploadedOnly){
+    uploaded = uploaded.filter(c => bcSelectedEmails.has(c.email));
+  }
+
+  if (uploaded.length === 0){
+    container.innerHTML = '<div style="text-align:center; padding:16px; color:#9CA3AF; font-size:12px;">' +
+      (bcShowSelectedUploadedOnly ? 'No uploaded recipients selected yet.' : 'No uploaded entries.') +
+      '</div>';
+    return;
+  }
+
+  container.innerHTML = uploaded.map(c => {
+    const checked = bcSelectedEmails.has(c.email);
+    const alreadySent = bcAlreadySentEmails.has((c.email || '').trim().toLowerCase());
+    const alreadySentBadge = alreadySent
+      ? '<span style="display:inline-block;background:#9CA3AF;color:#fff;font-size:9px;font-weight:700;padding:1px 6px;border-radius:100px;letter-spacing:.3px;margin-right:6px;vertical-align:middle;">ALREADY SENT</span>'
+      : '';
+    return `
+      <div class="bc-picker-row${checked ? ' checked' : ''}${alreadySent ? ' bc-picker-row-disabled' : ''}" data-email="${escapeHtml(c.email)}" ${alreadySent ? 'title="Already received this exact subject \u2014 change the subject to include them again."' : ''} style="padding:9px 10px;">
+        <div class="bc-picker-checkbox">${checked ? '\u2713' : ''}</div>
+        <div class="bc-picker-info">
+          <div class="bc-picker-name">${escapeHtml(c.clientName || c.email)}</div>
+          <div class="bc-picker-meta">${alreadySentBadge}${escapeHtml(c.email)}</div>
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  container.querySelectorAll('.bc-picker-row').forEach(row => {
+    if (row.classList.contains('bc-picker-row-disabled')) return;
+    row.addEventListener('click', () => {
+      const email = row.dataset.email;
+      if (bcSelectedEmails.has(email)) bcSelectedEmails.delete(email);
+      else bcSelectedEmails.add(email);
+      row.classList.toggle('checked');
+      row.querySelector('.bc-picker-checkbox').textContent = bcSelectedEmails.has(email) ? '\u2713' : '';
+      renderShowSelectedUploadedOnlyToggle();
+      updatePickerCount();
+    });
+  });
+}
+
 function renderPickerList(clients){
   refreshUploadedControlsVisibility();
+  renderUploadedList();
   const container = el('bcPickerList');
   if (clients.length === 0){
     container.innerHTML = '<div style="text-align:center; padding:40px 20px; color:#9CA3AF; font-size:13px;">No clients match your search/filter.</div>';
@@ -5630,7 +5735,13 @@ el('bcManualEmailInput').addEventListener('keydown', (e) => {
 function currentFilteredClients(){
   const query = el('bcPickerSearch').value.trim().toLowerCase();
   const lapsedFilter = el('bcLapsedFilter') ? el('bcLapsedFilter').value : '';
-  let list = bcAllClients;
+  // Excel-uploaded people are deliberately excluded from the main list
+  // entirely — they have no fund value, plan, or due date to sort by,
+  // and have their own dedicated section + quick-select controls
+  // (Top 20/30/50, Select/Clear/Delete Uploaded) right under the
+  // upload button instead. Keeps the two groups from ever mixing
+  // together in the same sorted/filtered view.
+  let list = bcAllClients.filter(c => !c.uploadedViaExcel);
   if (bcShowSelectedOnly){
     list = list.filter(c => bcSelectedEmails.has(c.email));
   }
@@ -7995,7 +8106,7 @@ function parseBirthdaysFromWorkbook(workbook){
       email: email,
       contactNumber: idxContact !== -1 ? String(r[idxContact]||'').trim() : '',
       location: idxLocation !== -1 ? String(r[idxLocation]||'').trim() : '',
-      dateOfBirth: dobParsed ? dobParsed.toISOString() : null
+      dateOfBirth: dobParsed ? toLocalDateStr(dobParsed) : null
     });
   }
 
