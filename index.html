@@ -2708,6 +2708,11 @@ input:checked + #studioSection .slider-toggle::before{transform:translateX(19px)
         <input type="file" id="bcAttachmentFileInput" accept="image/*,application/pdf" multiple style="display:none;">
         <div id="bcAttachmentList" style="margin-top:8px;"></div>
 
+        <label style="margin-top:16px;">Buttons (optional)</label>
+        <div style="font-size:11px; color:#9CA3AF; margin:-4px 0 8px;">Add one or more centered, colored buttons to the bottom of your message — give each a name and a link, same as the branding links in Setup.</div>
+        <div id="bcCustomButtonsList"></div>
+        <button type="button" id="bcAddCustomButtonBtn" style="width:100%; padding:9px; border:1.5px dashed var(--line,#E4DCC8); border-radius:10px; background:transparent; color:var(--gold,#C99A3B); font-weight:700; font-size:12.5px; cursor:pointer; margin-top:4px;">+ ADD BUTTON</button>
+
         <label style="margin-top:16px;">Recipients</label>
         <div id="bcRecipientSummary" style="display:flex; align-items:center; justify-content:space-between; gap:10px; background:var(--cream,#FDF8F0); border:1px solid var(--line,#E4DCC8); border-radius:10px; padding:12px 14px; flex-wrap:wrap;">
           <span id="bcRecipientSummaryText" style="font-size:13px; color:var(--ink,#13202B); flex:1 1 auto; min-width:0;">No recipients selected yet</span>
@@ -4854,6 +4859,95 @@ function wireImageControls(){
 // previewed, leaving plain <img width="..."> tags — the only thing
 // that actually needs to reach GmailApp.sendEmail(). Operates on a
 // detached clone so the live editor (with its controls) is untouched.
+// Six fixed color choices, each with a text color chosen for readable
+// contrast against its own background — Yellow specifically needs dark
+// text, the other five read fine in white, matching the existing CTA
+// button style used for "Pay Online Now" / "Connect With Me".
+const BC_BUTTON_COLORS = {
+  darkblue: { label: 'Dark Blue', bg: '#0C447C', text: '#FFFFFF' },
+  yellow:   { label: 'Yellow',    bg: '#F2C94C', text: '#13202B' },
+  gold:     { label: 'Gold',      bg: '#C99A3B', text: '#FFFFFF' },
+  red:      { label: 'Red',       bg: '#EB5757', text: '#FFFFFF' },
+  pink:     { label: 'Pink',      bg: '#E85D9E', text: '#FFFFFF' },
+  green:    { label: 'Green',     bg: '#27AE60', text: '#FFFFFF' }
+};
+
+// Each entry: { id, label, color, url }. Rendered as editable rows in
+// the composer panel; converted to real, centered <a> buttons and
+// appended to the message body at send/save/schedule/preview time —
+// see buildCustomButtonsHtml() below. Resets to empty each time the
+// composer is freshly opened; a button baked into a SAVED draft's
+// message text (once appended) becomes part of that draft's raw HTML
+// like any other text, not separately re-editable via this panel if
+// the draft is reopened later.
+let bcCustomButtons = [];
+let bcCustomButtonIdCounter = 0;
+
+function renderBcCustomButtonsList(){
+  const container = el('bcCustomButtonsList');
+  if (!container) return;
+  const colorOptionsHtml = Object.entries(BC_BUTTON_COLORS)
+    .map(([key, c]) => '<option value="' + key + '">' + c.label + '</option>').join('');
+  container.innerHTML = bcCustomButtons.map(btn => `
+    <div class="bc-custom-btn-row" data-btn-id="${btn.id}" style="display:flex; gap:6px; align-items:center; margin-bottom:8px; flex-wrap:wrap;">
+      <input type="text" class="bc-custom-btn-label" data-btn-id="${btn.id}" placeholder="Button name (e.g. View Brochure)" value="${escapeHtml(btn.label)}" style="flex:1 1 160px; min-width:0; padding:8px 10px; border:1px solid var(--line,#E4DCC8); border-radius:8px; font-size:12.5px;">
+      <select class="bc-custom-btn-color" data-btn-id="${btn.id}" style="flex:0 0 auto; padding:8px 6px; border:1px solid var(--line,#E4DCC8); border-radius:8px; font-size:12.5px; background:#fff;">${colorOptionsHtml}</select>
+      <input type="url" class="bc-custom-btn-url" data-btn-id="${btn.id}" placeholder="https://..." value="${escapeHtml(btn.url)}" style="flex:1 1 160px; min-width:0; padding:8px 10px; border:1px solid var(--line,#E4DCC8); border-radius:8px; font-size:12.5px;">
+      <button type="button" class="bc-custom-btn-remove" data-btn-id="${btn.id}" title="Remove this button" style="flex:0 0 auto; width:26px; height:26px; border-radius:50%; background:#EB5757; color:#fff; border:none; font-size:14px; line-height:1; cursor:pointer;">×</button>
+    </div>
+  `).join('');
+  container.querySelectorAll('.bc-custom-btn-color').forEach(sel => { sel.value = bcCustomButtons.find(b => b.id === sel.dataset.btnId).color; });
+
+  container.querySelectorAll('.bc-custom-btn-label').forEach(input => {
+    input.addEventListener('input', () => {
+      const btn = bcCustomButtons.find(b => b.id === input.dataset.btnId);
+      if (btn) btn.label = input.value;
+      updateSizeIndicator();
+    });
+  });
+  container.querySelectorAll('.bc-custom-btn-color').forEach(select => {
+    select.addEventListener('change', () => {
+      const btn = bcCustomButtons.find(b => b.id === select.dataset.btnId);
+      if (btn) btn.color = select.value;
+    });
+  });
+  container.querySelectorAll('.bc-custom-btn-url').forEach(input => {
+    input.addEventListener('input', () => {
+      const btn = bcCustomButtons.find(b => b.id === input.dataset.btnId);
+      if (btn) btn.url = input.value;
+      updateSizeIndicator();
+    });
+  });
+  container.querySelectorAll('.bc-custom-btn-remove').forEach(btnEl => {
+    btnEl.addEventListener('click', () => {
+      bcCustomButtons = bcCustomButtons.filter(b => b.id !== btnEl.dataset.btnId);
+      renderBcCustomButtonsList();
+      updateSizeIndicator();
+    });
+  });
+}
+
+el('bcAddCustomButtonBtn').addEventListener('click', () => {
+  bcCustomButtons.push({ id: 'bcbtn' + (++bcCustomButtonIdCounter), label: '', color: 'gold', url: '' });
+  renderBcCustomButtonsList();
+});
+
+// Builds the actual, centered <a> button HTML for every button that
+// has both a name AND a link filled in — an incomplete row (missing
+// either) is silently skipped rather than sent as a broken button.
+// Same visual style as the existing "Pay Online Now" / "Connect With
+// Me" CTAs elsewhere in the app, just with a user-chosen color.
+function buildCustomButtonsHtml(){
+  const complete = bcCustomButtons.filter(b => b.label.trim() && b.url.trim());
+  if (complete.length === 0) return '';
+  return complete.map(b => {
+    const c = BC_BUTTON_COLORS[b.color] || BC_BUTTON_COLORS.gold;
+    return '<div style="text-align:center;margin:14px 0 6px;">' +
+      '<a href="' + escapeHtml(b.url.trim()) + '" style="display:inline-block;background:' + c.bg + ';color:' + c.text + ';text-decoration:none;padding:14px 30px;border-radius:8px;font-weight:700;font-size:14px;letter-spacing:.5px;">' + escapeHtml(b.label.trim()) + '</a>' +
+      '</div>';
+  }).join('');
+}
+
 function stripEditorControls(html){
   const temp = document.createElement('div');
   temp.innerHTML = html;
@@ -6234,7 +6328,7 @@ let bcResendingFromScheduleId = null; // set while composing via "Edit & Resend"
 
 el('bcSaveDraftBtn').addEventListener('click', async () => {
   const subject = el('broadcastSubject').value.trim();
-  const body = stripEditorControls(el('broadcastEditor').innerHTML.trim());
+  const body = stripEditorControls(el('broadcastEditor').innerHTML.trim()) + buildCustomButtonsHtml();
   if (!subject && !body){
     showStatus('broadcastStatus','error','Nothing to save yet \u2014 write a subject or message first.');
     return;
@@ -6436,6 +6530,8 @@ function resetComposeToNewMessage(){
   el('broadcastEditor').innerHTML = '';
   bcAttachments = [];
   renderBcAttachmentList();
+  bcCustomButtons = [];
+  renderBcCustomButtonsList();
   bcUseTemplate = false;
   el('bcTemplateToggle').querySelector('.theme-switch-track').classList.toggle('is-on', false);
   bcAllClients = [];
@@ -6510,7 +6606,7 @@ async function wrapBodyForPreview(bodyHtml){
 
 el('bcPreviewBtn').addEventListener('click', async () => {
   const subject = el('broadcastSubject').value.trim();
-  const rawBody = stripEditorControls(el('broadcastEditor').innerHTML.trim());
+  const rawBody = stripEditorControls(el('broadcastEditor').innerHTML.trim()) + buildCustomButtonsHtml();
   if (!rawBody){
     showStatus('broadcastStatus','error','Write a message first.');
     return;
@@ -6541,7 +6637,7 @@ el('bcPreviewBtn').addEventListener('click', async () => {
 // cause behind repeated "Email is too large" failures at send time
 // despite the indicator showing a small, deceptively safe size).
 async function calculateBroadcastSizeMB(){
-  const body = stripEditorControls(el('broadcastEditor').innerHTML.trim());
+  const body = stripEditorControls(el('broadcastEditor').innerHTML.trim()) + buildCustomButtonsHtml();
   const bodyBytes = new Blob([body]).size;
   const attachmentBytes = bcAttachments.reduce((sum, a) => sum + Math.ceil((a.base64 || '').length * 0.75), 0);
   let templateBytes = 0;
@@ -6681,7 +6777,7 @@ el('bcStopSendBtn').addEventListener('click', () => {
 
 el('bcSendBtn').addEventListener('click', async () => {
   const subject = el('broadcastSubject').value.trim();
-  const body = stripEditorControls(el('broadcastEditor').innerHTML.trim());
+  const body = stripEditorControls(el('broadcastEditor').innerHTML.trim()) + buildCustomButtonsHtml();
   if (!subject){
     showStatus('broadcastStatus','error','Please add a subject line.');
     return;
