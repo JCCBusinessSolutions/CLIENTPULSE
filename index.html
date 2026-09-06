@@ -2751,6 +2751,12 @@ input:checked + #studioSection .slider-toggle::before{transform:translateX(19px)
         <div class="row" style="margin-top:8px;">
           <button class="btn-ghost" id="bcSaveDraftBtn" style="width:100%;">SAVE AS DRAFT</button>
         </div>
+
+        <div id="bcPreviewContainer" style="display:none; margin-top:16px; border:1px solid var(--line,#E4DCC8); border-radius:10px; overflow:hidden;">
+          <div style="background:var(--cream,#FDF8F0); padding:8px 14px; font-size:11px; font-weight:700; color:var(--navy,#0C447C); border-bottom:1px solid var(--line,#E4DCC8);">PREVIEW — sent to: Dela Cruz, Juan Miguel</div>
+          <div id="bcPreviewBody" style="padding:16px; background:#fff; font-size:14px; line-height:1.6;"></div>
+        </div>
+
         <div class="status" id="broadcastStatus"></div>
         <div class="row" style="margin-top:8px;">
           <button class="btn-primary" id="bcResumeSendBtn" style="width:100%; display:none; background:var(--gold,#C99A3B);">CONTINUE SENDING</button>
@@ -2773,11 +2779,6 @@ input:checked + #studioSection .slider-toggle::before{transform:translateX(19px)
         <div id="bcCompletedListWrap" style="margin-top:20px;">
           <label>Completed Broadcasts</label>
           <div id="bcCompletedList" style="font-size:13px; color:#9CA3AF;">No completed broadcasts yet.</div>
-        </div>
-
-        <div id="bcPreviewContainer" style="display:none; margin-top:16px; border:1px solid var(--line,#E4DCC8); border-radius:10px; overflow:hidden;">
-          <div style="background:var(--cream,#FDF8F0); padding:8px 14px; font-size:11px; font-weight:700; color:var(--navy,#0C447C); border-bottom:1px solid var(--line,#E4DCC8);">PREVIEW — sent to: Dela Cruz, Juan Miguel</div>
-          <div id="bcPreviewBody" style="padding:16px; background:#fff; font-size:14px; line-height:1.6;"></div>
         </div>
 
         <div id="bcConfirmOverlay" style="display:none; position:fixed; inset:0; z-index:400; background:rgba(8,20,35,.6); align-items:center; justify-content:center; padding:20px;" onclick="if(event.target===this) this.style.display='none';">
