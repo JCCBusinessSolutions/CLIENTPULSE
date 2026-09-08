@@ -142,6 +142,34 @@ function recordUploadActivity(){
   PropertiesService.getScriptProperties().setProperty('LAST_UPLOAD_TIMESTAMP', new Date().toISOString());
 }
 
+// Separate from LAST_UPLOAD_TIMESTAMP above (which drives the 30-day
+// inactivity hard-stop and must stay untouched) — these track each
+// list's own upload time individually, purely so the app can show the
+// advisor "last updated" dates for their Dues Tracker and Birthday
+// Tracker independently, e.g. if they update one list far more
+// recently than the other.
+function recordDuesUploadTimestamp(){
+  PropertiesService.getScriptProperties().setProperty('LAST_DUES_UPLOAD_TIMESTAMP', new Date().toISOString());
+}
+function recordBirthdayUploadTimestamp(){
+  PropertiesService.getScriptProperties().setProperty('LAST_BIRTHDAY_UPLOAD_TIMESTAMP', new Date().toISOString());
+}
+
+// Returns both list's last-upload dates, pre-formatted as MMM/dd/yyyy
+// (e.g. "Sep/07/2026") in the advisor's own script timezone. Null
+// when a list has never been uploaded at all yet, so the frontend can
+// show "Never uploaded" instead of a misleading blank or fake date.
+function getLastUploadDates(){
+  const props = PropertiesService.getScriptProperties();
+  const tz = Session.getScriptTimeZone();
+  const duesIso = props.getProperty('LAST_DUES_UPLOAD_TIMESTAMP');
+  const birthdayIso = props.getProperty('LAST_BIRTHDAY_UPLOAD_TIMESTAMP');
+  return {
+    duesLastUpload: duesIso ? Utilities.formatDate(new Date(duesIso), tz, 'MMM/dd/yyyy') : null,
+    birthdayLastUpload: birthdayIso ? Utilities.formatDate(new Date(birthdayIso), tz, 'MMM/dd/yyyy') : null
+  };
+}
+
 // 1st day of the month following the given timestamp, plus the grace
 // window — e.g. an upload on June 25 anchors to July 1, deadline
 // July 31. Computed in UTC purely for clean month-boundary math; a
@@ -337,6 +365,32 @@ function notifyAdvisorOfPurge(summary){
    ============================================================ */
 const REMINDER_DAYS_BEFORE_LOCK = 5;
 
+// Styled to match the app's other branded emails (navy/gold, rounded
+// card), but the header/footer photos are OPTIONAL here, unlike every
+// other email in this file. This reminder's entire purpose is to warn
+// an advisor before their data gets wiped — an advisor who hasn't
+// finished Branding Studio yet still deserves that warning, so this
+// degrades gracefully to a plain styled card (no photos) rather than
+// silently failing to send the way assertConfigured() would force it to.
+function buildInactivityReminderEmailHtml(days, config){
+  const daysLabel = days + ' day' + (days === 1 ? '' : 's');
+  const hasImages = !!(config.headerImageFileId && config.footerImageFileId);
+  const headerBlock = hasImages ? '<img src="cid:headerImg" alt="Header" style="width:100%;display:block;">' : '';
+  const footerBlock = hasImages ? '<img src="cid:footerImg" alt="Footer" style="width:100%;display:block;">' : '';
+
+  return ''
+    + '<div style="font-family:Arial,sans-serif;max-width:480px;margin:0 auto;border:1px solid #E7DFCF;border-radius:10px;overflow:hidden;">'
+    + headerBlock
+    + '  <div style="padding:24px;background:#FDF8F0;color:#1C2A38;">'
+    + '    <p style="font-size:16px;font-weight:700;color:#0C447C;margin:0 0 14px;">Action needed: ' + daysLabel + ' left</p>'
+    + '    <p>You have <strong>' + daysLabel + ' remaining</strong> to upload your latest Premium Due list and Client Birthday list.</p>'
+    + '    <p>If no new list is uploaded before then, Client Pulse will automatically clear your stored client data and pause all automatic reminders until you upload again. A backup is always saved first, so nothing is lost permanently — but reminders and greetings will stop going out to your clients in the meantime.</p>'
+    + '    <p style="margin-top:20px;">Simply upload your latest Dues or Birthday list anytime before the deadline to keep everything running without interruption.</p>'
+    + '  </div>'
+    + footerBlock
+    + '</div>';
+}
+
 function sendInactivityReminderIfNeeded(){
   const status = getAdvisorActiveStatus();
   if (!status.active) return; // already past the deadline — the purge handles this case
@@ -352,11 +406,13 @@ function sendInactivityReminderIfNeeded(){
     const recipient = config.contactEmail;
     if (recipient){
       const days = status.daysUntilLock;
-      const body =
-        'You have ' + days + ' day' + (days === 1 ? '' : 's') + ' remaining to reupload your life policy list and client list.\n\n' +
-        'After which the app will clear your data and stop auto reminder.\n\n' +
-        'Upload your latest Dues or Birthday list anytime before then to keep Client Pulse running without interruption.';
-      GmailApp.sendEmail(recipient, 'Client Pulse: ' + days + ' day' + (days === 1 ? '' : 's') + ' left before your data is cleared', body);
+      const daysLabel = days + ' day' + (days === 1 ? '' : 's');
+      const htmlBody = buildInactivityReminderEmailHtml(days, config);
+      const hasImages = !!(config.headerImageFileId && config.footerImageFileId);
+      const options = { htmlBody: htmlBody };
+      if (config.senderName) options.name = config.senderName;
+      if (hasImages) options.inlineImages = getEmailImages(config);
+      GmailApp.sendEmail(recipient, 'Client Pulse: ' + daysLabel + ' left before your data is cleared', '', options);
     }
   }catch(e){
     // A failed reminder should never block the purge check from running.
@@ -1091,6 +1147,7 @@ function doGet(e){
   if (action === 'getScheduledBroadcasts')    return jsonResponse({ schedules: getScheduledBroadcasts() });
   if (action === 'getSentEmailsForSubject')   return getSentEmailsForSubject(e.parameter.subject || '');
   if (action === 'getDrafts')                 return jsonResponse({ drafts: getDrafts() });
+  if (action === 'getLastUploadDates')        return jsonResponse(getLastUploadDates());
   return jsonResponse({ error: 'Unknown action' });
 }
 
@@ -1254,6 +1311,7 @@ function doPost(e){
   if (body.action === 'manualSendDuesNow')          { try{ return jsonResponse(manualSendDuesNow()); }catch(err){ return jsonResponse({ success:false, error: toEnglishErrorMessage(err.message) }); } }
   if (body.action === 'manualSendBirthdaysNow')     { try{ return jsonResponse(manualSendBirthdaysNow()); }catch(err){ return jsonResponse({ success:false, error: toEnglishErrorMessage(err.message) }); } }
   if (body.action === 'manualSendAnniversariesNow') { try{ return jsonResponse(manualSendAnniversariesNow()); }catch(err){ return jsonResponse({ success:false, error: toEnglishErrorMessage(err.message) }); } }
+  if (body.action === 'getLastUploadDates')         { try{ return jsonResponse(getLastUploadDates()); }catch(err){ return jsonResponse({ success:false, error: toEnglishErrorMessage(err.message) }); } }
 
   return jsonResponse({ error: 'Unknown action' });
 }
@@ -1371,7 +1429,7 @@ if (!sheet) {
     sheet.getRange(startRow, 1, newRows.length, numCols).setValues(newRows);
   }
 
-  if (rows.length > 0) recordUploadActivity();
+  if (rows.length > 0){ recordUploadActivity(); recordDuesUploadTimestamp(); }
   return { added: added, updated: updated, total: rows.length };
 }
 
@@ -1418,7 +1476,7 @@ function pushBirthdayRows(rows){
     sheet.getRange(startRow, 1, newRows.length, numCols).setValues(newRows);
   }
 
-  if (rows.length > 0) recordUploadActivity();
+  if (rows.length > 0){ recordUploadActivity(); recordBirthdayUploadTimestamp(); }
   return { added: added, updated: updated, total: rows.length };
 }
 
