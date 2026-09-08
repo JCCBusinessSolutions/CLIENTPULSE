@@ -2517,6 +2517,16 @@ input:checked + #studioSection .slider-toggle::before{transform:translateX(19px)
       <div class="card" id="clientsIntroCard">
         <h2>📋 Manage Your Clients</h2>
         <p class="sub">Choose which clients will receive dues reminders and birthday greetings. Toggle off any clients you don't want to reach out to automatically.</p>
+        <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:14px;">
+          <div style="flex:1 1 200px; min-width:0; background:var(--cream,#FDF8F0); border:1px solid var(--line,#E4DCC8); border-radius:10px; padding:10px 14px;">
+            <div style="font-size:11px; font-weight:700; color:var(--gold,#C99A3B); letter-spacing:.3px;">POLICY LIST LAST UPLOADED</div>
+            <div id="duesLastUploadDate" style="font-size:14px; font-weight:700; color:var(--navy,#0C447C); margin-top:2px;">Checking\u2026</div>
+          </div>
+          <div style="flex:1 1 200px; min-width:0; background:var(--cream,#FDF8F0); border:1px solid var(--line,#E4DCC8); border-radius:10px; padding:10px 14px;">
+            <div style="font-size:11px; font-weight:700; color:var(--gold,#C99A3B); letter-spacing:.3px;">CLIENT LIST LAST UPLOADED</div>
+            <div id="birthdayLastUploadDate" style="font-size:14px; font-weight:700; color:var(--navy,#0C447C); margin-top:2px;">Checking\u2026</div>
+          </div>
+        </div>
       </div>
 
       <!-- DUES CLIENTS -->
@@ -7864,6 +7874,22 @@ fetchBrandConfig().then(config => populateBrandingFields(config));
 fetchSendHour().then(hour => populateSendHour(hour));
   fetchAdvanceDays().then(days => populateAdvanceDays(days));
 refreshPersonalLink();
+loadLastUploadDates();
+
+// Populates the two "last uploaded" date cards on the Clients page.
+// Shows "Never uploaded yet" rather than a blank when a list hasn't
+// been pushed at all — e.g. a brand-new advisor who's only done one
+// of the two lists so far.
+async function loadLastUploadDates(){
+  try{
+    const result = await callBackend({ action: 'getLastUploadDates' });
+    el('duesLastUploadDate').textContent = result.duesLastUpload || 'Never uploaded yet';
+    el('birthdayLastUploadDate').textContent = result.birthdayLastUpload || 'Never uploaded yet';
+  }catch(e){
+    el('duesLastUploadDate').textContent = '\u2013';
+    el('birthdayLastUploadDate').textContent = '\u2013';
+  }
+}
 
 </script>
 
