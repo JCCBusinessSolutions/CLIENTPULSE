@@ -1172,6 +1172,25 @@ function getImagePreviewData(target){
 // either shape (Date object or string) back to a clean yyyy-MM-dd, so
 // "was this already sent today" comparisons work regardless of which
 // form Sheets actually stored.
+// Extracts a Date's calendar year/month/day using the Sheet's actual
+// configured timezone, via Utilities.formatDate() — never raw
+// .getMonth()/.getDate()/.getFullYear(), which always read UTC
+// regardless of tz. For a positive UTC offset like Manila (UTC+8),
+// those raw methods disagree with the real local calendar date for
+// roughly the first 8 hours of every day (until UTC's clock catches
+// up to the new day), which could cause a birthday or policy
+// anniversary to match a day early depending on what hour the daily
+// send happens to run. month is 0-indexed to match the native
+// Date.getMonth() convention, so this drops in as a direct replacement
+// wherever .getMonth()/.getDate() were used before. Both sides of
+// every "is this date today" comparison below now go through this
+// same conversion, so there's no chance of "today" and a stored date
+// disagreeing due to one being read as UTC and the other as local.
+function getLocalDateParts(date, tz){
+  const parts = Utilities.formatDate(date, tz, 'yyyy-MM-dd').split('-');
+  return { year: Number(parts[0]), month: Number(parts[1]) - 1, day: Number(parts[2]) };
+}
+
 function normalizeDateCellToYmd(value, tz){
   if (!value) return '';
   if (value instanceof Date) return Utilities.formatDate(value, tz, 'yyyy-MM-dd');
@@ -1826,14 +1845,15 @@ function getBirthdaysTodayRows(){
   const col = name => headers.indexOf(name);
   const tz = Session.getScriptTimeZone();
   const today = new Date();
-  const todayMonth = today.getMonth(), todayDay = today.getDate();
-  const currentYearStr = String(today.getFullYear());
+  const todayParts = getLocalDateParts(today, tz);
+  const currentYearStr = String(todayParts.year);
   const result = [];
   for (let i = 1; i < data.length; i++){
     const row = data[i];
     const dob = row[col('Date of Birth')];
     if (!(dob instanceof Date)) continue;
-    if (dob.getMonth() === todayMonth && dob.getDate() === todayDay){
+    const dobParts = getLocalDateParts(dob, tz);
+    if (dobParts.month === todayParts.month && dobParts.day === todayParts.day){
       const lastGreetingYear = String(row[col('Last Greeting Sent (Year)')] || '');
       const wasSentThisYear = lastGreetingYear === currentYearStr;
       result.push({
@@ -1854,14 +1874,16 @@ function countBirthdaysOnOffset(offsetDays){
   const data = sheet.getDataRange().getValues();
   const headers = data[0];
   const col = name => headers.indexOf(name);
+  const tz = Session.getScriptTimeZone();
   const target = new Date();
   target.setDate(target.getDate() + offsetDays);
-  const targetMonth = target.getMonth(), targetDay = target.getDate();
+  const targetParts = getLocalDateParts(target, tz);
   let count = 0;
   for (let i = 1; i < data.length; i++){
     const dob = data[i][col('Date of Birth')];
     if (!(dob instanceof Date)) continue;
-    if (dob.getMonth() === targetMonth && dob.getDate() === targetDay) count++;
+    const dobParts = getLocalDateParts(dob, tz);
+    if (dobParts.month === targetParts.month && dobParts.day === targetParts.day) count++;
   }
   return count;
 }
@@ -1887,11 +1909,12 @@ function sendDailyBirthdayGreetings(){
     const data = sheet.getDataRange().getValues();
     const headers = data[0];
     const col = name => headers.indexOf(name);
+    const tz = Session.getScriptTimeZone();
     const today = new Date();
-    const todayMonth = today.getMonth(), todayDay = today.getDate();
-    const currentYearStr = String(today.getFullYear());
+    const todayParts = getLocalDateParts(today, tz);
+    const currentYearStr = String(todayParts.year);
 
-    const startMsg = 'START — today=' + Utilities.formatDate(today, Session.getScriptTimeZone(), 'yyyy-MM-dd') + ' totalRows=' + (data.length - 1);
+    const startMsg = 'START — today=' + Utilities.formatDate(today, tz, 'yyyy-MM-dd') + ' totalRows=' + (data.length - 1);
     Logger.log('[sendDailyBirthdayGreetings] ' + startMsg);
     runLog.push(startMsg);
     saveBirthdayRunLog(runLog);
@@ -1902,7 +1925,8 @@ function sendDailyBirthdayGreetings(){
       if (sendBday === false || sendBday === 'FALSE' || sendBday === 0 || sendBday === '0') continue;
       const dob = row[col('Date of Birth')];
       if (!(dob instanceof Date)) continue;
-      if (dob.getMonth() !== todayMonth || dob.getDate() !== todayDay) continue;
+      const dobParts = getLocalDateParts(dob, tz);
+      if (dobParts.month !== todayParts.month || dobParts.day !== todayParts.day) continue;
       const lastSentYear = String(row[col('Last Greeting Sent (Year)')] || '');
       if (lastSentYear === currentYearStr) continue;
 
@@ -2032,17 +2056,18 @@ function getPolicyAnniversariesTodayRows(){
   const col = name => headers.indexOf(name);
   const tz = Session.getScriptTimeZone();
   const today = new Date();
-  const todayMonth = today.getMonth(), todayDay = today.getDate();
-  const currentYear = today.getFullYear();
+  const todayParts = getLocalDateParts(today, tz);
+  const currentYear = todayParts.year;
   const currentYearStr = String(currentYear);
   const result = [];
   for (let i = 1; i < data.length; i++){
     const row = data[i];
     const issuedDate = row[col('Issued Date')];
     if (!(issuedDate instanceof Date)) continue;
-    if (issuedDate.getMonth() !== todayMonth || issuedDate.getDate() !== todayDay) continue;
+    const issuedParts = getLocalDateParts(issuedDate, tz);
+    if (issuedParts.month !== todayParts.month || issuedParts.day !== todayParts.day) continue;
     if (isLapsedStatus(row[col('Policy Status')])) continue;
-    const yearsCount = currentYear - issuedDate.getFullYear();
+    const yearsCount = currentYear - issuedParts.year;
     if (yearsCount <= 0) continue;
     const lastSentYear = String(row[col('Last Anniversary Sent (Year)')] || '');
     const wasSentThisYear = lastSentYear === currentYearStr;
@@ -2066,17 +2091,18 @@ function countAnniversariesOnOffset(offsetDays){
   const data = sheet.getDataRange().getValues();
   const headers = data[0];
   const col = name => headers.indexOf(name);
+  const tz = Session.getScriptTimeZone();
   const target = new Date();
   target.setDate(target.getDate() + offsetDays);
-  const targetMonth = target.getMonth(), targetDay = target.getDate();
-  const targetYear = target.getFullYear();
+  const targetParts = getLocalDateParts(target, tz);
   let count = 0;
   const statusCol = col('Policy Status');
   for (let i = 1; i < data.length; i++){
     const issuedDate = data[i][col('Issued Date')];
     if (!(issuedDate instanceof Date)) continue;
     if (isLapsedStatus(data[i][statusCol])) continue;
-    if (issuedDate.getMonth() === targetMonth && issuedDate.getDate() === targetDay && issuedDate.getFullYear() < targetYear) count++;
+    const issuedParts = getLocalDateParts(issuedDate, tz);
+    if (issuedParts.month === targetParts.month && issuedParts.day === targetParts.day && issuedParts.year < targetParts.year) count++;
   }
   return count;
 }
@@ -2103,12 +2129,13 @@ function sendDailyAnniversaryGreetings(){
     const data = sheet.getDataRange().getValues();
     const headers = data[0];
     const col = name => headers.indexOf(name);
+    const tz = Session.getScriptTimeZone();
     const today = new Date();
-    const todayMonth = today.getMonth(), todayDay = today.getDate();
-    const currentYear = today.getFullYear();
+    const todayParts = getLocalDateParts(today, tz);
+    const currentYear = todayParts.year;
     const currentYearStr = String(currentYear);
 
-    const startMsg = 'START — today=' + Utilities.formatDate(today, Session.getScriptTimeZone(), 'yyyy-MM-dd') + ' totalRows=' + (data.length - 1);
+    const startMsg = 'START — today=' + Utilities.formatDate(today, tz, 'yyyy-MM-dd') + ' totalRows=' + (data.length - 1);
     Logger.log('[sendDailyAnniversaryGreetings] ' + startMsg);
     runLog.push(startMsg);
     saveAnniversaryRunLog(runLog);
@@ -2119,9 +2146,10 @@ function sendDailyAnniversaryGreetings(){
       if (sendAnniv === false || sendAnniv === 'FALSE' || sendAnniv === 0 || sendAnniv === '0') continue;
       const issuedDate = row[col('Issued Date')];
       if (!(issuedDate instanceof Date)) continue;
-      if (issuedDate.getMonth() !== todayMonth || issuedDate.getDate() !== todayDay) continue;
+      const issuedParts = getLocalDateParts(issuedDate, tz);
+      if (issuedParts.month !== todayParts.month || issuedParts.day !== todayParts.day) continue;
       if (isLapsedStatus(row[col('Policy Status')])) continue;
-      const yearsCount = currentYear - issuedDate.getFullYear();
+      const yearsCount = currentYear - issuedParts.year;
       if (yearsCount <= 0) continue;
       const lastSentYear = String(row[col('Last Anniversary Sent (Year)')] || '');
       if (lastSentYear === currentYearStr) continue;
