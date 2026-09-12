@@ -404,6 +404,10 @@
   /* Dark mode for password input labels and notes */
   body.dark-mode label[style*="color:#0C447C"]{ color:#5B8BC4 !important; }
   body.dark-mode div[style*="color:#9CA3AF"]{ color:#8DA0BC !important; }
+  body.dark-mode #verseText{ color:#fff !important; }
+  body.dark-mode #verseDigest{ color:#E8EDF5 !important; }
+  body.dark-mode #verseOfDayCard{ background:#1B2A42; border-color:#27374D; }
+  body.dark-mode #verseDigest span{ color:#8DA0BC !important; }
   body.dark-mode div[style*="color:#27AE60"]{ color:#4ECB71 !important; }
   body.dark-mode #saveExcelPasswordBtn{ color:#FFFFFF !important; }
   body.dark-mode #birthdaySaveExcelPasswordBtn{ color:#FFFFFF !important; }
@@ -1094,8 +1098,9 @@ input:checked + #studioSection .slider-toggle::before{transform:translateX(19px)
     -webkit-backdrop-filter:none; backdrop-filter:none;
   }
   .gate-input::placeholder { color:rgba(0,0,0,0.45); -webkit-text-fill-color:rgba(0,0,0,0.45); }
-  body.dark-mode .gate-input { background:#fff; border-color:rgba(255,255,255,0.55); color:#000; -webkit-text-fill-color:#000; }
-  /* keep white fill + black text when browser autofills */
+  body.dark-mode .gate-input { background:#1B2A42; border-color:rgba(255,255,255,0.25); color:#fff; -webkit-text-fill-color:#fff; }
+  body.dark-mode .gate-input::placeholder { color:rgba(255,255,255,0.45); -webkit-text-fill-color:rgba(255,255,255,0.45); }
+  /* keep white fill + black text when browser autofills, in light mode */
   .gate-input:-webkit-autofill,
   .gate-input:-webkit-autofill:hover,
   .gate-input:-webkit-autofill:focus {
@@ -1103,15 +1108,25 @@ input:checked + #studioSection .slider-toggle::before{transform:translateX(19px)
     -webkit-box-shadow:0 0 0 1000px #fff inset;
     box-shadow:0 0 0 1000px #fff inset;
   }
+  /* same autofill state in dark mode, but dark fill + white text instead */
+  body.dark-mode .gate-input:-webkit-autofill,
+  body.dark-mode .gate-input:-webkit-autofill:hover,
+  body.dark-mode .gate-input:-webkit-autofill:focus {
+    -webkit-text-fill-color:#fff;
+    -webkit-box-shadow:0 0 0 1000px #1B2A42 inset;
+    box-shadow:0 0 0 1000px #1B2A42 inset;
+  }
   .gate-input-wrap { position:relative; }
   .gate-input-icon {
     position:absolute; left:14px; top:0; bottom:12px; margin:auto 0; height:18px; width:18px;
     color:rgba(0,0,0,0.55); pointer-events:none; z-index:1;
   }
+  body.dark-mode .gate-input-icon { color:rgba(255,255,255,0.55); }
   .gate-input-icon svg { width:18px; height:18px; display:block; }
   .gate-pw-wrap { position:relative; }
   .gate-pw-wrap .gate-input { padding-right:44px; }
   .gate-pw-toggle { position:absolute; right:6px; top:0; bottom:12px; margin:auto 0; height:32px; width:32px; background:none; border:none; cursor:pointer; padding:0; display:flex; align-items:center; justify-content:center; color:rgba(0,0,0,0.55); z-index:1; }
+  body.dark-mode .gate-pw-toggle { color:rgba(255,255,255,0.55); }
   .gate-pw-toggle svg { width:20px; height:20px; display:block; }
   .gate-pw-toggle:hover { color:#000; }
   .gate-input:focus {
@@ -2049,6 +2064,26 @@ input:checked + #studioSection .slider-toggle::before{transform:translateX(19px)
           <div class="text-muted text-sm">Here's what's happening with your dues today.</div>
         </div>
       </div>
+    </div>
+
+    <!-- ============================================================
+         VERSE OF THE DAY
+         Content is fetched from a separate JSON file (see
+         CP_VERSES_URL in the script below) so the 366 entries can be
+         edited or re-translated without touching this app file at all.
+         Hidden entirely if the fetch fails \u2014 a missing verse should
+         never look like a broken dashboard.
+         ============================================================ -->
+    <div id="verseOfDayCard" style="display:none; background:var(--cream,#FDF8F0); border:1px solid var(--line,#E4DCC8); border-left:4px solid var(--gold,#C99A3B); border-radius:14px; padding:16px 18px; margin-bottom:16px;">
+      <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:12px;">
+        <div style="font-size:10.5px; font-weight:700; letter-spacing:.7px; color:var(--gold,#C99A3B); text-transform:uppercase;">&#10013; Verse of the Day</div>
+        <div id="verseDate" style="font-size:10.5px; color:var(--muted,#76839A); font-weight:600;"></div>
+      </div>
+      <p id="verseText" style="font-family:'Playfair Display',serif; font-style:italic; font-size:16px; line-height:1.55; color:var(--navy,#0C447C); margin:0 0 8px;"></p>
+      <div id="verseRef" style="font-size:12px; font-weight:700; color:var(--ink,#13202B); text-align:right; opacity:.75; margin-bottom:14px;"></div>
+      <div style="height:1px; background:var(--line,#E4DCC8); margin:0 0 12px;"></div>
+      <div style="font-size:10px; font-weight:700; letter-spacing:.6px; color:var(--muted,#76839A); text-transform:uppercase; margin-bottom:5px;">Quick Digest</div>
+      <p id="verseDigest" style="font-size:13.5px; line-height:1.6; color:var(--ink,#13202B); margin:0;"></p>
     </div>
 
     <!-- ============================================================
@@ -3013,6 +3048,16 @@ input:checked + #studioSection .slider-toggle::before{transform:translateX(19px)
 
         <label for="brandReviewLink" style="margin-top:12px;">"Schedule a 15-min Policy Review" link (Calendly, etc.)</label>
         <input type="text" id="brandReviewLink" placeholder="https://calendly.com/...">
+
+        <label for="brandBirthdayMessage" style="margin-top:18px;">Birthday greeting message</label>
+        <div style="font-size:11px; color:#9CA3AF; margin:-4px 0 6px;">Leave blank to use the default message. Type <b>{firstname}</b> anywhere to insert the client's first name. Press Enter for a new paragraph.</div>
+        <textarea id="brandBirthdayMessage" rows="5" placeholder="Leave blank to use the default birthday message." style="width:100%; padding:10px 12px; border:1px solid var(--line,#E4DCC8); border-radius:10px; font-size:13px; font-family:'DM Sans',sans-serif; resize:vertical; line-height:1.5;"></textarea>
+        <div style="font-size:11px; color:#9CA3AF; margin-top:4px;">The "Happy Birthday, [name]!" heading and your header/footer photos stay the same — this replaces the paragraph underneath.</div>
+
+        <label for="brandAnniversaryMessage" style="margin-top:18px;">Policy anniversary greeting message</label>
+        <div style="font-size:11px; color:#9CA3AF; margin:-4px 0 6px;">Leave blank to use the default message. Use <b>{firstname}</b>, <b>{years}</b> (e.g. "5 years"), or <b>{yearslabel}</b> (e.g. "5th"). Press Enter for a new paragraph.</div>
+        <textarea id="brandAnniversaryMessage" rows="5" placeholder="Leave blank to use the default anniversary message." style="width:100%; padding:10px 12px; border:1px solid var(--line,#E4DCC8); border-radius:10px; font-size:13px; font-family:'DM Sans',sans-serif; resize:vertical; line-height:1.5;"></textarea>
+        <div style="font-size:11px; color:#9CA3AF; margin-top:4px;">The "Happy 5th Policy Anniversary, [name]!" heading and your buttons stay the same — this replaces the paragraphs underneath.</div>
 
         <div class="row">
           <button class="btn-ghost" id="saveBranding">SAVE BRANDING</button>
@@ -4369,6 +4414,8 @@ function populateBrandingFields(config){
   el('brandConnectLink').value = config.connectLink || '';
   el('brandPayLink').value = config.payLink || '';
   el('brandReviewLink').value = config.reviewLink || '';
+  el('brandBirthdayMessage').value = config.birthdayMessage || '';
+  el('brandAnniversaryMessage').value = config.anniversaryMessage || '';
   el('headerImgStatus').textContent = config.headerImageFileId ? '\u2713 Photo uploaded' : '';
   el('footerImgStatus').textContent = config.footerImageFileId ? '\u2713 Photo uploaded' : '';
   if (config.headerImageFileId) el('headerImgDrop').classList.add('has-file');
@@ -7185,7 +7232,9 @@ el('saveBranding').addEventListener('click', async () => {
     contactEmail: el('brandContactEmail').value.trim(),
     connectLink: el('brandConnectLink').value.trim(),
     payLink: el('brandPayLink').value.trim(),
-    reviewLink: el('brandReviewLink').value.trim()
+    reviewLink: el('brandReviewLink').value.trim(),
+    birthdayMessage: el('brandBirthdayMessage').value.trim(),
+    anniversaryMessage: el('brandAnniversaryMessage').value.trim()
   };
   try{
     await callBackend({ action:'saveConfig', config });
@@ -7868,8 +7917,68 @@ wireSendAgainButton({ btnId: 'sendDuesAgainBtn', resultId: 'duesSendAgainResult'
 wireSendAgainButton({ btnId: 'sendBirthdaysAgainBtn', resultId: 'birthdaySendAgainResult', triggerAction: 'manualSendBirthdaysNow', logAction: 'getLastBirthdayRunLog', refreshFn: () => loadBirthdayStats() });
 wireSendAgainButton({ btnId: 'sendAnniversariesAgainBtn', resultId: 'anniversarySendAgainResult', triggerAction: 'manualSendAnniversariesNow', logAction: 'getLastAnniversaryRunLog', refreshFn: () => loadAnniversaryStats() });
 
+/* ============================================================
+   VERSE OF THE DAY
+   ------------------------------------------------------------
+   The 366 verses live in a separate JSON file on GitHub, NOT in
+   this app file \u2014 so they can be edited, corrected, or swapped to
+   a different translation by updating that one file, with no
+   redeploy of Client Pulse itself.
+   ============================================================ */
+const CP_VERSES_URL = 'https://jccbusinesssolutions.github.io/TESTCLIENTPULSE/CLIENT-PULSE-VERSES.json'; // TEMPORARY — test repo; swap to final repo URL before real launch
+
+// Day-of-year from the DEVICE'S OWN local calendar date. In a browser
+// getFullYear/getMonth/getDate already read local time (unlike
+// Apps Script server-side, where they read UTC \u2014 the bug that made
+// birthdays fire a day early). Building both dates with the local
+// constructor keeps the rollover at local midnight, which is what an
+// advisor in Manila expects.
+function cpLocalDayOfYear(){
+  const now = new Date();
+  const startOfYear = new Date(now.getFullYear(), 0, 1);
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  return Math.round((today - startOfYear) / 86400000) + 1; // 1-based
+}
+
+async function loadVerseOfDay(){
+  try{
+    const res = await fetch(CP_VERSES_URL, { cache: 'default' });
+    if (!res.ok) return;                 // stay hidden, never show a broken card
+    const verses = await res.json();
+    if (!Array.isArray(verses) || verses.length === 0) return;
+
+    const entry = verses[(cpLocalDayOfYear() - 1) % verses.length];
+    if (!entry || !entry.text) return;
+
+    // The advisor's first name is loaded asynchronously by
+    // loadAdvisorProfile(), so it may still be the 'there' default at
+    // this moment. Resolving it here (rather than at parse time) means
+    // whichever value is current gets used, and the fallback reads
+    // naturally if they never set a name.
+    if (window.cpAdvisorProfilePromise){
+      try{ await window.cpAdvisorProfilePromise; }catch(e){ /* profile fetch failing shouldn't block the verse */ }
+    }
+    const name = (typeof currentAdvisorFirstName !== 'undefined' && currentAdvisorFirstName && currentAdvisorFirstName !== 'there')
+      ? currentAdvisorFirstName : 'friend';
+
+    const digest = String(entry.digest || '').replace(/\{firstname\}/gi, name);
+
+    el('verseText').textContent = '\u201C' + entry.text + '\u201D';
+    el('verseRef').textContent = '\u2014 ' + (entry.ref || '');
+    el('verseDigest').innerHTML = escapeHtml(digest).replace(
+      escapeHtml(name),
+      '<span style="font-weight:700;color:var(--navy,#0C447C);">' + escapeHtml(name) + '</span>'
+    );
+    el('verseDate').textContent = new Date().toLocaleDateString('en-PH', { month: 'long', day: 'numeric' });
+    el('verseOfDayCard').style.display = '';
+  }catch(e){
+    // Network failure, malformed JSON, anything \u2014 card simply stays hidden.
+  }
+}
+
 loadDueToday();
 loadDailyStats();
+loadVerseOfDay();
 fetchBrandConfig().then(config => populateBrandingFields(config));
 fetchSendHour().then(hour => populateSendHour(hour));
   fetchAdvanceDays().then(days => populateAdvanceDays(days));
@@ -8098,7 +8207,7 @@ async function loadLastUploadDates(){
 
   document.getElementById('saveScriptUrl').addEventListener('click', loadAdvisorProfile);
 
-  loadAdvisorProfile();
+  window.cpAdvisorProfilePromise = loadAdvisorProfile();
 })();
 
 /* ============================================================
