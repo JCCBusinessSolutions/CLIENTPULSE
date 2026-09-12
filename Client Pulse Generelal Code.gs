@@ -106,7 +106,14 @@ const CONFIG_DEFAULTS = {
   footerImageFileId: '',
   connectLink: '',
   payLink: '',
-  reviewLink: ''
+  reviewLink: '',
+  // Custom greeting message bodies. Empty string means "use the
+  // built-in default wording" \u2014 so an advisor who never touches
+  // these keeps exactly the original messages, and clearing the field
+  // in Settings reverts cleanly to the default rather than sending a
+  // blank email.
+  birthdayMessage: '',
+  anniversaryMessage: ''
 };
 const CONFIG_KEYS = Object.keys(CONFIG_DEFAULTS);
 
@@ -2254,13 +2261,23 @@ function buildAnniversaryEmailHtml(clientName, years, config){
       + '    </div>')
     : '';
 
+  // {years} renders already-pluralized ("5 years" / "1 year") so an
+  // advisor can write "{years} ago..." without handling plurals
+  // themselves. {yearslabel} gives the ordinal form ("5th").
+  const yearsText = years + ' year' + (years === 1 ? '' : 's');
+  const defaultAnniversaryBodyHtml =
+    '<p style="font-size:14px;">' + yearsText + ' ago, you took a step toward protecting what matters most. I\u2019ve been honored to walk that journey with you since, and I\u2019m grateful for your continued trust.</p>'
+    + '<p style="font-size:14px;">A policy anniversary is also a great moment to check that your coverage still fits your life today. If you\u2019d like, let\u2019s take 15 minutes to go over it together.</p>';
+  const anniversaryBodyHtml = (config.anniversaryMessage && String(config.anniversaryMessage).trim())
+    ? renderCustomMessageParagraphs(config.anniversaryMessage, { firstname: greetingName, years: yearsText, yearslabel: yearsLabel })
+    : defaultAnniversaryBodyHtml;
+
   return ''
     + '<div style="font-family:Arial,sans-serif;max-width:480px;margin:0 auto;border:1px solid #E7DFCF;border-radius:10px;overflow:hidden;">'
     + '  <img src="cid:headerImg" alt="Header" style="width:100%;display:block;">'
     + '  <div style="padding:24px;background:#FDF8F0;color:#1C2A38;text-align:center;">'
     + '    <p style="font-size:18px;font-weight:700;color:#0C447C;margin:0 0 10px;">Happy ' + yearsLabel + ' Policy Anniversary, ' + greetingName + '! &#127881;</p>'
-    + '    <p style="font-size:14px;">' + years + ' year' + (years === 1 ? '' : 's') + ' ago, you took a step toward protecting what matters most. I\u2019ve been honored to walk that journey with you since, and I\u2019m grateful for your continued trust.</p>'
-    + '    <p style="font-size:14px;">A policy anniversary is also a great moment to check that your coverage still fits your life today. If you\u2019d like, let\u2019s take 15 minutes to go over it together.</p>'
+    + anniversaryBodyHtml
     + reviewBlock
     + connectBlock
     + '    <p style="margin-top:20px;text-align:left;">Warm regards,</p>'
@@ -2905,6 +2922,40 @@ function toEnglishErrorMessage(rawMessage){
   return msg;
 }
 
+// Escapes advisor-entered message text before it goes into an email.
+// The custom birthday/anniversary bodies are free text typed in
+// Settings, so they must never be trusted as raw HTML \u2014 a stray
+// "<" or "&" would otherwise corrupt the email markup.
+function escapeHtmlForEmail(text){
+  return String(text == null ? '' : text)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+// Turns a plain-text custom message into styled email paragraphs.
+// Each non-empty line becomes its own <p>, so an advisor gets
+// paragraph breaks just by pressing Enter \u2014 no HTML knowledge
+// needed. Escaping happens BEFORE placeholder substitution, and the
+// substituted values are escaped too, so neither the advisor's text
+// nor a client's name can inject markup into the email.
+function renderCustomMessageParagraphs(rawText, replacements){
+  return String(rawText || '')
+    .split('\n')
+    .map(function(line){ return line.trim(); })
+    .filter(function(line){ return line.length > 0; })
+    .map(function(line){
+      var safe = escapeHtmlForEmail(line);
+      Object.keys(replacements).forEach(function(key){
+        var pattern = new RegExp('\\{' + key + '\\}', 'gi');
+        safe = safe.replace(pattern, escapeHtmlForEmail(replacements[key]));
+      });
+      return '<p style="font-size:14px;">' + safe + '</p>';
+    })
+    .join('');
+}
+
 function buildBirthdayEmailHtml(fullName, config){
   const greetingName = firstNameOnly(fullName);
   const connectBlock = config.connectLink
@@ -2913,12 +2964,20 @@ function buildBirthdayEmailHtml(fullName, config){
       + '      <a href="' + config.connectLink + '" style="display:inline-block;background:#C99A3B;color:#FFFFFF;text-decoration:none;padding:14px 30px;border-radius:8px;font-weight:700;font-size:14px;letter-spacing:.5px;">CONNECT WITH ME</a>'
       + '    </div>')
     : '';
+  // Advisor's own wording if they've set one in Settings, otherwise the
+  // original default text \u2014 byte-for-byte unchanged, so nobody who
+  // hasn't customized sees any difference.
+  const defaultBirthdayBody = 'On your special day, I just want you to know how much you\u2019re valued, not only as a client, but as someone I genuinely enjoy staying connected with. Wishing you good health, happiness, and a year ahead filled with everything you\u2019ve been hoping for.';
+  const birthdayBodyHtml = (config.birthdayMessage && String(config.birthdayMessage).trim())
+    ? renderCustomMessageParagraphs(config.birthdayMessage, { firstname: greetingName })
+    : '<p style="font-size:14px;">' + defaultBirthdayBody + '</p>';
+
   return ''
     + '<div style="font-family:Arial,sans-serif;max-width:480px;margin:0 auto;border:1px solid #E7DFCF;border-radius:10px;overflow:hidden;">'
     + '  <img src="cid:headerImg" alt="Header" style="width:100%;display:block;">'
     + '  <div style="padding:24px;background:#FDF8F0;color:#1C2A38;text-align:center;">'
     + '    <p style="font-size:18px;font-weight:700;color:#0C447C;margin:0 0 10px;">Happy Birthday, ' + greetingName + '! &#127881;</p>'
-    + '    <p style="font-size:14px;">On your special day, I just want you to know how much you\u2019re valued, not only as a client, but as someone I genuinely enjoy staying connected with. Wishing you good health, happiness, and a year ahead filled with everything you\u2019ve been hoping for.</p>'
+    + birthdayBodyHtml
     + connectBlock
     + '    <p style="margin-top:20px;text-align:left;">Warm regards,</p>'
     + '  </div>'
