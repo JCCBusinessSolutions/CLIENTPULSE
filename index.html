@@ -1932,6 +1932,28 @@ input:checked + #studioSection .slider-toggle::before{transform:translateX(19px)
 </div>
 
 <!-- ============================================================
+     CODE UPDATE NOTICE
+     Shown once per login when the buyer's own Apps Script backend
+     reports an older CODE_GS_VERSION than the hosted reference file
+     says is current. This never auto-updates anything -- buyers
+     still manually paste in the new Code.gs -- it just makes sure
+     they know an update exists instead of silently running stale
+     code forever.
+     ============================================================ -->
+<div id="codeUpdateNoticeOverlay" style="display:none; position:fixed; inset:0; z-index:9996; background:rgba(12,68,124,0.85); backdrop-filter:blur(3px); align-items:center; justify-content:center; padding:24px;" onclick="if(event.target===this) closeCodeUpdateNotice();">
+  <div style="max-width:420px; width:100%; background:#fff; border-radius:16px; padding:32px 28px; text-align:center; box-shadow:0 20px 60px rgba(0,0,0,0.35); position:relative;">
+    <button onclick="closeCodeUpdateNotice()" style="position:absolute; top:14px; right:14px; background:none; border:none; font-size:20px; color:#999; cursor:pointer; line-height:1; padding:4px;" aria-label="Close">✕</button>
+    <div style="font-size:40px; margin-bottom:10px;">🔔</div>
+    <div style="font-family:'Playfair Display',serif; font-size:20px; font-weight:700; color:#0C447C; margin-bottom:10px;">Client Pulse Has Been Updated</div>
+    <div style="font-size:14px; color:#444; line-height:1.6; margin-bottom:10px;">Client Pulse has been updated. Please check your email and update your Apps Script for new features unlocked.</div>
+    <div style="font-size:13.5px; color:#0C447C; font-weight:700; line-height:1.5; margin-bottom:16px;">Check your registered Client Pulse gmail today for the detailed instructions.</div>
+    <div id="codeUpdateNoticeDetail" style="font-size:13px; color:#666; line-height:1.55; background:#F7F5EF; border-radius:10px; padding:12px 14px; margin-bottom:22px; text-align:left;"></div>
+    <button class="gate-btn gate-btn-gold" style="width:100%;" onclick="closeCodeUpdateNotice()">GOT IT</button>
+    <div style="font-size:11px; color:#999; margin-top:14px;">Questions about updating? Email Jccbusinesssolutions16@gmail.com</div>
+  </div>
+</div>
+
+<!-- ============================================================
      DESKTOP SIDEBAR
      ============================================================ -->
 <aside id="desktopSidebar" class="lg:flex lg:flex-col fixed left-0 top-0 h-screen w-[280px] bg-navy z-30" style="display:none;">
@@ -7954,6 +7976,64 @@ wireSendAgainButton({ btnId: 'sendAnniversariesAgainBtn', resultId: 'anniversary
    ============================================================ */
 const CP_VERSES_URL = 'https://jccclientpulse.online/CLIENT-PULSE-VERSES.json';
 
+/* ============================================================
+   CODE UPDATE NOTICE
+   ------------------------------------------------------------
+   Checks whether this buyer's own deployed Code.gs is behind the
+   latest version, by comparing two independent sources:
+     1. What THIS buyer's backend reports it's running (their own
+        Apps Script, via CLIENT_PULSE_SHEET_API)
+     2. What the actual latest version is (a small JSON file hosted
+        the same way as the verse feature -- edited by hand whenever
+        a real Code.gs update ships)
+   A buyer's own backend can never know on its own whether it's
+   outdated -- it has no visibility into what's shipped since they
+   last pasted in Code.gs. The comparison has to come from an
+   external source of truth, which is exactly what CP_UPDATE_STATUS_URL
+   is for.
+   ============================================================ */
+const CP_UPDATE_STATUS_URL = 'https://jccclientpulse.online/CLIENT-PULSE-UPDATE-STATUS.json';
+
+async function maybeShowCodeUpdateNotice(){
+  // No "already shown this session" suppression -- runs the real
+  // check fresh on every login. Whether the notice appears is decided
+  // purely by whether this buyer's version currently matches the
+  // latest one, nothing else: still behind -> shows again every
+  // single login; once they update and it matches -> stops
+  // appearing entirely, with no separate flag to get out of sync.
+  try{
+    const [ownRes, latestRes] = await Promise.all([
+      fetch(CLIENT_PULSE_SHEET_API + '?action=getCodeVersion'),
+      fetch(CP_UPDATE_STATUS_URL, { cache: 'no-store' })
+    ]);
+
+    const latestData = latestRes.ok ? await latestRes.json() : null;
+    if (!latestData || !latestData.latestVersion) return; // reference file unreachable -- stay silent, never show a broken notice
+
+    // An OLD Code.gs (deployed before this feature existed) doesn't
+    // recognize this action at all and returns {error:'Unknown action'}
+    // -- no 'version' field. That is the expected, common case for
+    // every buyer who hasn't updated yet, not a failure to handle.
+    let ownVersion = null;
+    if (ownRes.ok){
+      const ownData = await ownRes.json();
+      if (ownData && ownData.version) ownVersion = ownData.version;
+    }
+
+    if (ownVersion === latestData.latestVersion) return; // already current -- nothing to show
+
+    el('codeUpdateNoticeDetail').textContent = latestData.message || '';
+    el('codeUpdateNoticeOverlay').style.display = 'flex';
+  }catch(e){
+    // Network failure, malformed JSON, anything -- stay silent.
+    // A broken update-checker should never itself look like a broken app.
+  }
+}
+
+function closeCodeUpdateNotice(){
+  el('codeUpdateNoticeOverlay').style.display = 'none';
+}
+
 // Day-of-year from the DEVICE'S OWN local calendar date. In a browser
 // getFullYear/getMonth/getDate already read local time (unlike
 // Apps Script server-side, where they read UTC \u2014 the bug that made
@@ -9321,6 +9401,7 @@ function finalizeLoginSuccess(email, token, daysUntilExpiration) {
   hideGate();
   startSessionWatch();
   if (typeof daysUntilExpiration !== 'undefined') maybeShowExpirationNotice(daysUntilExpiration);
+  maybeShowCodeUpdateNotice();
 }
 
 async function submitPolicyAgreement() {
