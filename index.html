@@ -3051,11 +3051,22 @@ input:checked + #studioSection .slider-toggle::before{transform:translateX(19px)
 
         <label for="brandBirthdayMessage" style="margin-top:18px;">Birthday greeting message</label>
         <div style="font-size:11px; color:#9CA3AF; margin:-4px 0 6px;">Leave blank to use the default message. Type <b>{firstname}</b> anywhere to insert the client's first name. Press Enter for a new paragraph.</div>
+        <div style="background:#F7F5EF; border:1px solid var(--line,#E4DCC8); border-radius:10px; padding:10px 12px; margin-bottom:8px;">
+          <div style="font-size:10px; font-weight:700; letter-spacing:.4px; color:#9CA3AF; text-transform:uppercase; margin-bottom:5px;">Currently sends this, shown here with "Maria" as an example name</div>
+          <div style="font-size:13px; line-height:1.55; color:#4B5563;">Maria, I just want you to know how much you're valued, not only as a client, but as someone I genuinely enjoy staying connected with. Wishing you good health, happiness, and a year ahead filled with everything you've been hoping for.</div>
+          <button type="button" id="useBirthdayDefaultAsStart" class="btn-ghost" style="margin-top:8px; padding:5px 10px; font-size:11px;">USE THIS AS A STARTING POINT</button>
+        </div>
         <textarea id="brandBirthdayMessage" rows="5" placeholder="Leave blank to use the default birthday message." style="width:100%; padding:10px 12px; border:1px solid var(--line,#E4DCC8); border-radius:10px; font-size:13px; font-family:'DM Sans',sans-serif; resize:vertical; line-height:1.5;"></textarea>
         <div style="font-size:11px; color:#9CA3AF; margin-top:4px;">The "Happy Birthday, [name]!" heading and your header/footer photos stay the same — this replaces the paragraph underneath.</div>
 
         <label for="brandAnniversaryMessage" style="margin-top:18px;">Policy anniversary greeting message</label>
         <div style="font-size:11px; color:#9CA3AF; margin:-4px 0 6px;">Leave blank to use the default message. Use <b>{firstname}</b>, <b>{years}</b> (e.g. "5 years"), or <b>{yearslabel}</b> (e.g. "5th"). Press Enter for a new paragraph.</div>
+        <div style="background:#F7F5EF; border:1px solid var(--line,#E4DCC8); border-radius:10px; padding:10px 12px; margin-bottom:8px;">
+          <div style="font-size:10px; font-weight:700; letter-spacing:.4px; color:#9CA3AF; text-transform:uppercase; margin-bottom:5px;">Currently sends this, shown here with "Maria" and 5 years as an example</div>
+          <div style="font-size:13px; line-height:1.55; color:#4B5563; margin-bottom:6px;">5 years ago, you took a step toward protecting what matters most. I've been honored to walk that journey with you since, and I'm grateful for your continued trust.</div>
+          <div style="font-size:13px; line-height:1.55; color:#4B5563;">A policy anniversary is also a great moment to check that your coverage still fits your life today. If you'd like, let's take 15 minutes to go over it together.</div>
+          <button type="button" id="useAnniversaryDefaultAsStart" class="btn-ghost" style="margin-top:8px; padding:5px 10px; font-size:11px;">USE THIS AS A STARTING POINT</button>
+        </div>
         <textarea id="brandAnniversaryMessage" rows="5" placeholder="Leave blank to use the default anniversary message." style="width:100%; padding:10px 12px; border:1px solid var(--line,#E4DCC8); border-radius:10px; font-size:13px; font-family:'DM Sans',sans-serif; resize:vertical; line-height:1.5;"></textarea>
         <div style="font-size:11px; color:#9CA3AF; margin-top:4px;">The "Happy 5th Policy Anniversary, [name]!" heading and your buttons stay the same — this replaces the paragraphs underneath.</div>
 
@@ -4406,6 +4417,22 @@ async function fetchBrandConfig(){
     return data.config || null;
   }catch(e){ return null; }
 }
+
+// "Use this as a starting point" buttons: fill the textarea with the
+// real default wording, using {firstname}/{years}/{yearslabel}
+// placeholders (not the "Maria" example text shown above them), so
+// an advisor gets a proper editable starting draft rather than
+// starting from a blank box. Only wired up once, at load time.
+document.getElementById('useBirthdayDefaultAsStart').addEventListener('click', function(){
+  el('brandBirthdayMessage').value =
+    '{firstname}, I just want you to know how much you\u2019re valued, not only as a client, but as someone I genuinely enjoy staying connected with. Wishing you good health, happiness, and a year ahead filled with everything you\u2019ve been hoping for.';
+  el('brandBirthdayMessage').focus();
+});
+document.getElementById('useAnniversaryDefaultAsStart').addEventListener('click', function(){
+  el('brandAnniversaryMessage').value =
+    '{years} ago, you took a step toward protecting what matters most. I\u2019ve been honored to walk that journey with you since, and I\u2019m grateful for your continued trust.\n\nA policy anniversary is also a great moment to check that your coverage still fits your life today. If you\u2019d like, let\u2019s take 15 minutes to go over it together.';
+  el('brandAnniversaryMessage').focus();
+});
 
 function populateBrandingFields(config){
   if (!config) return;
