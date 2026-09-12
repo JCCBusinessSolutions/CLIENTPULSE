@@ -56,6 +56,15 @@ const HEADERS = ['Policy Number','Client Name','Email','Product','Premium Mode',
 // ============================================================
 const TRIGGER_CODE_VERSION = '2026-08-18-v2';
 
+// Deliberately separate from TRIGGER_CODE_VERSION above — that one
+// only governs trigger self-healing and gets bumped independently of
+// this. CODE_GS_VERSION is what the frontend compares against a
+// hosted "latest version" file to tell a buyer their Code.gs is
+// behind. Bump this string any time a real, user-facing Code.gs
+// change ships — and update the matching value in the hosted
+// update-status JSON at the same time, or this check does nothing.
+const CODE_GS_VERSION = '2026-09-12-v1';
+
 // Shared by every trigger self-heal below. Deletes any existing
 // trigger(s) for the given handler function if the stored version
 // marker doesn't match TRIGGER_CODE_VERSION (stale — rebuild), or if
@@ -142,7 +151,7 @@ const INACTIVITY_GRACE_DAYS = 30;
 // the status/branding reads are included so the app can render a clear
 // "you're locked out, upload to continue" screen instead of a raw error.
 const ACTIONS_EXEMPT_FROM_HARD_STOP = [
-  'pushDues', 'pushBirthdays', 'getAdvisorActiveStatus', 'getConfig', 'getAdvisorProfile', 'getProfileImagePreview', 'setSpreadsheetId'
+  'pushDues', 'pushBirthdays', 'getAdvisorActiveStatus', 'getConfig', 'getAdvisorProfile', 'getProfileImagePreview', 'setSpreadsheetId', 'getCodeVersion'
 ];
 
 function recordUploadActivity(){
@@ -1066,6 +1075,7 @@ function setBirthdayPreference(email, enabled){
 function doGet(e){
   const action = e.parameter.action;
   if (action === 'getAdvisorActiveStatus')    return jsonResponse(getAdvisorActiveStatus());
+  if (action === 'getCodeVersion')             return jsonResponse({ version: CODE_GS_VERSION });
   if (action === 'setSpreadsheetId')          { const id = e.parameter.id || ''; if (!id) return jsonResponse({ error: 'Missing id parameter' }); PropertiesService.getScriptProperties().setProperty('SPREADSHEET_ID', id); return jsonResponse({ success: true, message: 'Connected to sheet: ' + id }); }
   // All other actions need the sheet to be configured first
   if (!PropertiesService.getScriptProperties().getProperty('SPREADSHEET_ID')){
