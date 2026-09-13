@@ -8096,9 +8096,20 @@ loadLastUploadDates();
 // Shows "Never uploaded yet" rather than a blank when a list hasn't
 // been pushed at all — e.g. a brand-new advisor who's only done one
 // of the two lists so far.
+//
+// Calls the buyer's Apps Script directly (same simple GET pattern as
+// fetchDueToday), NOT through callBackend's CORS proxy. That proxy
+// exists specifically to protect large upload payloads from being
+// dropped by a redirect -- this is a tiny, parameterless read with
+// nothing to protect, so routing it through an extra hop only adds a
+// point of failure for no benefit.
 async function loadLastUploadDates(){
   try{
-    const result = await callBackend({ action: 'getLastUploadDates' });
+    const url = getScriptUrl();
+    if (!url) throw new Error('NO_SCRIPT_URL');
+    const res = await fetch(url + '?action=getLastUploadDates');
+    if (!res.ok) throw new Error('HTTP_' + res.status);
+    const result = await res.json();
     el('duesLastUploadDate').textContent = result.duesLastUpload || 'Never uploaded yet';
     el('birthdayLastUploadDate').textContent = result.birthdayLastUpload || 'Never uploaded yet';
   }catch(e){
@@ -8644,12 +8655,18 @@ async function runBirthdaySendDiagnostic(){
   const diag = el('birthdaySendDiagnostic');
   if (!url || !diag) return;
   try{
-    const [autoSendRes, activeRes] = await Promise.all([
+    const [autoSendRes, activeRes, runLogRes] = await Promise.all([
       fetch(url + '?action=getBirthdayAutoSendStatus'),
-      fetch(url + '?action=getAdvisorActiveStatus')
+      fetch(url + '?action=getAdvisorActiveStatus'),
+      fetch(url + '?action=getLastBirthdayRunLog')
     ]);
     const autoSend = await autoSendRes.json();
     const active = await activeRes.json();
+    // Best-effort: an old Code.gs without this action, or a fetch
+    // failure here, should never block showing the two checks above --
+    // it just means we fall back to the less specific message.
+    let runLog = null;
+    try{ if (runLogRes.ok) runLog = await runLogRes.json(); }catch(e){}
 
     let message = '';
     if (autoSend.enabled === false){
@@ -8657,7 +8674,26 @@ async function runBirthdaySendDiagnostic(){
     } else if (active.active === false){
       message = '&#9888;&#65039; <strong>No birthday greetings were sent today because your account is currently inactive</strong> (no recent Dues or Birthday upload). Upload a fresh list from the Upload section to reactivate sending.';
     } else {
-      message = '&#8505;&#65039; Auto-Send is on and your account is active, but nothing sent today. This usually means today\'s birthday client has "Send Birthday?" turned off in Client Management, or your branding (sender name, header/footer photos) isn\'t fully saved in Settings \u2192 Branding Studio.';
+      // Read today's actual run log to tell the two remaining causes
+      // apart precisely, instead of listing both every time. The log
+      // entries look like "END — matched=1 sent=0 failed=1" and
+      // "ERROR — name=X error=Branding not set up yet... (missing: Y)".
+      const entries = (runLog && Array.isArray(runLog.entries)) ? runLog.entries : [];
+      const errorEntry = entries.find(function(e){ return e.indexOf('ERROR') === 0 && e.indexOf('Branding not set up') !== -1; });
+      const endEntry = entries.find(function(e){ return e.indexOf('END') === 0; });
+      const matchedZero = endEntry && /matched=0\b/.test(endEntry);
+
+      if (errorEntry){
+        const missingMatch = errorEntry.match(/missing:\s*([^)]+)\)/);
+        const missingFields = missingMatch ? missingMatch[1] : 'some branding fields';
+        message = '&#9888;&#65039; <strong>Today\'s birthday greeting could not be sent because your branding isn\'t fully saved.</strong> Missing: ' + missingFields + '. Open Settings \u2192 Branding Studio, fill these in, and tap Save.';
+      } else if (matchedZero){
+        message = '&#8505;&#65039; <strong>No client matched today\'s birthday send.</strong> This usually means today\'s birthday client has "Send Birthday?" turned off in Client Management. Check that client\'s toggle there.';
+      } else {
+        // Fall back to the original, less specific message -- e.g. an
+        // old Code.gs that doesn't have getLastBirthdayRunLog yet.
+        message = '&#8505;&#65039; Auto-Send is on and your account is active, but nothing sent today. This usually means today\'s birthday client has "Send Birthday?" turned off in Client Management, or your branding (sender name, header/footer photos) isn\'t fully saved in Settings \u2192 Branding Studio.';
+      }
     }
     diag.innerHTML = message;
     diag.style.display = 'block';
