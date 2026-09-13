@@ -8682,11 +8682,24 @@ async function runBirthdaySendDiagnostic(){
       const errorEntry = entries.find(function(e){ return e.indexOf('ERROR') === 0 && e.indexOf('Branding not set up') !== -1; });
       const endEntry = entries.find(function(e){ return e.indexOf('END') === 0; });
       const matchedZero = endEntry && /matched=0\b/.test(endEntry);
+      // A client matched today's birthday and passed the toggle check,
+      // but has no email address on file. sendBirthdayEmail() returns
+      // false in this case WITHOUT throwing -- so it lands in neither
+      // the sent nor the failed count, and would otherwise silently
+      // fall through to the generic message below despite being a
+      // specific, nameable, fixable cause.
+      const noEmailEntries = entries.filter(function(e){ return e.indexOf('NOT SENT (no email on file') !== -1; });
 
       if (errorEntry){
         const missingMatch = errorEntry.match(/missing:\s*([^)]+)\)/);
         const missingFields = missingMatch ? missingMatch[1] : 'some branding fields';
         message = '&#9888;&#65039; <strong>Today\'s birthday greeting could not be sent because your branding isn\'t fully saved.</strong> Missing: ' + missingFields + '. Open Settings \u2192 Branding Studio, fill these in, and tap Save.';
+      } else if (noEmailEntries.length > 0){
+        const names = noEmailEntries.map(function(e){
+          const m = e.match(/name=(.+)$/);
+          return m ? m[1] : 'a client';
+        }).join(', ');
+        message = '&#9888;&#65039; <strong>Today\'s birthday greeting was skipped because there\'s no email address on file.</strong> Missing for: ' + names + '. Add an email in Client Management and use Send Again above.';
       } else if (matchedZero){
         message = '&#8505;&#65039; <strong>No client matched today\'s birthday send.</strong> This usually means today\'s birthday client has "Send Birthday?" turned off in Client Management. Check that client\'s toggle there.';
       } else {
